@@ -32,6 +32,7 @@ export default function HomePage() {
   const { entries, fetchEntries } = useJournalStore();
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [enabledIds, setEnabledIds] = useState<string[] | null>(null);
+  const [showGuidedBubble, setShowGuidedBubble] = useState(true);
 
   const today = toLocalDateStr(new Date());
   const timeOfDay = getTimeOfDay();
@@ -63,7 +64,9 @@ export default function HomePage() {
     fetchHabits();
     fetchCompletions(today, today);
     fetchEntries();
-    // Load template preferences
+    // Load prefs
+    const guidedPref = typeof window !== 'undefined' ? localStorage.getItem('show_guided_bubble') : null;
+    setShowGuidedBubble(guidedPref !== 'false');
     const stored = typeof window !== 'undefined' ? localStorage.getItem('enabled_template_ids') : null;
     const ids = stored ? JSON.parse(stored) as string[] : null;
     setEnabledIds(ids);
@@ -87,8 +90,8 @@ export default function HomePage() {
         <h1 className="text-2xl font-bold text-text-primary mt-1">{greeting}</h1>
       </div>
 
-      {/* Guided session card */}
-      <button
+      {/* Guided session card — only show if enabled */}
+      {showGuidedBubble && <button
         onClick={() => router.push('/guided')}
         className="w-full flex items-center gap-4 p-4 bg-surface rounded-2xl border border-border hover:border-primary/50 transition-colors text-left"
       >
@@ -104,7 +107,7 @@ export default function HomePage() {
           <p className="text-xs text-text-secondary">{guide.archetype} — guided session</p>
         </div>
         <span className="text-text-tertiary text-2xl">&rsaquo;</span>
-      </button>
+      </button>}
 
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3">

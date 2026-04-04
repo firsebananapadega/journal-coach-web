@@ -11,11 +11,18 @@ import {
   startListening,
 } from '@/lib/speechRecognition';
 
+interface TemplateQuestion {
+  id: string;
+  question_text: string;
+  input_type: string;
+  placeholder: string;
+}
+
 interface Template {
   id: string;
   name: string;
   description: string;
-  questions: string[];
+  questions: TemplateQuestion[];
   category: string;
 }
 
@@ -29,20 +36,26 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   const [moodScore, setMoodScore] = useState<number | null>(null);
   const [moodLabel, setMoodLabel] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
   const [stopFn, setStopFn] = useState<(() => void) | null>(null);
 
   useEffect(() => {
     if (!templateId) return;
-    supabase.from('templates').select('*').eq('id', templateId).single().then(({ data }) => {
-      if (data) {
-        // questions is JSONB — ensure it's a string array
-        const questions = Array.isArray(data.questions) ? data.questions as string[] : [];
-        const tmpl: Template = { ...data as Template, questions };
-        setTemplate(tmpl);
-        setAnswers(new Array(questions.length).fill(''));
+    supabase.from('templates').select('*').eq('id', templateId).single().then(({ data, error }) => {
+      if (error || !data) {
+        setLoadError(true);
+        return;
       }
+      // questions is JSONB — array of {id, question_text, input_type, placeholder}
+      const rawQuestions = Array.isArray(data.questions) ? data.questions : [];
+      // Filter out phase headers — only show answerable questions
+      const questions = rawQuestions.filter(
+        (q: TemplateQuestion) => q.input_type !== 'phase_header'
+      ) as TemplateQuestion[];
+      setTemplate({ ...(data as Omit<Template, 'questions'>), questions });
+      setAnswers(new Array(questions.length).fill(''));
     });
   }, [templateId]);
 
@@ -72,7 +85,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   const handleSave = async () => {
     if (!template) return;
     setSaving(true);
-    const contentParts = template.questions.map((q, i) => `Q: ${q}\nA: ${answers[i] || '(skipped)'}`);
+    const contentParts = template.questions.map((q, i) => `Q: ${q.question_text}\nA: ${answers[i] || '(skipped)'}`);
     const contentText = contentParts.join('\n\n');
     const wordCount = answers.join(' ').split(/\s+/).filter(Boolean).length;
     try {
@@ -91,11 +104,21 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
     }
   };
 
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <p className="text-text-secondary">Template not found.</p>
+        <button onClick={() => router.push('/home')} className="text-primary">Go home</button>
+      </div>
+    );
+  }
+
   if (!template) {
     return <div className="flex items-center justify-center min-h-screen"><div className="animate-pulse text-primary">Loading template...</div></div>;
   }
 
   const isDone = currentQ >= template.questions.length;
+  const currentQuestion = template.questions[currentQ];
 
   return (
     <div className="flex flex-col h-screen bg-bg">
@@ -115,32 +138,47 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
 
         {!isDone ? (
           <div className="space-y-4">
-            <p className="text-lg text-text-primary font-medium">{template.questions[currentQ]}</p>
-            <div className="flex items-end gap-2">
-              <textarea
-                value={answers[currentQ] || ''}
-                onChange={(e) => {
+            <p className="text-lg text-text-primary font-medium">{currentQuestion.question_text}</p>
+
+            {currentQuestion.input_type === 'mood_scale' ? (
+              <MoodSelector
+                value={moodScore}
+                onChange={(score, label) => {
+                  setMoodScore(score);
+                  setMoodLabel(label);
                   const updated = [...answers];
-                  updated[currentQ] = e.target.value;
+                  updated[currentQ] = label;
                   setAnswers(updated);
                 }}
-                placeholder="Your answer..."
-                className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[100px] focus:border-primary"
               />
-              {speechSupported && (
-                <button
-                  onClick={() => toggleMic(currentQ)}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    isListening ? 'bg-error' : 'bg-primary'
-                  }`}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  </svg>
-                </button>
-              )}
-            </div>
+            ) : (
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={answers[currentQ] || ''}
+                  onChange={(e) => {
+                    const updated = [...answers];
+                    updated[currentQ] = e.target.value;
+                    setAnswers(updated);
+                  }}
+                  placeholder={currentQuestion.placeholder || 'Your answer...'}
+                  className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[100px] focus:border-primary"
+                />
+                {speechSupported && (
+                  <button
+                    onClick={() => toggleMic(currentQ)}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      isListening ? 'bg-error' : 'bg-primary'
+                    }`}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="flex gap-2">
               {currentQ > 0 && (
                 <button onClick={() => setCurrentQ(currentQ - 1)} className="flex-1 py-3 bg-surface border border-border text-text-secondary rounded-xl text-sm font-medium">
@@ -160,7 +198,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
             <h2 className="text-lg font-semibold text-text-primary">Review</h2>
             {template.questions.map((q, i) => (
               <div key={i} className="space-y-1">
-                <p className="text-xs text-text-tertiary">{q}</p>
+                <p className="text-xs text-text-tertiary">{q.question_text}</p>
                 <p className="text-sm text-text-primary">{answers[i] || '(skipped)'}</p>
               </div>
             ))}
