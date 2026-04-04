@@ -50,6 +50,16 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Prevent iOS zoom on input focus */
+input, textarea, select {
+  font-size: 16px !important;
+}
+
+/* Mobile keyboard: ensure focused inputs scroll into view */
+input:focus, textarea:focus {
+  scroll-margin-bottom: 120px;
+}
+
 /* Focus ring */
 *:focus-visible {
   outline: 2px solid var(--color-primary);
