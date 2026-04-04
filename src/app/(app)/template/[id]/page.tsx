@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, use } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useJournalStore } from '@/stores/journalStore';
 import { MoodSelector } from '@/components/MoodSelector';
@@ -19,10 +19,9 @@ interface Template {
   category: string;
 }
 
-function TemplateContent() {
+export default function TemplatePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: templateId } = use(params);
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const templateId = searchParams.get('id');
   const createEntry = useJournalStore((s) => s.createEntry);
   const [template, setTemplate] = useState<Template | null>(null);
   const [answers, setAnswers] = useState<string[]>([]);
@@ -32,37 +31,41 @@ function TemplateContent() {
   const [saving, setSaving] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
-  const stopRef = { current: null as (() => void) | null };
+  const [stopFn, setStopFn] = useState<(() => void) | null>(null);
 
   useEffect(() => {
     if (!templateId) return;
     supabase.from('templates').select('*').eq('id', templateId).single().then(({ data }) => {
       if (data) {
-        setTemplate(data as Template);
-        setAnswers(new Array((data as Template).questions.length).fill(''));
+        // questions is JSONB — ensure it's a string array
+        const questions = Array.isArray(data.questions) ? data.questions as string[] : [];
+        const tmpl: Template = { ...data as Template, questions };
+        setTemplate(tmpl);
+        setAnswers(new Array(questions.length).fill(''));
       }
     });
   }, [templateId]);
 
   const toggleMic = async (index: number) => {
     if (isListening) {
-      stopRef.current?.();
-      stopRef.current = null;
+      stopFn?.();
+      setStopFn(null);
       setIsListening(false);
     } else {
       const granted = await requestMicPermission();
       if (!granted) return;
       setIsListening(true);
-      stopRef.current = startListening({
+      const cleanup = startListening({
         continuous: true,
         onResult: (text) => {
           const updated = [...answers];
           updated[index] = text;
           setAnswers(updated);
         },
-        onEnd: () => { setIsListening(false); stopRef.current = null; },
+        onEnd: () => { setIsListening(false); setStopFn(null); },
         onError: () => { setIsListening(false); },
       });
+      setStopFn(() => cleanup);
     }
   };
 
@@ -173,13 +176,5 @@ function TemplateContent() {
         )}
       </div>
     </div>
-  );
-}
-
-export default function TemplatePage() {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-pulse text-primary">Loading...</div></div>}>
-      <TemplateContent />
-    </Suspense>
   );
 }

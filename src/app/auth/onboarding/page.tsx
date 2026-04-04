@@ -1,25 +1,65 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { GuideSelector } from '@/components/GuideSelector';
+import { supabase } from '@/lib/supabase';
+
+interface TemplateOption {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  category: string;
+}
+
+const ICONS: Record<string, string> = {
+  moon: '🌙', sun: '☀️', heart: '❤️', face: '😊',
+  cloud: '☁️', calendar: '📅', target: '🎯', document: '📄',
+};
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { completeOnboarding, loading } = useAuthStore();
+  const { completeOnboarding, loading, user } = useAuthStore();
   const [step, setStep] = useState(0);
-  const [name, setName] = useState('');
-  const [anchor, setAnchor] = useState('');
-  const [intentions, setIntentions] = useState(['', '', '']);
+  const googleName = user?.user_metadata?.full_name || user?.user_metadata?.name || '';
+  const [name, setName] = useState(googleName);
   const [guide, setGuide] = useState('ben');
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [selectedTemplates, setSelectedTemplates] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
+
+  // Fetch available templates
+  useEffect(() => {
+    supabase.from('templates').select('id, name, icon, description, category').eq('is_active', true).order('sort_order').then(({ data }) => {
+      if (data) {
+        setTemplates(data);
+        // Pre-select daily templates by default
+        const dailyIds = new Set(data.filter((t) => t.category === 'daily').map((t) => t.id));
+        setSelectedTemplates(dailyIds);
+      }
+    });
+  }, []);
+
+  const toggleTemplate = (id: string) => {
+    const next = new Set(selectedTemplates);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedTemplates(next);
+  };
 
   const handleComplete = async () => {
     try {
       setError('');
-      const validIntentions = intentions.filter((i) => i.trim());
-      await completeOnboarding(name, anchor, validIntentions, guide);
+      await completeOnboarding(name.trim() || 'Friend', '', [], guide);
+      // Save selected template IDs to localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('enabled_template_ids', JSON.stringify([...selectedTemplates]));
+      }
       router.replace('/home');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
@@ -30,10 +70,12 @@ export default function OnboardingPage() {
     // Step 0: Name
     <div key="name" className="space-y-4">
       <h2 className="text-xl font-bold text-text-primary">What should we call you?</h2>
+      <p className="text-sm text-text-secondary">You can always change this later.</p>
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Your name"
+        autoFocus
         className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary outline-none"
       />
       <button
@@ -41,57 +83,50 @@ export default function OnboardingPage() {
         disabled={!name.trim()}
         className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-40"
       >
-        Continue
+        Next
       </button>
     </div>,
 
-    // Step 1: Anchor moment
-    <div key="anchor" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">When do you want to journal?</h2>
-      <p className="text-sm text-text-secondary">Pick a moment in your day to anchor this habit.</p>
-      {['After morning coffee', 'During lunch break', 'Before bed', 'After my commute'].map((option) => (
-        <button
-          key={option}
-          onClick={() => { setAnchor(option); setStep(2); }}
-          className={`w-full py-3 px-4 text-left rounded-xl border transition-colors ${
-            anchor === option ? 'border-primary bg-surface-elevated' : 'border-border bg-surface hover:bg-surface-elevated'
-          }`}
-        >
-          <span className="text-text-primary text-sm">{option}</span>
-        </button>
-      ))}
-    </div>,
-
-    // Step 2: Intentions
-    <div key="intentions" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">Set 3 intentions</h2>
-      <p className="text-sm text-text-secondary">How do you want to show up? (Not goals — directions.)</p>
-      {intentions.map((intention, i) => (
-        <input
-          key={i}
-          value={intention}
-          onChange={(e) => {
-            const updated = [...intentions];
-            updated[i] = e.target.value;
-            setIntentions(updated);
-          }}
-          placeholder={['e.g. Be more present', 'e.g. Listen before reacting', 'e.g. Trust my own pace'][i]}
-          className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary outline-none"
-        />
-      ))}
-      <button
-        onClick={() => setStep(3)}
-        className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
-      >
-        Continue
-      </button>
-    </div>,
-
-    // Step 3: Pick guide
+    // Step 1: Pick guide
     <div key="guide" className="space-y-4">
       <h2 className="text-xl font-bold text-text-primary">Choose your guide</h2>
-      <p className="text-sm text-text-secondary">They&apos;ll ask the questions. You can change this anytime.</p>
+      <p className="text-sm text-text-secondary">Each guide has a different style. You can switch anytime.</p>
       <GuideSelector value={guide} onChange={setGuide} />
+      <button
+        onClick={() => setStep(2)}
+        className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
+      >
+        Next
+      </button>
+    </div>,
+
+    // Step 2: Pick templates
+    <div key="templates" className="space-y-4">
+      <h2 className="text-xl font-bold text-text-primary">Pick your templates</h2>
+      <p className="text-sm text-text-secondary">These show on your home screen. Tap to toggle.</p>
+      <div className="grid grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto">
+        {templates.map((tmpl) => {
+          const isSelected = selectedTemplates.has(tmpl.id);
+          return (
+            <button
+              key={tmpl.id}
+              onClick={() => toggleTemplate(tmpl.id)}
+              className={`flex items-center gap-2 p-3 rounded-xl border text-left transition-colors ${
+                isSelected
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border bg-surface hover:bg-surface-elevated'
+              }`}
+            >
+              <span className="text-xl">{ICONS[tmpl.icon] || '📄'}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-text-primary truncate">{tmpl.name}</p>
+                <p className="text-xs text-text-tertiary capitalize">{tmpl.category}</p>
+              </div>
+              {isSelected && <span className="text-primary text-sm">✓</span>}
+            </button>
+          );
+        })}
+      </div>
       {error && <p className="text-error text-sm">{error}</p>}
       <button
         onClick={handleComplete}
@@ -107,7 +142,7 @@ export default function OnboardingPage() {
     <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-bg">
       <div className="max-w-sm w-full">
         <div className="flex gap-1 mb-8">
-          {[0, 1, 2, 3].map((s) => (
+          {[0, 1, 2].map((s) => (
             <div
               key={s}
               className={`flex-1 h-1 rounded-full transition-colors ${

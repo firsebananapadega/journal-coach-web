@@ -53,9 +53,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
 
-          {/* Center FAB — mic button */}
+          {/* Center FAB — mic button → voice entry */}
           <Link
-            href="/guided"
+            href="/voice"
             className="flex items-center justify-center w-14 h-14 -mt-6 bg-primary rounded-full shadow-lg shadow-primary/30 hover:bg-primary-dark transition-colors"
           >
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

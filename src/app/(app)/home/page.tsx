@@ -30,8 +30,8 @@ export default function HomePage() {
   const profile = useAuthStore((s) => s.profile);
   const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
   const { entries, fetchEntries } = useJournalStore();
-  const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
+  const [enabledIds, setEnabledIds] = useState<string[] | null>(null);
 
   const today = toLocalDateStr(new Date());
   const timeOfDay = getTimeOfDay();
@@ -59,32 +59,24 @@ export default function HomePage() {
   }, [entries, today]);
 
   const loadData = useCallback(async () => {
-    try {
-      await Promise.all([
-        fetchHabits(),
-        fetchCompletions(today, today),
-        fetchEntries(),
-      ]);
-      // Fetch templates
-      const { data } = await supabase.from('templates').select('id, name, icon, description, category');
+    // Fire all fetches in parallel — don't block on each other
+    fetchHabits();
+    fetchCompletions(today, today);
+    fetchEntries();
+    // Load template preferences
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('enabled_template_ids') : null;
+    const ids = stored ? JSON.parse(stored) as string[] : null;
+    setEnabledIds(ids);
+    supabase.from('templates').select('id, name, icon, description, category').eq('is_active', true).order('sort_order').then(({ data }) => {
       if (data) setTemplates(data);
-    } finally {
-      setLoading(false);
-    }
+    });
   }, [fetchHabits, fetchCompletions, fetchEntries, today]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-pulse text-primary">Loading...</div>
-      </div>
-    );
-  }
-
+  // Show content immediately — no loading gate
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
       {/* Greeting */}
@@ -138,17 +130,17 @@ export default function HomePage() {
         </button>
       </div>
 
-      {/* Templates */}
+      {/* Templates — show only enabled ones, or all if no preferences saved */}
       {templates.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Templates</h2>
           <div className="grid grid-cols-3 gap-2">
-            {templates.slice(0, 6).map((tmpl) => {
+            {templates.filter((t) => enabledIds === null || enabledIds.includes(t.id)).map((tmpl) => {
               const done = templateCompletedToday.has(tmpl.id);
               return (
                 <button
                   key={tmpl.id}
-                  onClick={() => router.push(`/template?id=${tmpl.id}`)}
+                  onClick={() => router.push(`/template/${tmpl.id}`)}
                   className={`flex flex-col items-center gap-1 p-3 rounded-2xl border transition-colors ${
                     done
                       ? 'border-success/30 bg-success/5 opacity-60'
