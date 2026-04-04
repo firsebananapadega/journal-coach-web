@@ -42,7 +42,7 @@ export default function FreeWritePage() {
   };
 
   return (
-    <div className="flex flex-col h-dvh bg-bg">
+    <div className="flex flex-col h-screen bg-bg">
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
         <button onClick={() => router.push('/home')} className="text-text-secondary text-lg">✕</button>
         <span className="text-sm font-semibold text-text-primary">Free Write</span>

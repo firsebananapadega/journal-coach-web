@@ -29,8 +29,8 @@ export default function SignInPage() {
   };
 
   return (
-    <div className="min-h-dvh overflow-y-auto px-6 pt-16 pb-8 bg-bg">
-      <div className="max-w-sm w-full mx-auto space-y-6">
+    <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-bg">
+      <div className="max-w-sm w-full space-y-6">
         <div>
           <button onClick={() => router.back()} className="text-text-secondary hover:text-text-primary text-sm mb-4">
             &larr; Back

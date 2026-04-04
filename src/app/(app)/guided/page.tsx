@@ -286,7 +286,7 @@ export default function GuidedSessionPage() {
   };
 
   return (
-    <div className="flex flex-col h-dvh bg-bg">
+    <div className="flex flex-col h-screen bg-bg">
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
         <button

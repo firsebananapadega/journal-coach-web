@@ -104,8 +104,8 @@ export default function OnboardingPage() {
   ];
 
   return (
-    <div className="min-h-dvh overflow-y-auto px-6 pt-16 pb-8 bg-bg">
-      <div className="max-w-sm w-full mx-auto">
+    <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-bg">
+      <div className="max-w-sm w-full">
         <div className="flex gap-1 mb-8">
           {[0, 1, 2, 3].map((s) => (
             <div

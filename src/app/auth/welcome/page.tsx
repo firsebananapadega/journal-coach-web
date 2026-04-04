@@ -13,7 +13,7 @@ export default function WelcomePage() {
   }, [session, router]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-dvh px-6 bg-bg">
+    <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-bg">
       <div className="max-w-sm w-full space-y-8 text-center">
         <div className="space-y-3">
           <h1 className="text-4xl font-bold text-text-primary">JournalCoach</h1>

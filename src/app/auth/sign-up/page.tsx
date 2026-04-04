@@ -30,8 +30,8 @@ export default function SignUpPage() {
 
   if (success) {
     return (
-      <div className="min-h-dvh overflow-y-auto px-6 pt-16 pb-8 bg-bg">
-        <div className="max-w-sm w-full mx-auto space-y-4 text-center">
+      <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-bg">
+        <div className="max-w-sm w-full space-y-4 text-center">
           <h1 className="text-2xl font-bold text-text-primary">Check your email</h1>
           <p className="text-text-secondary">
             We sent a confirmation link to <strong>{email}</strong>. Click it to activate your account.
@@ -48,8 +48,8 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="min-h-dvh overflow-y-auto px-6 pt-16 pb-8 bg-bg">
-      <div className="max-w-sm w-full mx-auto space-y-6">
+    <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-bg">
+      <div className="max-w-sm w-full space-y-6">
         <div>
           <button onClick={() => router.back()} className="text-text-secondary hover:text-text-primary text-sm mb-4">
             &larr; Back
