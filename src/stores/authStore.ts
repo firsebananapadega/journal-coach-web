@@ -1,0 +1,249 @@
+import { create } from 'zustand';
+import { Session, User } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+
+export interface Profile {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  timezone: string;
+  onboarding_completed: boolean;
+  anchor_moment: string | null;
+  intentions: string[];
+  preferred_guide: string;
+  notification_preferences: {
+    morning_reminder: boolean;
+    evening_reminder: boolean;
+    reminder_times: { morning: string; evening: string };
+  };
+  created_at: string;
+  updated_at: string;
+}
+
+interface AuthState {
+  session: Session | null;
+  user: User | null;
+  profile: Profile | null;
+  loading: boolean;
+  initialized: boolean;
+  error: string | null;
+
+  initialize: () => Promise<void>;
+  signUp: (email: string, password: string) => Promise<{ error?: string }>;
+  signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signOut: () => Promise<void>;
+  signInWithGoogle: () => Promise<{ error?: string }>;
+  resetPassword: (email: string) => Promise<{ error?: string }>;
+  fetchProfile: () => Promise<void>;
+  updateProfile: (updates: Partial<Profile>) => Promise<void>;
+  completeOnboarding: (
+    displayName: string,
+    anchorMoment: string,
+    intentions: string[],
+    preferredGuide?: string
+  ) => Promise<void>;
+  setPreferredGuide: (guideId: string) => Promise<void>;
+}
+
+export const useAuthStore = create<AuthState>((set, get) => ({
+  session: null,
+  user: null,
+  profile: null,
+  loading: false,
+  initialized: false,
+  error: null,
+
+  initialize: async () => {
+    try {
+      set({ loading: true, error: null });
+
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+
+      if (error) throw error;
+
+      set({
+        session,
+        user: session?.user ?? null,
+      });
+
+      if (session?.user) {
+        await get().fetchProfile();
+      }
+
+      supabase.auth.onAuthStateChange(async (event, session) => {
+        set({
+          session,
+          user: session?.user ?? null,
+        });
+
+        if (event === 'SIGNED_IN' && session?.user) {
+          await get().fetchProfile();
+        }
+
+        if (event === 'SIGNED_OUT') {
+          set({ profile: null });
+        }
+      });
+    } catch (error: unknown) {
+      set({ error: error instanceof Error ? error.message : 'Unknown error' });
+    } finally {
+      set({ loading: false, initialized: true });
+    }
+  },
+
+  signUp: async (email: string, password: string) => {
+    try {
+      set({ loading: true, error: null });
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) throw error;
+      set({ session: data.session, user: data.user });
+      return {};
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Sign up failed';
+      set({ error: msg });
+      return { error: msg };
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  signIn: async (email: string, password: string) => {
+    try {
+      set({ loading: true, error: null });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      set({ session: data.session, user: data.user });
+      return {};
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Sign in failed';
+      set({ error: msg });
+      return { error: msg };
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  signOut: async () => {
+    try {
+      set({ loading: true, error: null });
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      set({ session: null, user: null, profile: null });
+    } catch (error: unknown) {
+      set({ error: error instanceof Error ? error.message : 'Sign out failed' });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  signInWithGoogle: async () => {
+    try {
+      set({ loading: true, error: null });
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+        },
+      });
+      if (error) return { error: error.message };
+      return {};
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Google sign-in failed';
+      set({ error: msg });
+      return { error: msg };
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  resetPassword: async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/reset-password` : undefined,
+      });
+      if (error) return { error: error.message };
+      return {};
+    } catch (error: unknown) {
+      return { error: error instanceof Error ? error.message : 'Failed to send reset email.' };
+    }
+  },
+
+  fetchProfile: async () => {
+    try {
+      const user = get().user;
+      if (!user) return;
+      set({ error: null });
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      if (error) throw error;
+      set({ profile: data as Profile });
+    } catch (error: unknown) {
+      set({ error: error instanceof Error ? error.message : 'Failed to fetch profile' });
+    }
+  },
+
+  updateProfile: async (updates: Partial<Profile>) => {
+    try {
+      const user = get().user;
+      if (!user) throw new Error('No authenticated user');
+      set({ loading: true, error: null });
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+        .select()
+        .single();
+      if (error) throw error;
+      set({ profile: data as Profile });
+    } catch (error: unknown) {
+      set({ error: error instanceof Error ? error.message : 'Failed to update profile' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  completeOnboarding: async (
+    displayName: string,
+    anchorMoment: string,
+    intentions: string[],
+    preferredGuide?: string
+  ) => {
+    try {
+      const user = get().user;
+      if (!user) throw new Error('No authenticated user');
+      set({ loading: true, error: null });
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({
+          display_name: displayName,
+          anchor_moment: anchorMoment,
+          intentions,
+          preferred_guide: preferredGuide || 'ben',
+          onboarding_completed: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id)
+        .select()
+        .single();
+      if (error) throw error;
+      set({ profile: data as Profile });
+    } catch (error: unknown) {
+      set({ error: error instanceof Error ? error.message : 'Failed to complete onboarding' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  setPreferredGuide: async (guideId: string) => {
+    const { updateProfile } = get();
+    await updateProfile({ preferred_guide: guideId } as Partial<Profile>);
+  },
+}));

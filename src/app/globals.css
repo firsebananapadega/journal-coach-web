@@ -1,26 +1,73 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: #141517;
+  --color-surface: #1E2023;
+  --color-surface-elevated: #282B30;
+  --color-primary: #6DB88F;
+  --color-primary-dark: #5A9E79;
+  --color-primary-light: #8FCFAB;
+  --color-accent: #E88D67;
+  --color-success: #6DB88F;
+  --color-warning: #E8C468;
+  --color-error: #D4726A;
+  --color-text-primary: #F2F0ED;
+  --color-text-secondary: #9B9A97;
+  --color-text-tertiary: #6B6A67;
+  --color-border: #2F3136;
+  --color-mood-great: #6DB88F;
+  --color-mood-good: #8FCFAB;
+  --color-mood-okay: #E8C468;
+  --color-mood-low: #E88D67;
+  --color-mood-tough: #D4726A;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--color-bg);
+  color: var(--color-text-primary);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Mic pulse animation */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.mic-pulse::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: var(--color-error);
+  animation: pulse-ring 1.5s ease-out infinite;
+  z-index: -1;
 }
