@@ -110,29 +110,18 @@ export default function HomePage() {
         <span className="text-text-tertiary text-2xl">&rsaquo;</span>
       </button>}
 
-      {/* Quick actions */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => router.push('/voice')}
-          className="flex items-center gap-3 p-4 bg-surface rounded-2xl border border-border hover:border-primary/50 transition-colors"
-        >
-          <span className="text-2xl">🎙️</span>
-          <div className="text-left">
-            <p className="text-sm font-semibold text-text-primary">Voice Entry</p>
-            <p className="text-xs text-text-secondary">Just talk</p>
-          </div>
-        </button>
-        <button
-          onClick={() => router.push('/write')}
-          className="flex items-center gap-3 p-4 bg-surface rounded-2xl border border-border hover:border-primary/50 transition-colors"
-        >
-          <span className="text-2xl">✏️</span>
-          <div className="text-left">
-            <p className="text-sm font-semibold text-text-primary">Free Write</p>
-            <p className="text-xs text-text-secondary">Type it out</p>
-          </div>
-        </button>
-      </div>
+      {/* Quick action */}
+      <button
+        onClick={() => router.push('/voice')}
+        className="w-full flex items-center gap-4 p-4 bg-surface rounded-2xl border border-border hover:border-primary/50 transition-colors text-left"
+      >
+        <span className="text-2xl">🎙️</span>
+        <div className="flex-1">
+          <p className="font-semibold text-text-primary">Free Thought</p>
+          <p className="text-xs text-text-secondary">Just talk</p>
+        </div>
+        <span className="text-text-tertiary text-2xl">&rsaquo;</span>
+      </button>
 
       {/* Templates — show only enabled ones, or all if no preferences saved */}
       {templates.length > 0 && (
