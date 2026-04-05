@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   isSpeechRecognitionSupported,
@@ -22,30 +22,71 @@ export default function VoiceEntryPage() {
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
   const stopRef = useRef<(() => void) | null>(null);
   const startTime = useRef(Date.now());
+  const accumulatedRef = useRef('');
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const hasAutoStarted = useRef(false);
 
   useEffect(() => {
     startTime.current = Date.now();
   }, []);
 
+  // Auto-scroll to bottom when transcript changes
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [transcript]);
+
+  const startMic = useCallback(async () => {
+    const granted = await requestMicPermission();
+    if (!granted) {
+      alert('Please enable microphone access.');
+      return;
+    }
+    setIsListening(true);
+    const cleanup = startListening({
+      continuous: true,
+      onResult: (text) => {
+        // Append new speech session text after accumulated text
+        const prefix = accumulatedRef.current;
+        setTranscript(prefix ? prefix + ' ' + text : text);
+      },
+      onEnd: () => {
+        // Save current transcript as accumulated before stopping
+        setTranscript((prev) => {
+          accumulatedRef.current = prev;
+          return prev;
+        });
+        setIsListening(false);
+        stopRef.current = null;
+      },
+      onError: () => {
+        setTranscript((prev) => {
+          accumulatedRef.current = prev;
+          return prev;
+        });
+        setIsListening(false);
+        stopRef.current = null;
+      },
+    });
+    stopRef.current = cleanup;
+  }, []);
+
+  // Auto-start mic on mount
+  useEffect(() => {
+    if (speechSupported && !hasAutoStarted.current) {
+      hasAutoStarted.current = true;
+      startMic();
+    }
+  }, [speechSupported, startMic]);
+
   const toggleMic = async () => {
     if (isListening) {
+      // Save current transcript as accumulated text
+      accumulatedRef.current = transcript;
       stopRef.current?.();
       stopRef.current = null;
       setIsListening(false);
     } else {
-      const granted = await requestMicPermission();
-      if (!granted) {
-        alert('Please enable microphone access.');
-        return;
-      }
-      setIsListening(true);
-      const cleanup = startListening({
-        continuous: true,
-        onResult: (text) => setTranscript(text),
-        onEnd: () => { setIsListening(false); stopRef.current = null; },
-        onError: () => { setIsListening(false); stopRef.current = null; },
-      });
-      stopRef.current = cleanup;
+      await startMic();
     }
   };
 
@@ -73,7 +114,7 @@ export default function VoiceEntryPage() {
   return (
     <div className="flex flex-col h-screen bg-bg">
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
-        <button onClick={() => router.push('/home')} className="text-text-secondary text-lg">✕</button>
+        <button onClick={() => router.push('/home')} className="text-text-secondary text-lg">&#10005;</button>
         <span className="text-sm font-semibold text-text-primary">Voice Entry</span>
         <div className="w-10" />
       </div>
@@ -96,18 +137,11 @@ export default function VoiceEntryPage() {
               {isListening ? 'Listening...' : 'Tap the mic and start talking.'}
             </p>
           )}
+          <div ref={transcriptEndRef} />
         </div>
 
-        {/* Also allow editing transcript */}
-        <textarea
-          value={transcript}
-          onChange={(e) => setTranscript(e.target.value)}
-          placeholder="Or type here..."
-          className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[80px] focus:border-primary"
-          rows={3}
-        />
-
-        {transcript.trim() && (
+        {/* Mood selector and Save — only show when mic is off and there's text */}
+        {transcript.trim() && !isListening && (
           <>
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
             <button
@@ -121,7 +155,7 @@ export default function VoiceEntryPage() {
         )}
       </div>
 
-      {/* Mic button */}
+      {/* Mic button at bottom */}
       {speechSupported && (
         <div className="flex justify-center pb-8 pt-4">
           <button

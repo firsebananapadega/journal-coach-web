@@ -28,6 +28,7 @@ interface PriorityState {
   error: string | null;
   fetchPriorities: (date: string) => Promise<void>;
   savePriorities: (date: string, items: PriorityItem[]) => Promise<void>;
+  saveGroceries: (date: string, groceries: GroceryGroup[]) => Promise<void>;
   toggleItem: (itemId: string) => Promise<void>;
   toggleGroceryItem: (groupId: string, itemId: string) => Promise<void>;
   setItems: (items: PriorityItem[]) => void;
@@ -100,6 +101,22 @@ export const usePriorityStore = create<PriorityState>((set, get) => ({
       set({ items, date });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : (error as { message?: string })?.message || 'Failed to save priorities';
+      set({ error: msg });
+      throw new Error(msg);
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  saveGroceries: async (date, groceries) => {
+    try {
+      set({ loading: true, error: null });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No authenticated user');
+      await upsertRow(user.id, date, { groceries });
+      set({ groceries, date });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : (error as { message?: string })?.message || 'Failed to save groceries';
       set({ error: msg });
       throw new Error(msg);
     } finally {

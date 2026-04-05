@@ -45,6 +45,8 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   // Use refs for the speech callback to always have current values
   const answersRef = useRef(answers);
   const currentQRef = useRef(currentQ);
+  const accumulatedRef = useRef('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   answersRef.current = answers;
   currentQRef.current = currentQ;
 
@@ -64,6 +66,13 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
     });
   }, [templateId]);
 
+  // Auto-scroll textarea when answer changes
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+    }
+  }, [answers, currentQ]);
+
   // Stop mic when changing questions
   const stopMic = useCallback(() => {
     if (isListening) {
@@ -73,28 +82,44 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   }, [isListening]);
 
   const goToQuestion = (index: number) => {
+    // Save accumulated text for next time
+    accumulatedRef.current = '';
     stopMic();
     setCurrentQ(index);
   };
 
   const toggleMic = async () => {
     if (isListening) {
+      // Save current answer as accumulated text for appending
+      const idx = currentQRef.current;
+      accumulatedRef.current = answersRef.current[idx] || '';
       stopMic();
     } else {
       const granted = await requestMicPermission();
       if (!granted) return;
+      // Set accumulated to current answer so new speech appends
+      const idx = currentQRef.current;
+      accumulatedRef.current = answersRef.current[idx] || '';
       setIsListening(true);
       startListening({
         continuous: true,
         onResult: (text) => {
-          // Always write to the CURRENT question using ref
-          const idx = currentQRef.current;
+          const i = currentQRef.current;
           const updated = [...answersRef.current];
-          updated[idx] = text;
+          const prefix = accumulatedRef.current;
+          updated[i] = prefix ? prefix + ' ' + text : text;
           setAnswers(updated);
         },
-        onEnd: () => setIsListening(false),
-        onError: () => setIsListening(false),
+        onEnd: () => {
+          const i = currentQRef.current;
+          accumulatedRef.current = answersRef.current[i] || '';
+          setIsListening(false);
+        },
+        onError: () => {
+          const i = currentQRef.current;
+          accumulatedRef.current = answersRef.current[i] || '';
+          setIsListening(false);
+        },
       });
     }
   };
@@ -142,7 +167,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   return (
     <div className="flex flex-col h-screen bg-bg">
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
-        <button onClick={() => { stopMic(); router.push('/home'); }} className="text-text-secondary text-lg">✕</button>
+        <button onClick={() => { stopMic(); router.push('/home'); }} className="text-text-secondary text-lg">&#10005;</button>
         <span className="text-sm font-semibold text-text-primary">{template.name}</span>
         <div className="w-10" />
       </div>
@@ -171,8 +196,9 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
                 }}
               />
             ) : (
-              <div className="space-y-2">
+              <div className="flex flex-col space-y-2">
                 <textarea
+                  ref={textareaRef}
                   value={answers[currentQ] || ''}
                   onChange={(e) => {
                     const updated = [...answers];
@@ -180,7 +206,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
                     setAnswers(updated);
                   }}
                   placeholder={currentQuestion.placeholder || 'Your answer...'}
-                  className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[120px] focus:border-primary"
+                  className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[200px] focus:border-primary"
                 />
                 {speechSupported && (
                   <button

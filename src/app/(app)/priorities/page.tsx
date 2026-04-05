@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { usePriorityStore, type PriorityItem } from '@/stores/priorityStore';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { usePriorityStore, type PriorityItem, type GroceryGroup } from '@/stores/priorityStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import {
   isSpeechRecognitionSupported,
@@ -9,11 +9,35 @@ import {
   startListening,
   stopListening,
 } from '@/lib/speechRecognition';
-import { extractPriorities } from '@/lib/priorityEngine';
+import { classifyCapture } from '@/lib/captureEngine';
+
+function buildWeekDates(): Date[] {
+  const today = new Date();
+  const dates: Date[] = [];
+  for (let offset = -3; offset <= 3; offset++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + offset);
+    dates.push(d);
+  }
+  return dates;
+}
+
+function formatDateBubble(date: Date, todayStr: string): { label: string; dateNum: number } {
+  const dateStr = toLocalDateStr(date);
+  const dateNum = date.getDate();
+  if (dateStr === todayStr) {
+    return { label: 'Today', dateNum };
+  }
+  const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+  return { label: dayName, dateNum };
+}
 
 export default function PrioritiesPage() {
-  const today = toLocalDateStr(new Date());
-  const { items, groceries, fetchPriorities, savePriorities, toggleItem, toggleGroceryItem, loading } = usePriorityStore();
+  const todayDateStr = useMemo(() => toLocalDateStr(new Date()), []);
+  const weekDates = useMemo(() => buildWeekDates(), []);
+  const [selectedDate, setSelectedDate] = useState(todayDateStr);
+
+  const { items, groceries, fetchPriorities, savePriorities, saveGroceries, toggleItem, toggleGroceryItem, loading } = usePriorityStore();
   const [newItem, setNewItem] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [capturedText, setCapturedText] = useState('');
@@ -24,15 +48,17 @@ export default function PrioritiesPage() {
 
   const liveText = useRef('');
   const itemsRef = useRef(items);
+  const groceriesRef = useRef(groceries);
   itemsRef.current = items;
+  groceriesRef.current = groceries;
 
   const addLog = useCallback((msg: string) => {
     setLog(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${msg}`]);
   }, []);
 
   useEffect(() => {
-    fetchPriorities(today);
-  }, [fetchPriorities, today]);
+    fetchPriorities(selectedDate);
+  }, [fetchPriorities, selectedDate]);
 
   const handleAddItem = async () => {
     if (!newItem.trim()) return;
@@ -43,7 +69,7 @@ export default function PrioritiesPage() {
       sort_order: items.length,
     };
     try {
-      await savePriorities(today, [...items, item]);
+      await savePriorities(selectedDate, [...items, item]);
       setNewItem('');
       addLog(`Added: "${item.text}"`);
     } catch (err) {
@@ -110,33 +136,91 @@ export default function PrioritiesPage() {
     addLog(`Processing: "${text.substring(0, 50)}..."`);
 
     const currentItems = itemsRef.current;
+    const currentGroceries = groceriesRef.current;
 
-    // Step 1: Try Gemini extraction
-    let tasks: PriorityItem[] = [];
+    // Use the full capture engine that classifies into priorities, groceries, intentions, habits, journal
     try {
-      tasks = await extractPriorities(text);
-      addLog(`Gemini extracted ${tasks.length} task(s)`);
-    } catch (geminiErr) {
-      addLog(`Gemini failed: ${geminiErr instanceof Error ? geminiErr.message : String(geminiErr)}`);
-      // Fall through — will save raw text below
-    }
+      const result = await classifyCapture(text);
+      addLog(`Classified: ${result.priorities.length} tasks, ${result.groceries.length} grocery groups`);
 
-    // Step 2: Build the items to save
-    const newItems = tasks.length > 0
-      ? tasks.map((p, i) => ({ ...p, sort_order: currentItems.length + i }))
-      : [{ id: crypto.randomUUID(), text, completed: false, sort_order: currentItems.length }];
+      // Build priority items from classified priorities
+      const newPriorityItems: PriorityItem[] = result.priorities.map((taskText, i) => ({
+        id: crypto.randomUUID(),
+        text: taskText,
+        completed: false,
+        sort_order: currentItems.length + i,
+      }));
 
-    // Step 3: Save to Supabase
-    try {
-      const merged = [...currentItems, ...newItems];
-      await savePriorities(today, merged);
-      addLog(`Saved ${newItems.length} item(s) to Supabase`);
+      // If no priorities were extracted but there's no groceries either, save raw text as a task
+      if (newPriorityItems.length === 0 && result.groceries.length === 0) {
+        newPriorityItems.push({
+          id: crypto.randomUUID(),
+          text,
+          completed: false,
+          sort_order: currentItems.length,
+        });
+      }
+
+      // Save priorities
+      if (newPriorityItems.length > 0) {
+        const mergedItems = [...currentItems, ...newPriorityItems];
+        await savePriorities(selectedDate, mergedItems);
+        addLog(`Saved ${newPriorityItems.length} task(s)`);
+      }
+
+      // Save groceries if any were detected
+      if (result.groceries.length > 0) {
+        const newGroceryGroups: GroceryGroup[] = result.groceries.map((g) => ({
+          id: crypto.randomUUID(),
+          store: g.store || 'General',
+          items: g.items.map((itemName) => ({
+            id: crypto.randomUUID(),
+            name: itemName,
+            completed: false,
+          })),
+        }));
+
+        // Merge with existing groceries — combine items for the same store
+        const mergedGroceries = [...currentGroceries];
+        for (const newGroup of newGroceryGroups) {
+          const existingGroup = mergedGroceries.find(
+            (g) => g.store.toLowerCase() === newGroup.store.toLowerCase()
+          );
+          if (existingGroup) {
+            existingGroup.items = [...existingGroup.items, ...newGroup.items];
+          } else {
+            mergedGroceries.push(newGroup);
+          }
+        }
+
+        await saveGroceries(selectedDate, mergedGroceries);
+        const totalNewItems = newGroceryGroups.reduce((sum, g) => sum + g.items.length, 0);
+        addLog(`Saved ${totalNewItems} grocery item(s)`);
+      }
+
       setCapturedText('');
       liveText.current = '';
-    } catch (saveErr) {
-      const msg = saveErr instanceof Error ? saveErr.message : String(saveErr);
-      setError(`Save failed: ${msg}`);
-      addLog(`Supabase save failed: ${msg}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`Capture engine failed: ${msg}, falling back to raw text`);
+
+      // Fallback: save raw text as a single task
+      try {
+        const fallbackItem: PriorityItem = {
+          id: crypto.randomUUID(),
+          text,
+          completed: false,
+          sort_order: currentItems.length,
+        };
+        await savePriorities(selectedDate, [...currentItems, fallbackItem]);
+        addLog('Saved raw text as task (fallback)');
+        setCapturedText('');
+        liveText.current = '';
+      } catch (saveErr) {
+        const saveMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+        setError(`Save failed: ${saveMsg}`);
+        addLog(`Supabase save failed: ${saveMsg}`);
+      }
     }
 
     setProcessing(false);
@@ -149,6 +233,29 @@ export default function PrioritiesPage() {
         <p className="text-sm text-text-secondary mt-1">
           {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
         </p>
+      </div>
+
+      {/* Date picker strip */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+        {weekDates.map((date) => {
+          const dateStr = toLocalDateStr(date);
+          const { label, dateNum } = formatDateBubble(date, todayDateStr);
+          const isSelected = dateStr === selectedDate;
+          return (
+            <button
+              key={dateStr}
+              onClick={() => setSelectedDate(dateStr)}
+              className={`flex flex-col items-center min-w-[52px] py-2 px-2 rounded-xl text-xs font-medium transition-colors ${
+                isSelected
+                  ? 'bg-primary text-white'
+                  : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              <span className="text-[10px] uppercase">{label}</span>
+              <span className="text-lg font-bold">{dateNum}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Voice capture */}
@@ -230,7 +337,7 @@ export default function PrioritiesPage() {
               <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
                 item.completed ? 'bg-success border-success' : 'border-border'
               }`}>
-                {item.completed && <span className="text-white text-xs font-bold">✓</span>}
+                {item.completed && <span className="text-white text-xs font-bold">&#10003;</span>}
               </div>
               <span className={`text-sm text-left flex-1 ${item.completed ? 'text-text-secondary line-through' : 'text-text-primary'}`}>
                 {item.text}
@@ -256,7 +363,7 @@ export default function PrioritiesPage() {
                   <div className={`w-5 h-5 rounded border flex items-center justify-center ${
                     item.completed ? 'bg-success border-success' : 'border-border'
                   }`}>
-                    {item.completed && <span className="text-white text-[10px]">✓</span>}
+                    {item.completed && <span className="text-white text-[10px]">&#10003;</span>}
                   </div>
                   <span className={`text-sm ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
                     {item.name}
@@ -271,12 +378,12 @@ export default function PrioritiesPage() {
       {/* Empty state */}
       {items.length === 0 && groceries.length === 0 && !loading && !processing && !capturedText && (
         <div className="text-center py-12 space-y-2">
-          <p className="text-4xl">🎯</p>
+          <p className="text-4xl">&#127919;</p>
           <p className="text-text-secondary text-sm">No tasks for today yet.</p>
         </div>
       )}
 
-      {/* Activity log — visible debug panel */}
+      {/* Activity log -- visible debug panel */}
       {log.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between">
