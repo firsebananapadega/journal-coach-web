@@ -3,11 +3,13 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   TouchSensor,
   PointerSensor,
   useSensor,
   useSensors,
+  type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core';
 import {
@@ -16,7 +18,6 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { usePriorityStore, type PriorityItem, type GroceryGroup } from '@/stores/priorityStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import {
@@ -51,6 +52,60 @@ function formatDateBubble(date: Date, todayStr: string): { label: string; dateNu
 
 // ---------- Sortable priority row ----------
 
+// Static row content — shared between in-list render and drag overlay
+function PriorityRowContent({
+  item,
+  index,
+  onToggle,
+  isDragOverlay,
+}: {
+  item: PriorityItem;
+  index: number;
+  onToggle?: () => void;
+  isDragOverlay?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 p-3.5 rounded-xl ${
+        isDragOverlay
+          ? 'bg-surface border border-primary shadow-lg'
+          : item.completed
+          ? 'bg-success/5'
+          : 'bg-surface'
+      }`}
+    >
+      <span className={`w-6 text-right text-sm font-bold tabular-nums ${
+        item.completed ? 'text-text-tertiary' : 'text-text-secondary'
+      }`}>
+        {index + 1}
+      </span>
+      <button
+        onClick={onToggle}
+        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+          item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
+        }`}
+      >
+        {item.completed && <span className="text-white text-xs font-bold">✓</span>}
+      </button>
+      <span className={`text-sm flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
+        {item.text}
+      </span>
+      {!isDragOverlay && (
+        <div className="touch-none p-1 text-text-tertiary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="5" cy="3" r="1.5" />
+            <circle cx="11" cy="3" r="1.5" />
+            <circle cx="5" cy="8" r="1.5" />
+            <circle cx="11" cy="8" r="1.5" />
+            <circle cx="5" cy="13" r="1.5" />
+            <circle cx="11" cy="13" r="1.5" />
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SortablePriorityRow({
   item,
   index,
@@ -66,58 +121,21 @@ function SortablePriorityRow({
     attributes,
     listeners,
     setNodeRef,
-    transform,
-    transition,
     isDragging,
-  } = useSortable({ id: item.id });
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 10 : 0,
-  };
+  } = useSortable({ id: item.id, transition: null });
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{
+        opacity: isDragging ? 0 : 1,
+        touchAction: 'none',
+      }}
+    >
       <SwipeToDelete onDelete={onDelete}>
-        <div
-          className={`flex items-center gap-3 p-3.5 rounded-xl ${
-            item.completed ? 'bg-success/5' : 'bg-surface'
-          }`}
-        >
-          <span className={`w-6 text-right text-sm font-bold tabular-nums ${
-            item.completed ? 'text-text-tertiary' : 'text-text-secondary'
-          }`}>
-            {index + 1}
-          </span>
-          <button
-            onClick={onToggle}
-            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-              item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
-            }`}
-          >
-            {item.completed && <span className="text-white text-xs font-bold">&#10003;</span>}
-          </button>
-          <span className={`text-sm flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
-            {item.text}
-          </span>
-          {/* Drag handle */}
-          <div
-            {...attributes}
-            {...listeners}
-            className="touch-none cursor-grab active:cursor-grabbing p-1 text-text-tertiary hover:text-text-secondary"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <circle cx="5" cy="3" r="1.5" />
-              <circle cx="11" cy="3" r="1.5" />
-              <circle cx="5" cy="8" r="1.5" />
-              <circle cx="11" cy="8" r="1.5" />
-              <circle cx="5" cy="13" r="1.5" />
-              <circle cx="11" cy="13" r="1.5" />
-            </svg>
-          </div>
-        </div>
+        <PriorityRowContent item={item} index={index} onToggle={onToggle} />
       </SwipeToDelete>
     </div>
   );
@@ -180,8 +198,15 @@ export default function PrioritiesPage() {
     }
   };
 
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+  }, []);
+
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
+      setActiveDragId(null);
       const { active, over } = event;
       if (!over || active.id === over.id) return;
       const oldIndex = items.findIndex((i) => i.id === active.id);
@@ -191,6 +216,8 @@ export default function PrioritiesPage() {
         ...item,
         sort_order: idx,
       }));
+      // Update store immediately (no bounce — state change is instant)
+      usePriorityStore.setState({ items: reordered });
       try {
         await savePriorities(selectedDate, reordered);
         addLog('Reordered priorities');
@@ -200,6 +227,9 @@ export default function PrioritiesPage() {
     },
     [items, savePriorities, selectedDate, addLog]
   );
+
+  const activeDragItem = activeDragId ? items.find((i) => i.id === activeDragId) : null;
+  const activeDragIndex = activeDragId ? items.findIndex((i) => i.id === activeDragId) : -1;
 
   const toggleMic = async () => {
     if (isListening) {
@@ -482,6 +512,7 @@ export default function PrioritiesPage() {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
             <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
@@ -495,6 +526,15 @@ export default function PrioritiesPage() {
                 />
               ))}
             </SortableContext>
+            <DragOverlay dropAnimation={null}>
+              {activeDragItem ? (
+                <PriorityRowContent
+                  item={activeDragItem}
+                  index={activeDragIndex}
+                  isDragOverlay
+                />
+              ) : null}
+            </DragOverlay>
           </DndContext>
         </div>
       )}
