@@ -16,13 +16,13 @@ export default function PrioritiesPage() {
   const { items, groceries, fetchPriorities, savePriorities, toggleItem, toggleGroceryItem, loading } = usePriorityStore();
   const [newItem, setNewItem] = useState('');
   const [isListening, setIsListening] = useState(false);
-  const [displayTranscript, setDisplayTranscript] = useState('');
+  const [capturedText, setCapturedText] = useState('');
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
 
-  // Direct ref updated from speech callback — never stale
-  const liveTranscript = useRef('');
+  // Direct ref — always has latest transcript, never stale
+  const liveText = useRef('');
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
@@ -42,73 +42,93 @@ export default function PrioritiesPage() {
     setNewItem('');
   };
 
-  const addRawText = useCallback(async (text: string) => {
-    const currentItems = itemsRef.current;
-    const item: PriorityItem = {
-      id: crypto.randomUUID(),
-      text: text.trim(),
-      completed: false,
-      sort_order: currentItems.length,
-    };
-    await savePriorities(today, [...currentItems, item]);
-  }, [today, savePriorities]);
+  // Toggle mic on/off — does NOT process, just captures text
+  const toggleMic = async () => {
+    if (isListening) {
+      stopListening();
+      setIsListening(false);
+      // Copy whatever we have to capturedText for the "Add Tasks" button
+      if (liveText.current.trim()) {
+        setCapturedText(liveText.current.trim());
+      }
+    } else {
+      const granted = await requestMicPermission();
+      if (!granted) {
+        alert('Please enable microphone access.');
+        return;
+      }
+      liveText.current = '';
+      setError('');
+      setIsListening(true);
+      startListening({
+        continuous: true,
+        onResult: (text) => {
+          liveText.current = text;
+          setCapturedText(text);
+        },
+        onEnd: () => {
+          // Browser auto-stopped — preserve the text, just update mic state
+          setIsListening(false);
+          if (liveText.current.trim()) {
+            setCapturedText(liveText.current.trim());
+          }
+        },
+        onError: (err) => {
+          setIsListening(false);
+          setError(`Mic error: ${err}`);
+        },
+      });
+    }
+  };
 
-  const processVoice = useCallback(async (text: string) => {
-    if (!text.trim()) return;
+  // Process captured text → extract tasks → save
+  const handleAddTasks = async () => {
+    const text = capturedText.trim();
+    if (!text) return;
+
+    // Stop mic if still running
+    if (isListening) {
+      stopListening();
+      setIsListening(false);
+    }
+
     setProcessing(true);
     setError('');
     try {
       const extracted = await extractPriorities(text);
+      const currentItems = itemsRef.current;
       if (extracted.length > 0) {
-        const currentItems = itemsRef.current;
         const merged = [...currentItems, ...extracted.map((p, i) => ({ ...p, sort_order: currentItems.length + i }))];
         await savePriorities(today, merged);
       } else {
-        await addRawText(text);
+        // Gemini found no tasks — save the whole thing as one item
+        await savePriorities(today, [...currentItems, {
+          id: crypto.randomUUID(),
+          text,
+          completed: false,
+          sort_order: currentItems.length,
+        }]);
       }
+      setCapturedText('');
+      liveText.current = '';
     } catch {
-      await addRawText(text);
+      // Gemini failed — save raw text as fallback
+      const currentItems = itemsRef.current;
+      try {
+        await savePriorities(today, [...currentItems, {
+          id: crypto.randomUUID(),
+          text,
+          completed: false,
+          sort_order: currentItems.length,
+        }]);
+        setCapturedText('');
+        liveText.current = '';
+      } catch {
+        setError('Failed to save. Please try again.');
+      }
     }
-    setDisplayTranscript('');
-    liveTranscript.current = '';
     setProcessing(false);
-  }, [today, savePriorities, addRawText]);
-
-  const handleStopAndProcess = useCallback(async () => {
-    stopListening();
-    setIsListening(false);
-    const captured = liveTranscript.current.trim();
-    if (captured) {
-      await processVoice(captured);
-    }
-  }, [processVoice]);
-
-  const handleStartListening = useCallback(async () => {
-    const granted = await requestMicPermission();
-    if (!granted) {
-      alert('Please enable microphone access.');
-      return;
-    }
-    liveTranscript.current = '';
-    setDisplayTranscript('');
-    setError('');
-    setIsListening(true);
-    startListening({
-      continuous: true,
-      onResult: (text) => {
-        // Update ref directly — always fresh, no re-render delay
-        liveTranscript.current = text;
-        setDisplayTranscript(text);
-      },
-      onEnd: () => {
-        setIsListening(false);
-      },
-      onError: (err) => {
-        setIsListening(false);
-        setError(`Mic error: ${err}`);
-      },
-    });
-  }, []);
+  };
 
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
@@ -119,36 +139,47 @@ export default function PrioritiesPage() {
         </p>
       </div>
 
-      {/* Voice capture */}
+      {/* Voice capture — two separate actions: record + process */}
       {speechSupported && (
         <div className="space-y-2">
-          {!isListening && !processing ? (
-            <button
-              onClick={handleStartListening}
-              className="w-full py-3 rounded-2xl flex items-center justify-center gap-2 font-medium bg-surface border border-border text-text-secondary hover:text-text-primary transition-colors"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              </svg>
-              Speak your priorities
-            </button>
-          ) : isListening ? (
-            <button
-              onClick={handleStopAndProcess}
-              className="w-full py-3 rounded-2xl flex items-center justify-center gap-2 font-medium bg-error text-white transition-colors"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-              Stop &amp; Add Tasks
-            </button>
-          ) : (
-            <div className="w-full py-3 rounded-2xl flex items-center justify-center gap-2 font-medium bg-surface-elevated text-text-tertiary">
-              Processing...
+          {/* Mic toggle */}
+          <button
+            onClick={toggleMic}
+            disabled={processing}
+            className={`w-full py-3 rounded-2xl flex items-center justify-center gap-2 font-medium transition-colors ${
+              isListening
+                ? 'bg-error text-white'
+                : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
+            } ${processing ? 'opacity-40' : ''}`}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            </svg>
+            {isListening ? 'Stop Recording' : 'Speak your priorities'}
+          </button>
+
+          {/* Show captured text */}
+          {capturedText && (
+            <div className="bg-surface rounded-xl p-3 space-y-2">
+              <p className="text-sm text-text-primary">{capturedText}</p>
+              {/* Process button — always visible when there's text */}
+              <button
+                onClick={handleAddTasks}
+                disabled={processing}
+                className="w-full py-2.5 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50"
+              >
+                {processing ? 'Processing...' : 'Add Tasks'}
+              </button>
+              <button
+                onClick={() => { setCapturedText(''); liveText.current = ''; }}
+                className="w-full py-2 text-text-tertiary text-sm hover:text-text-secondary"
+              >
+                Discard
+              </button>
             </div>
           )}
-          {displayTranscript && (
-            <p className="text-sm text-text-secondary bg-surface rounded-xl p-3 italic">{displayTranscript}</p>
-          )}
+
           {error && <p className="text-sm text-error">{error}</p>}
         </div>
       )}
@@ -195,7 +226,7 @@ export default function PrioritiesPage() {
           ))}
         </div>
       ) : (
-        !loading && !processing && (
+        !loading && !processing && !capturedText && (
           <div className="text-center py-12 space-y-2">
             <p className="text-4xl">🎯</p>
             <p className="text-text-secondary text-sm">No priorities for today yet.</p>
