@@ -3,22 +3,6 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import {
-  DndContext,
-  closestCenter,
-  TouchSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  useSortable,
-  rectSortingStrategy,
-  arrayMove,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { useAuthStore } from '@/stores/authStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
@@ -61,64 +45,74 @@ const ICONS: Record<string, string> = {
   document: '\uD83D\uDCC4',
 };
 
-const STORAGE_KEY = 'home_bubble_order';
+const GRID_SLOTS_KEY = 'home_grid_slots';
+const GRID_SIZE = 12; // 3 columns x 4 rows
 
-// ---------- Sortable bubble ----------
+// ---------- Grid slot cell ----------
 
-function SortableBubble({
+function GridCell({
   item,
+  slotIndex,
   editMode,
+  isSelected,
   onTap,
+  onEditTap,
 }: {
-  item: BubbleItem;
+  item: BubbleItem | null;
+  slotIndex: number;
   editMode: boolean;
+  isSelected: boolean;
   onTap: () => void;
+  onEditTap: () => void;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: item.id, disabled: !editMode });
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    touchAction: editMode ? 'none' : 'auto',
-  };
+  if (!item) {
+    // Empty slot — only visible in edit mode
+    if (!editMode) return <div />;
+    return (
+      <button
+        onClick={onEditTap}
+        className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border-2 border-dashed transition-colors w-full min-h-[88px] ${
+          isSelected ? 'border-primary bg-primary/10' : 'border-border/40'
+        }`}
+      >
+        <span className="text-xl text-text-tertiary/40">+</span>
+      </button>
+    );
+  }
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <button
-        onClick={() => {
-          if (!editMode) onTap();
-        }}
-        className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-colors w-full ${
-          item.done
-            ? 'border-success/30 bg-success/5 opacity-60'
-            : 'border-border bg-surface hover:border-primary/50'
-        } ${editMode ? 'animate-wiggle' : ''}`}
-      >
-        {typeof item.icon === 'string' ? (
-          <span className="text-2xl">{item.icon}</span>
-        ) : (
-          <Image
-            src={item.icon.src}
-            alt={item.icon.alt}
-            width={36}
-            height={36}
-            className="rounded-full object-cover"
-          />
-        )}
-        <span className="text-xs text-text-primary text-center leading-tight line-clamp-2">
-          {item.label}
-        </span>
-        {item.done && <span className="text-[10px] text-success">Done</span>}
-      </button>
-    </div>
+    <button
+      onClick={() => {
+        if (editMode) {
+          onEditTap();
+        } else {
+          onTap();
+        }
+      }}
+      className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-colors w-full ${
+        isSelected
+          ? 'border-primary border-2 bg-primary/10'
+          : item.done
+          ? 'border-success/30 bg-success/5 opacity-60'
+          : 'border-border bg-surface hover:border-primary/50'
+      } ${editMode ? 'animate-wiggle' : ''}`}
+    >
+      {typeof item.icon === 'string' ? (
+        <span className="text-2xl">{item.icon}</span>
+      ) : (
+        <Image
+          src={item.icon.src}
+          alt={item.icon.alt}
+          width={36}
+          height={36}
+          className="rounded-full object-cover"
+        />
+      )}
+      <span className="text-xs text-text-primary text-center leading-tight line-clamp-2">
+        {item.label}
+      </span>
+      {item.done && <span className="text-[10px] text-success">Done</span>}
+    </button>
   );
 }
 
@@ -133,7 +127,8 @@ export default function HomePage() {
   const [enabledIds, setEnabledIds] = useState<string[]>([]);
   const [showGuidedBubble, setShowGuidedBubble] = useState(true);
   const [editMode, setEditMode] = useState(false);
-  const [savedOrder, setSavedOrder] = useState<string[] | null>(null);
+  const [gridSlots, setGridSlots] = useState<(string | null)[]>(Array(GRID_SIZE).fill(null));
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
   const [reflection, setReflection] = useState<WeeklyReflectionData | null>(null);
 
   const today = toLocalDateStr(new Date());
@@ -201,51 +196,63 @@ export default function HomePage() {
     return items;
   }, [showGuidedBubble, guide, templates, enabledIds, templateCompletedToday]);
 
-  // Apply saved order
-  const orderedItems = useMemo<BubbleItem[]>(() => {
-    if (!savedOrder) return allItems;
-    const map = new Map(allItems.map((item) => [item.id, item]));
-    const ordered: BubbleItem[] = [];
-    for (const id of savedOrder) {
-      const item = map.get(id);
-      if (item) {
-        ordered.push(item);
-        map.delete(id);
+  // Build a map from item ID to BubbleItem for quick lookup
+  const itemMap = useMemo(() => new Map(allItems.map((item) => [item.id, item])), [allItems]);
+
+  // Sync gridSlots with allItems: ensure all items are placed, remove stale ones
+  useEffect(() => {
+    setGridSlots((prev) => {
+      const currentIds = new Set(allItems.map((i) => i.id));
+      // Clean stale IDs from slots
+      const cleaned = prev.map((id) => (id && currentIds.has(id) ? id : null));
+      // Find items not yet placed in any slot
+      const placedIds = new Set(cleaned.filter(Boolean) as string[]);
+      const unplaced = allItems.filter((i) => !placedIds.has(i.id));
+      // Place unplaced items in first available empty slots
+      const result = [...cleaned];
+      let emptyIdx = 0;
+      for (const item of unplaced) {
+        while (emptyIdx < GRID_SIZE && result[emptyIdx] !== null) emptyIdx++;
+        if (emptyIdx < GRID_SIZE) {
+          result[emptyIdx] = item.id;
+          emptyIdx++;
+        }
       }
-    }
-    // Append any new items not in saved order
-    for (const item of map.values()) {
-      ordered.push(item);
-    }
-    return ordered;
-  }, [allItems, savedOrder]);
+      // Save to localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(result));
+      }
+      return result;
+    });
+  }, [allItems]);
 
-  // Sensors: immediate drag when in edit mode (no delay needed — edit button activates)
-  const pointerSensor = useSensor(PointerSensor, {
-    activationConstraint: { distance: 5 },
-  });
-  const touchSensor = useSensor(TouchSensor, {
-    activationConstraint: { delay: 150, tolerance: 5 },
-  });
-  const sensors = useSensors(pointerSensor, touchSensor);
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const oldIndex = orderedItems.findIndex((i) => i.id === active.id);
-      const newIndex = orderedItems.findIndex((i) => i.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
-      const newOrder = arrayMove(orderedItems, oldIndex, newIndex);
-      const ids = newOrder.map((i) => i.id);
-      setSavedOrder(ids);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+  const handleSlotTap = useCallback(
+    (slotIndex: number) => {
+      if (selectedSlot === null) {
+        // First tap — select this slot
+        setSelectedSlot(slotIndex);
+      } else if (selectedSlot === slotIndex) {
+        // Tapped the same slot — deselect
+        setSelectedSlot(null);
+      } else {
+        // Second tap — swap the two slots
+        setGridSlots((prev) => {
+          const newSlots = [...prev];
+          const temp = newSlots[selectedSlot];
+          newSlots[selectedSlot] = newSlots[slotIndex];
+          newSlots[slotIndex] = temp;
+          localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(newSlots));
+          return newSlots;
+        });
+        setSelectedSlot(null);
+      }
     },
-    [orderedItems]
+    [selectedSlot]
   );
 
   const toggleEditMode = useCallback(() => {
     setEditMode((prev) => !prev);
+    setSelectedSlot(null);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -260,11 +267,14 @@ export default function HomePage() {
     const ids = stored ? (JSON.parse(stored) as string[]) : [];
     setEnabledIds(ids);
 
-    // Load saved bubble order
-    const orderStr = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-    if (orderStr) {
+    // Load saved grid slot assignments
+    const slotsStr = typeof window !== 'undefined' ? localStorage.getItem(GRID_SLOTS_KEY) : null;
+    if (slotsStr) {
       try {
-        setSavedOrder(JSON.parse(orderStr));
+        const parsed = JSON.parse(slotsStr) as (string | null)[];
+        if (Array.isArray(parsed) && parsed.length === GRID_SIZE) {
+          setGridSlots(parsed);
+        }
       } catch {
         /* ignore */
       }
@@ -325,28 +335,28 @@ export default function HomePage() {
         </button>
       </div>
 
-      {/* Draggable bubble grid */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={orderedItems.map((i) => i.id)} strategy={rectSortingStrategy}>
-          <div className="grid grid-cols-3 gap-2">
-            {orderedItems.map((item) => (
-              <SortableBubble
-                key={item.id}
-                item={item}
-                editMode={editMode}
-                onTap={() => router.push(item.href)}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+      {/* Fixed-position bubble grid */}
+      <div className="grid grid-cols-3 gap-2">
+        {gridSlots.map((itemId, slotIndex) => {
+          const item = itemId ? itemMap.get(itemId) ?? null : null;
+          return (
+            <GridCell
+              key={slotIndex}
+              item={item}
+              slotIndex={slotIndex}
+              editMode={editMode}
+              isSelected={editMode && selectedSlot === slotIndex}
+              onTap={() => item && router.push(item.href)}
+              onEditTap={() => handleSlotTap(slotIndex)}
+            />
+          );
+        })}
+      </div>
 
       {editMode && (
-        <p className="text-xs text-text-tertiary text-center">Drag bubbles to rearrange</p>
+        <p className="text-xs text-text-tertiary text-center">
+          {selectedSlot !== null ? 'Tap another position to swap' : 'Tap a bubble to select, then tap where to move it'}
+        </p>
       )}
 
       {/* Weekly Reflection */}

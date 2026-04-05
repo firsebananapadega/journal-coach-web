@@ -17,17 +17,24 @@ export default function VoiceEntryPage() {
   const [isListening, setIsListening] = useState(false);
   const [moodScore, setMoodScore] = useState<number | null>(null);
   const [moodLabel, setMoodLabel] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
   const stopRef = useRef<(() => void) | null>(null);
   const startTime = useRef(Date.now());
   const accumulatedRef = useRef('');
+  const transcriptRef = useRef('');
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const hasAutoStarted = useRef(false);
+  const manualStopRef = useRef(false);
 
   useEffect(() => {
     startTime.current = Date.now();
   }, []);
+
+  // Keep transcriptRef in sync with state (avoids stale closures)
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
 
   // Auto-scroll to bottom when transcript changes
   useEffect(() => {
@@ -35,28 +42,26 @@ export default function VoiceEntryPage() {
   }, [transcript]);
 
   const startMic = useCallback(() => {
+    manualStopRef.current = false;
     setIsListening(true);
     const cleanup = startListening({
       continuous: true,
       onResult: (text) => {
         // Append new speech session text after accumulated text
         const prefix = accumulatedRef.current;
-        setTranscript(prefix ? prefix + ' ' + text : text);
+        const newTranscript = prefix ? prefix + ' ' + text : text;
+        setTranscript(newTranscript);
       },
       onEnd: () => {
-        // Save current transcript as accumulated before stopping
-        setTranscript((prev) => {
-          accumulatedRef.current = prev;
-          return prev;
-        });
+        // Only update accumulated if browser auto-stopped (not manual stop)
+        if (!manualStopRef.current) {
+          accumulatedRef.current = transcriptRef.current;
+        }
         setIsListening(false);
         stopRef.current = null;
       },
       onError: () => {
-        setTranscript((prev) => {
-          accumulatedRef.current = prev;
-          return prev;
-        });
+        accumulatedRef.current = transcriptRef.current;
         setIsListening(false);
         stopRef.current = null;
       },
@@ -74,8 +79,10 @@ export default function VoiceEntryPage() {
 
   const toggleMic = async () => {
     if (isListening) {
-      // Save current transcript as accumulated text
-      accumulatedRef.current = transcript;
+      // Flag manual stop so onEnd doesn't also update accumulated
+      manualStopRef.current = true;
+      // Save current transcript as accumulated using ref for latest value
+      accumulatedRef.current = transcriptRef.current;
       stopRef.current?.();
       stopRef.current = null;
       setIsListening(false);
@@ -84,25 +91,24 @@ export default function VoiceEntryPage() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!transcript.trim()) return;
-    setSaving(true);
     const duration = Math.round((Date.now() - startTime.current) / 1000);
     const wordCount = transcript.split(/\s+/).filter(Boolean).length;
-    try {
-      await createEntry({
-        entry_type: 'voice',
-        content_text: transcript,
-        title: `Voice entry — ${new Date().toLocaleDateString()}`,
-        mood_score: moodScore,
-        mood_label: moodLabel,
-        duration_seconds: duration,
-        word_count: wordCount,
-      });
-      router.push('/home');
-    } catch {
-      setSaving(false);
-    }
+    // Fire and forget — navigate immediately for snappy UX
+    createEntry({
+      entry_type: 'voice',
+      content_text: transcript,
+      title: `Voice entry — ${new Date().toLocaleDateString()}`,
+      mood_score: moodScore,
+      mood_label: moodLabel,
+      duration_seconds: duration,
+      word_count: wordCount,
+    }).catch(() => {
+      // Entry failed to save remotely — could add retry logic here
+      console.warn('Voice entry failed to save to Supabase');
+    });
+    router.push('/home');
   };
 
   return (
@@ -122,10 +128,22 @@ export default function VoiceEntryPage() {
           </div>
         )}
 
-        {/* Transcript */}
+        {/* Transcript — editable when mic is off */}
         <div className="min-h-[200px]">
           {transcript ? (
-            <p className="text-text-primary text-[15px] leading-relaxed whitespace-pre-wrap">{transcript}</p>
+            <textarea
+              ref={textareaRef}
+              value={transcript}
+              readOnly={isListening}
+              onChange={(e) => {
+                if (!isListening) {
+                  setTranscript(e.target.value);
+                  accumulatedRef.current = e.target.value;
+                }
+              }}
+              className="w-full min-h-[200px] text-text-primary text-[15px] leading-relaxed bg-transparent border-none outline-none resize-none"
+              placeholder="Your transcript will appear here..."
+            />
           ) : (
             <p className="text-text-tertiary text-center mt-16">
               {isListening ? 'Listening...' : 'Tap the mic and start talking.'}
@@ -140,10 +158,9 @@ export default function VoiceEntryPage() {
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
             <button
               onClick={handleSave}
-              disabled={saving}
-              className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
+              className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
             >
-              {saving ? 'Saving...' : 'Save Entry'}
+              Save Entry
             </button>
           </>
         )}

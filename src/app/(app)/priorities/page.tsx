@@ -1,6 +1,22 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  TouchSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { usePriorityStore, type PriorityItem, type GroceryGroup } from '@/stores/priorityStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import {
@@ -33,6 +49,80 @@ function formatDateBubble(date: Date, todayStr: string): { label: string; dateNu
   return { label: dayName, dateNum };
 }
 
+// ---------- Sortable priority row ----------
+
+function SortablePriorityRow({
+  item,
+  index,
+  onToggle,
+  onDelete,
+}: {
+  item: PriorityItem;
+  index: number;
+  onToggle: () => void;
+  onDelete: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : 0,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <SwipeToDelete onDelete={onDelete}>
+        <div
+          className={`flex items-center gap-3 p-3.5 rounded-xl ${
+            item.completed ? 'bg-success/5' : 'bg-surface'
+          }`}
+        >
+          <span className={`w-6 text-right text-sm font-bold tabular-nums ${
+            item.completed ? 'text-text-tertiary' : 'text-text-secondary'
+          }`}>
+            {index + 1}
+          </span>
+          <button
+            onClick={onToggle}
+            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+              item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
+            }`}
+          >
+            {item.completed && <span className="text-white text-xs font-bold">&#10003;</span>}
+          </button>
+          <span className={`text-sm flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
+            {item.text}
+          </span>
+          {/* Drag handle */}
+          <div
+            {...attributes}
+            {...listeners}
+            className="touch-none cursor-grab active:cursor-grabbing p-1 text-text-tertiary hover:text-text-secondary"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="5" cy="3" r="1.5" />
+              <circle cx="11" cy="3" r="1.5" />
+              <circle cx="5" cy="8" r="1.5" />
+              <circle cx="11" cy="8" r="1.5" />
+              <circle cx="5" cy="13" r="1.5" />
+              <circle cx="11" cy="13" r="1.5" />
+            </svg>
+          </div>
+        </div>
+      </SwipeToDelete>
+    </div>
+  );
+}
+
 export default function PrioritiesPage() {
   const todayDateStr = useMemo(() => toLocalDateStr(new Date()), []);
   const weekDates = useMemo(() => buildWeekDates(), []);
@@ -48,10 +138,20 @@ export default function PrioritiesPage() {
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
 
   const liveText = useRef('');
+  const accumulatedTextRef = useRef('');
   const itemsRef = useRef(items);
   const groceriesRef = useRef(groceries);
   itemsRef.current = items;
   groceriesRef.current = groceries;
+
+  // DnD sensors for priority reordering
+  const pointerSensor = useSensor(PointerSensor, {
+    activationConstraint: { distance: 5 },
+  });
+  const touchSensor = useSensor(TouchSensor, {
+    activationConstraint: { delay: 200, tolerance: 5 },
+  });
+  const sensors = useSensors(pointerSensor, touchSensor);
 
   const addLog = useCallback((msg: string) => {
     setLog(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${msg}`]);
@@ -72,6 +172,7 @@ export default function PrioritiesPage() {
     try {
       await savePriorities(selectedDate, [...items, item]);
       setNewItem('');
+      setError('');
       addLog(`Added: "${item.text}"`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
@@ -79,14 +180,34 @@ export default function PrioritiesPage() {
     }
   };
 
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const oldIndex = items.findIndex((i) => i.id === active.id);
+      const newIndex = items.findIndex((i) => i.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+      const reordered = arrayMove(items, oldIndex, newIndex).map((item, idx) => ({
+        ...item,
+        sort_order: idx,
+      }));
+      try {
+        await savePriorities(selectedDate, reordered);
+        addLog('Reordered priorities');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save order');
+      }
+    },
+    [items, savePriorities, selectedDate, addLog]
+  );
+
   const toggleMic = async () => {
     if (isListening) {
       stopListening();
       setIsListening(false);
       addLog('Mic stopped');
-      if (liveText.current.trim()) {
-        setCapturedText(liveText.current.trim());
-      }
+      // Save current captured text as accumulated for next session
+      accumulatedTextRef.current = capturedText;
     } else {
       liveText.current = '';
       setError('');
@@ -95,13 +216,18 @@ export default function PrioritiesPage() {
       startListening({
         continuous: true,
         onResult: (text) => {
-          liveText.current = text;
-          setCapturedText(text);
+          // Prepend any previously accumulated text
+          const prefix = accumulatedTextRef.current;
+          const combined = prefix ? prefix + ' ' + text : text;
+          liveText.current = combined;
+          setCapturedText(combined);
         },
         onEnd: () => {
           setIsListening(false);
           addLog('Mic auto-stopped (browser)');
+          // Save accumulated on auto-stop too
           if (liveText.current.trim()) {
+            accumulatedTextRef.current = liveText.current.trim();
             setCapturedText(liveText.current.trim());
           }
         },
@@ -220,6 +346,7 @@ export default function PrioritiesPage() {
 
       setCapturedText('');
       liveText.current = '';
+      accumulatedTextRef.current = '';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addLog(`Capture engine failed: ${msg}, falling back to raw text`);
@@ -236,6 +363,7 @@ export default function PrioritiesPage() {
         addLog('Saved raw text as task (fallback)');
         setCapturedText('');
         liveText.current = '';
+        accumulatedTextRef.current = '';
       } catch (saveErr) {
         const saveMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
         setError(`Save failed: ${saveMsg}`);
@@ -308,7 +436,7 @@ export default function PrioritiesPage() {
                 {processing ? 'Processing...' : 'Add Tasks'}
               </button>
               <button
-                onClick={() => { setCapturedText(''); liveText.current = ''; addLog('Discarded text'); }}
+                onClick={() => { setCapturedText(''); liveText.current = ''; accumulatedTextRef.current = ''; addLog('Discarded text'); }}
                 className="w-full py-2 text-text-tertiary text-sm hover:text-text-secondary"
               >
                 Discard
@@ -342,7 +470,7 @@ export default function PrioritiesPage() {
         </button>
       </div>
 
-      {/* Priority items — numbered checkboxes, swipe to delete */}
+      {/* Priority items — numbered checkboxes, drag to reorder, swipe to delete */}
       {items.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between mb-2">
@@ -351,32 +479,23 @@ export default function PrioritiesPage() {
               {items.filter((i) => i.completed).length}/{items.length}
             </span>
           </div>
-          {items.map((item, index) => (
-            <SwipeToDelete key={item.id} onDelete={() => removeItem(item.id)}>
-              <div
-                className={`flex items-center gap-3 p-3.5 rounded-xl ${
-                  item.completed ? 'bg-success/5' : 'bg-surface'
-                }`}
-              >
-                <span className={`w-6 text-right text-sm font-bold tabular-nums ${
-                  item.completed ? 'text-text-tertiary' : 'text-text-secondary'
-                }`}>
-                  {index + 1}
-                </span>
-                <button
-                  onClick={() => toggleItem(item.id)}
-                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-                    item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
-                  }`}
-                >
-                  {item.completed && <span className="text-white text-xs font-bold">✓</span>}
-                </button>
-                <span className={`text-sm flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
-                  {item.text}
-                </span>
-              </div>
-            </SwipeToDelete>
-          ))}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+              {items.map((item, index) => (
+                <SortablePriorityRow
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  onToggle={() => toggleItem(item.id)}
+                  onDelete={() => removeItem(item.id)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
 
