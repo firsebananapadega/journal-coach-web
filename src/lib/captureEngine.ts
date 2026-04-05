@@ -20,6 +20,8 @@ export interface CaptureResult {
   groceries: GroceryStore[];
   intentions: string[];
   habits: string[];
+  ideas: string[];
+  gratitude: string[];
   journal: string | null;
 }
 
@@ -56,8 +58,14 @@ CATEGORIES:
    Examples: "I should meditate every morning", "read before bed", "drink more water"
 
 5. **journal** — Reflective, emotional, or narrative content. How they feel, what happened, what they're processing.
-   Examples: "I've been feeling stressed about work", "had a great conversation with my mom", "I'm grateful for..."
+   Examples: "I've been feeling stressed about work", "had a great conversation with my mom"
    Capture the essence of what they're reflecting on, cleaned up slightly for readability but preserving their voice.
+
+6. **ideas** — Creative thoughts, business ideas, things to explore someday, "what if" scenarios.
+   Examples: "I should build an app for...", "what if I tried...", "I have an idea for..."
+
+7. **gratitude** — Things the person is grateful for or appreciating.
+   Examples: "I'm grateful for...", "I appreciate...", "thankful for..."
 
 RULES:
 - Only include categories where you actually detect relevant content
@@ -69,7 +77,7 @@ RULES:
 - ALWAYS include the "when" field for every priority task. Default to "today" if no date is mentioned.
 
 Respond with ONLY valid JSON:
-{"priorities": [{"text": "task", "when": "today"}], "groceries": [], "intentions": [], "habits": [], "journal": null}`;
+{"priorities": [{"text": "task", "when": "today"}], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null}`;
 
 export function resolveWhen(when: string, referenceDate?: string): string {
   const ref = referenceDate ? new Date(referenceDate + 'T12:00:00') : new Date();
@@ -152,6 +160,8 @@ export async function classifyCapture(speechText: string): Promise<CaptureResult
     groceries,
     intentions: Array.isArray(parsed.intentions) ? parsed.intentions as string[] : [],
     habits: Array.isArray(parsed.habits) ? parsed.habits as string[] : [],
+    ideas: Array.isArray(parsed.ideas) ? parsed.ideas as string[] : [],
+    gratitude: Array.isArray(parsed.gratitude) ? parsed.gratitude as string[] : [],
     journal: typeof parsed.journal === 'string' ? parsed.journal : null,
   };
 }
@@ -162,6 +172,8 @@ export function hasContent(result: CaptureResult): boolean {
     result.groceries.length > 0 ||
     result.intentions.length > 0 ||
     result.habits.length > 0 ||
+    result.ideas.length > 0 ||
+    result.gratitude.length > 0 ||
     (result.journal !== null && result.journal.trim().length > 0)
   );
 }
@@ -175,6 +187,8 @@ export function summarizeCapture(result: CaptureResult): string {
   }
   if (result.intentions.length > 0) parts.push(`${result.intentions.length} intention${result.intentions.length > 1 ? 's' : ''}`);
   if (result.habits.length > 0) parts.push(`${result.habits.length} habit${result.habits.length > 1 ? 's' : ''}`);
+  if (result.ideas.length > 0) parts.push(`${result.ideas.length} idea${result.ideas.length > 1 ? 's' : ''}`);
+  if (result.gratitude.length > 0) parts.push(`${result.gratitude.length} gratitude${result.gratitude.length > 1 ? 's' : ''}`);
   if (result.journal) parts.push('journal entry');
   return parts.join(', ');
 }

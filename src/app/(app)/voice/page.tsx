@@ -8,7 +8,9 @@ import {
   stopListening,
 } from '@/lib/speechRecognition';
 import { useJournalStore } from '@/stores/journalStore';
+import { useAuthStore } from '@/stores/authStore';
 import { MoodSelector } from '@/components/MoodSelector';
+import { classifyCapture, type CaptureResult } from '@/lib/captureEngine';
 
 export default function VoiceEntryPage() {
   const router = useRouter();
@@ -91,11 +93,12 @@ export default function VoiceEntryPage() {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!transcript.trim()) return;
     const duration = Math.round((Date.now() - startTime.current) / 1000);
     const wordCount = transcript.split(/\s+/).filter(Boolean).length;
-    // Fire and forget — navigate immediately for snappy UX
+
+    // Save the journal entry immediately
     createEntry({
       entry_type: 'voice',
       content_text: transcript,
@@ -105,9 +108,65 @@ export default function VoiceEntryPage() {
       duration_seconds: duration,
       word_count: wordCount,
     }).catch(() => {
-      // Entry failed to save remotely — could add retry logic here
       console.warn('Voice entry failed to save to Supabase');
     });
+
+    // Classify and route in the background
+    classifyCapture(transcript).then((result: CaptureResult) => {
+      // Route ideas to localStorage
+      if (result.ideas.length > 0) {
+        try {
+          const existing = JSON.parse(localStorage.getItem('journal_ideas') || '[]');
+          const newItems = result.ideas.map((text) => ({
+            id: crypto.randomUUID(),
+            text,
+            createdAt: new Date().toISOString(),
+          }));
+          localStorage.setItem('journal_ideas', JSON.stringify([...newItems, ...existing]));
+        } catch {}
+      }
+
+      // Route gratitude to localStorage
+      if (result.gratitude.length > 0) {
+        try {
+          const existing = JSON.parse(localStorage.getItem('journal_gratitude') || '[]');
+          const newItems = result.gratitude.map((text) => ({
+            id: crypto.randomUUID(),
+            text,
+            createdAt: new Date().toISOString(),
+          }));
+          localStorage.setItem('journal_gratitude', JSON.stringify([...newItems, ...existing]));
+        } catch {}
+      }
+
+      // Route intentions to profile
+      if (result.intentions.length > 0) {
+        const profile = useAuthStore.getState().profile;
+        const currentIntentions = profile?.intentions || [];
+        const newIntentions = result.intentions.filter((i) => !currentIntentions.includes(i));
+        if (newIntentions.length > 0) {
+          useAuthStore.getState().updateProfile({
+            intentions: [...currentIntentions, ...newIntentions],
+          });
+        }
+      }
+
+      // Route habits to ideas for now (as specified)
+      if (result.habits.length > 0) {
+        try {
+          const existing = JSON.parse(localStorage.getItem('journal_ideas') || '[]');
+          const newItems = result.habits.map((text) => ({
+            id: crypto.randomUUID(),
+            text: `Habit idea: ${text}`,
+            createdAt: new Date().toISOString(),
+          }));
+          localStorage.setItem('journal_ideas', JSON.stringify([...newItems, ...existing]));
+        } catch {}
+      }
+    }).catch((err) => {
+      console.warn('Capture classification failed:', err);
+    });
+
     router.push('/home');
   };
 

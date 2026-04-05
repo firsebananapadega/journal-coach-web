@@ -11,10 +11,14 @@ import { GuideSelector } from '@/components/GuideSelector';
 import { getGuideOrDefault, type GuideId } from '@/lib/guideConfigs';
 import { getGuideAvatar } from '@/lib/guideAvatars';
 import { supabase } from '@/lib/supabase';
+import { PRESET_HABITS, HABIT_CATEGORIES, type HabitCategory } from '@/lib/presetHabits';
+import { PRESET_INTENTIONS, INTENTION_CATEGORIES, type IntentionCategory } from '@/lib/presetIntentions';
 
 function IntentionsSection() {
   const { profile, updateProfile } = useAuthStore();
   const [newIntention, setNewIntention] = useState('');
+  const [showGallery, setShowGallery] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<IntentionCategory>('presence');
   const intentions = profile?.intentions || [];
 
   const addIntention = async () => {
@@ -23,10 +27,17 @@ function IntentionsSection() {
     setNewIntention('');
   };
 
+  const addPresetIntention = async (title: string) => {
+    if (intentions.includes(title)) return;
+    await updateProfile({ intentions: [...intentions, title] });
+  };
+
   const removeIntention = async (index: number) => {
     const updated = intentions.filter((_, i) => i !== index);
     await updateProfile({ intentions: updated });
   };
+
+  const filteredPresets = PRESET_INTENTIONS.filter((p) => p.category === activeCategory);
 
   return (
     <div className="space-y-2">
@@ -44,12 +55,63 @@ function IntentionsSection() {
         ) : (
           <p className="text-sm text-text-tertiary">No intentions set yet.</p>
         )}
+
+        {/* Gallery */}
+        {showGallery && (
+          <div className="space-y-3 pt-2 border-t border-border">
+            {/* Category tabs */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+              {INTENTION_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.key}
+                  onClick={() => setActiveCategory(cat.key)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    activeCategory === cat.key
+                      ? 'bg-primary text-white'
+                      : 'bg-surface-elevated text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Preset list */}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {filteredPresets.map((preset) => {
+                const isAdded = intentions.includes(preset.title);
+                return (
+                  <div key={preset.title} className="flex items-start gap-3 py-2">
+                    <span className="text-lg mt-0.5">{preset.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary">{preset.title}</p>
+                      <p className="text-xs text-text-tertiary">{preset.description}</p>
+                    </div>
+                    <button
+                      onClick={() => addPresetIntention(preset.title)}
+                      disabled={isAdded}
+                      className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm transition-colors ${
+                        isAdded
+                          ? 'bg-success/20 text-success'
+                          : 'bg-primary/10 text-primary hover:bg-primary/20'
+                      }`}
+                    >
+                      {isAdded ? '✓' : '+'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Custom input */}
         <div className="flex gap-2 pt-1">
           <input
             value={newIntention}
             onChange={(e) => setNewIntention(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addIntention()}
-            placeholder="Add an intention..."
+            placeholder="Add a custom intention..."
             className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-primary"
           />
           <button
@@ -60,6 +122,13 @@ function IntentionsSection() {
             Add
           </button>
         </div>
+
+        <button
+          onClick={() => setShowGallery(!showGallery)}
+          className="w-full py-2 bg-surface-elevated text-text-secondary rounded-lg text-sm hover:text-text-primary transition-colors"
+        >
+          {showGallery ? '− Close Gallery' : '+ Browse Intentions'}
+        </button>
       </div>
     </div>
   );
@@ -67,13 +136,37 @@ function IntentionsSection() {
 
 function HabitsSection() {
   const { habits, fetchHabits, createHabit, deleteHabit } = useHabitStore();
-  const [showForm, setShowForm] = useState(false);
+  const [showGallery, setShowGallery] = useState(false);
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<HabitCategory>('suggested');
   const [newName, setNewName] = useState('');
   const [newTime, setNewTime] = useState<'morning' | 'afternoon' | 'evening' | 'anytime'>('morning');
 
   useEffect(() => { fetchHabits(); }, [fetchHabits]);
 
-  const handleAdd = async () => {
+  const habitNames = habits.filter((h) => h.is_active).map((h) => h.name.toLowerCase());
+
+  const addPresetHabit = async (preset: typeof PRESET_HABITS[number]) => {
+    if (habitNames.includes(preset.name.toLowerCase())) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await createHabit({
+      user_id: user.id,
+      name: preset.name,
+      description: preset.description,
+      cue: preset.cue,
+      routine: preset.routine,
+      reward: preset.reward,
+      frequency: 'daily',
+      custom_days: [],
+      time_of_day: preset.time_of_day,
+      stack_after_habit_id: null,
+      sort_order: habits.length,
+      is_active: true,
+    });
+  };
+
+  const handleAddCustom = async () => {
     if (!newName.trim()) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -92,8 +185,10 @@ function HabitsSection() {
       is_active: true,
     });
     setNewName('');
-    setShowForm(false);
+    setShowCustomForm(false);
   };
+
+  const filteredPresets = PRESET_HABITS.filter((p) => p.category === activeCategory);
 
   return (
     <div className="space-y-2">
@@ -120,42 +215,100 @@ function HabitsSection() {
           <p className="text-sm text-text-tertiary">No habits yet.</p>
         )}
 
-        {showForm ? (
-          <div className="space-y-2 pt-1 border-t border-border">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              placeholder="Habit name..."
-              className="w-full px-3 py-2 bg-surface-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-primary"
-              autoFocus
-            />
-            <div className="flex gap-1">
-              {(['morning', 'afternoon', 'evening', 'anytime'] as const).map((t) => (
+        {/* Gallery */}
+        {showGallery && (
+          <div className="space-y-3 pt-2 border-t border-border">
+            {/* Category tabs */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+              {HABIT_CATEGORIES.map((cat) => (
                 <button
-                  key={t}
-                  onClick={() => setNewTime(t)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${
-                    newTime === t ? 'bg-primary text-white' : 'bg-surface-elevated text-text-secondary'
+                  key={cat.key}
+                  onClick={() => setActiveCategory(cat.key)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    activeCategory === cat.key
+                      ? 'bg-primary text-white'
+                      : 'bg-surface-elevated text-text-secondary hover:text-text-primary'
                   }`}
                 >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                  {cat.label}
                 </button>
               ))}
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => setShowForm(false)} className="flex-1 py-2 bg-surface-elevated text-text-secondary rounded-lg text-sm">Cancel</button>
-              <button onClick={handleAdd} disabled={!newName.trim()} className="flex-1 py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-40">Add Habit</button>
+
+            {/* Preset list */}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {filteredPresets.map((preset) => {
+                const isAdded = habitNames.includes(preset.name.toLowerCase());
+                return (
+                  <div key={preset.name} className="flex items-start gap-3 py-2">
+                    <span className="text-lg mt-0.5">{preset.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary">{preset.name}</p>
+                      <p className="text-xs text-text-tertiary">{preset.description}</p>
+                    </div>
+                    <button
+                      onClick={() => addPresetHabit(preset)}
+                      disabled={isAdded}
+                      className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm transition-colors ${
+                        isAdded
+                          ? 'bg-success/20 text-success'
+                          : 'bg-primary/10 text-primary hover:bg-primary/20'
+                      }`}
+                    >
+                      {isAdded ? '✓' : '+'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
+
+            {/* Custom habit form */}
+            {showCustomForm ? (
+              <div className="space-y-2 pt-2 border-t border-border">
+                <p className="text-xs font-medium text-text-secondary">Create custom habit</p>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddCustom()}
+                  placeholder="Habit name..."
+                  className="w-full px-3 py-2 bg-surface-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-primary"
+                  autoFocus
+                />
+                <div className="flex gap-1">
+                  {(['morning', 'afternoon', 'evening', 'anytime'] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setNewTime(t)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${
+                        newTime === t ? 'bg-primary text-white' : 'bg-surface-elevated text-text-secondary'
+                      }`}
+                    >
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowCustomForm(false)} className="flex-1 py-2 bg-surface-elevated text-text-secondary rounded-lg text-sm">Cancel</button>
+                  <button onClick={handleAddCustom} disabled={!newName.trim()} className="flex-1 py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-40">Add Habit</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowCustomForm(true)}
+                className="w-full py-2 text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+              >
+                Or create a custom habit...
+              </button>
+            )}
           </div>
-        ) : (
-          <button
-            onClick={() => setShowForm(true)}
-            className="w-full py-2 bg-surface-elevated text-text-secondary rounded-lg text-sm hover:text-text-primary transition-colors"
-          >
-            + Add Habit
-          </button>
         )}
+
+        <button
+          onClick={() => { setShowGallery(!showGallery); setShowCustomForm(false); }}
+          className="w-full py-2 bg-surface-elevated text-text-secondary rounded-lg text-sm hover:text-text-primary transition-colors"
+        >
+          {showGallery ? '− Close Gallery' : '+ Add Habit'}
+        </button>
       </div>
     </div>
   );
