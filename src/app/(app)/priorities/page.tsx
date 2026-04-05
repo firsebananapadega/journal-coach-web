@@ -10,6 +10,7 @@ import {
 } from '@/lib/speechRecognition';
 import { classifyCapture, resolveWhen, type PriorityTask } from '@/lib/captureEngine';
 import { supabase } from '@/lib/supabase';
+import { SwipeToDelete } from '@/components/SwipeToDelete';
 
 function buildWeekDates(): Date[] {
   const today = new Date();
@@ -341,7 +342,7 @@ export default function PrioritiesPage() {
         </button>
       </div>
 
-      {/* Priority items — numbered checkboxes with delete */}
+      {/* Priority items — numbered checkboxes, swipe to delete */}
       {items.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between mb-2">
@@ -351,94 +352,68 @@ export default function PrioritiesPage() {
             </span>
           </div>
           {items.map((item, index) => (
-            <div
-              key={item.id}
-              className={`flex items-center gap-3 p-3.5 rounded-xl transition-colors ${
-                item.completed ? 'bg-success/5' : 'bg-surface'
-              }`}
-            >
-              {/* Number badge */}
-              <span className={`w-6 text-right text-sm font-bold tabular-nums ${
-                item.completed ? 'text-text-tertiary' : 'text-text-secondary'
-              }`}>
-                {index + 1}
-              </span>
-              {/* Checkbox */}
-              <button
-                onClick={() => toggleItem(item.id)}
-                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-                  item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
+            <SwipeToDelete key={item.id} onDelete={() => removeItem(item.id)}>
+              <div
+                className={`flex items-center gap-3 p-3.5 rounded-xl ${
+                  item.completed ? 'bg-success/5' : 'bg-surface'
                 }`}
               >
-                {item.completed && <span className="text-white text-xs font-bold">✓</span>}
-              </button>
-              {/* Text */}
-              <span className={`text-sm flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
-                {item.text}
-              </span>
-              {/* Delete */}
-              <button
-                onClick={() => removeItem(item.id)}
-                className="text-text-tertiary hover:text-error transition-colors px-1"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
+                <span className={`w-6 text-right text-sm font-bold tabular-nums ${
+                  item.completed ? 'text-text-tertiary' : 'text-text-secondary'
+                }`}>
+                  {index + 1}
+                </span>
+                <button
+                  onClick={() => toggleItem(item.id)}
+                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                    item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
+                  }`}
+                >
+                  {item.completed && <span className="text-white text-xs font-bold">✓</span>}
+                </button>
+                <span className={`text-sm flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
+                  {item.text}
+                </span>
+              </div>
+            </SwipeToDelete>
           ))}
         </div>
       )}
 
-      {/* Groceries */}
+      {/* Groceries — swipe to delete items and groups */}
       {groceries.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Groceries</h2>
           {groceries.map((group) => (
-            <div key={group.id} className="bg-surface rounded-xl border border-border p-3 space-y-1">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs font-semibold text-text-secondary uppercase">{group.store}</p>
-                <div className="flex items-center gap-2">
+            <SwipeToDelete key={group.id} onDelete={() => removeGroceryGroup(group.id)}>
+              <div className="bg-surface rounded-xl border border-border p-3 space-y-1">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-semibold text-text-secondary uppercase">{group.store}</p>
                   <span className="text-xs text-text-tertiary">
                     {group.items.filter((i) => i.completed).length}/{group.items.length}
                   </span>
-                  <button
-                    onClick={() => removeGroceryGroup(group.id)}
-                    className="text-text-tertiary hover:text-error transition-colors"
-                    title="Delete entire group"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
                 </div>
-              </div>
-              {group.items.map((item) => (
-                <div key={item.id} className="flex items-center gap-2 py-1">
-                  <button
-                    onClick={() => toggleGroceryItem(group.id, item.id)}
-                    className="flex items-center gap-2 flex-1"
-                  >
-                    <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
-                      item.completed ? 'bg-success border-success' : 'border-border'
-                    }`}>
-                      {item.completed && <span className="text-white text-[10px]">✓</span>}
+                {group.items.map((item) => (
+                  <SwipeToDelete key={item.id} onDelete={() => removeGroceryItem(group.id, item.id)}>
+                    <div className="flex items-center gap-2 py-1.5 bg-surface">
+                      <button
+                        onClick={() => toggleGroceryItem(group.id, item.id)}
+                        className="flex items-center gap-2 flex-1"
+                      >
+                        <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
+                          item.completed ? 'bg-success border-success' : 'border-border'
+                        }`}>
+                          {item.completed && <span className="text-white text-[10px]">✓</span>}
+                        </div>
+                        <span className={`text-sm ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
+                          {item.name}
+                        </span>
+                      </button>
                     </div>
-                    <span className={`text-sm ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
-                      {item.name}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => removeGroceryItem(group.id, item.id)}
-                    className="text-text-tertiary hover:text-error transition-colors px-1"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
+                  </SwipeToDelete>
+                ))}
+              </div>
+            </SwipeToDelete>
           ))}
         </div>
       )}
