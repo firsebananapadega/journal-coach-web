@@ -329,7 +329,7 @@ export default function PrioritiesPage() {
           value={newItem}
           onChange={(e) => setNewItem(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
-          placeholder="Add a task..."
+          placeholder="Add a priority..."
           className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary outline-none text-sm"
         />
         <button
@@ -344,7 +344,7 @@ export default function PrioritiesPage() {
       {/* Task items */}
       {items.length > 0 && (
         <div className="space-y-1">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">Tasks</h2>
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">Priorities</h2>
           {items.map((item) => (
             <button
               key={item.id}
