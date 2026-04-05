@@ -10,6 +10,7 @@ import { useTheme } from '@/lib/theme';
 import { GuideSelector } from '@/components/GuideSelector';
 import { getGuideOrDefault, type GuideId } from '@/lib/guideConfigs';
 import { getGuideAvatar } from '@/lib/guideAvatars';
+import { getLanguage, setLanguage, LANGUAGES, type AppLanguage } from '@/lib/language';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -21,6 +22,8 @@ export default function SettingsPage() {
   const [showGuidedBubble, setShowGuidedBubble] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
   const [enabledTemplateCount, setEnabledTemplateCount] = useState(0);
+  const [newIntention, setNewIntention] = useState('');
+  const [currentLang, setCurrentLang] = useState<AppLanguage>('en-US');
 
   const intentions = profile?.intentions || [];
 
@@ -32,6 +35,7 @@ export default function SettingsPage() {
     if (tmplStored) {
       try { setEnabledTemplateCount(JSON.parse(tmplStored).length); } catch { /* ignore */ }
     }
+    setCurrentLang(getLanguage());
   }, [fetchHabits]);
 
   const toggleGuidedBubble = (value: boolean) => {
@@ -42,6 +46,18 @@ export default function SettingsPage() {
   const removeIntention = async (index: number) => {
     const updated = intentions.filter((_, i) => i !== index);
     await updateProfile({ intentions: updated });
+  };
+
+  const addIntention = async () => {
+    const text = newIntention.trim();
+    if (!text) return;
+    await updateProfile({ intentions: [...intentions, text] });
+    setNewIntention('');
+  };
+
+  const handleLanguageChange = (lang: AppLanguage) => {
+    setLanguage(lang);
+    setCurrentLang(lang);
   };
 
   const handleSignOut = async () => {
@@ -178,6 +194,34 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Language */}
+      <div className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Language</h2>
+        <div className="bg-surface rounded-2xl border border-border p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-text-primary">
+              {LANGUAGES.find((l) => l.code === currentLang)?.flag}{' '}
+              {LANGUAGES.find((l) => l.code === currentLang)?.label}
+            </span>
+            <div className="flex gap-2">
+              {LANGUAGES.map((lang) => (
+                <button
+                  key={lang.code}
+                  onClick={() => handleLanguageChange(lang.code)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                    currentLang === lang.code
+                      ? 'bg-primary border-primary text-white'
+                      : 'border-border text-text-secondary'
+                  }`}
+                >
+                  {lang.flag} {lang.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Privacy */}
       <div className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Privacy</h2>
@@ -205,6 +249,22 @@ export default function SettingsPage() {
           ) : (
             <p className="text-sm text-text-tertiary">No intentions set yet.</p>
           )}
+          <div className="flex gap-2">
+            <input
+              value={newIntention}
+              onChange={(e) => setNewIntention(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addIntention()}
+              placeholder="Add an intention..."
+              className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-xl text-text-primary text-sm focus:border-primary outline-none"
+            />
+            <button
+              onClick={addIntention}
+              disabled={!newIntention.trim()}
+              className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-40 hover:bg-primary-dark transition-colors"
+            >
+              Add
+            </button>
+          </div>
           <button
             onClick={() => router.push('/intentions')}
             className="w-full py-2.5 bg-surface-elevated text-primary rounded-xl text-sm font-medium hover:bg-primary/10 transition-colors"

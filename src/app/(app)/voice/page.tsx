@@ -11,6 +11,7 @@ import { useJournalStore } from '@/stores/journalStore';
 import { useAuthStore } from '@/stores/authStore';
 import { MoodSelector } from '@/components/MoodSelector';
 import { classifyCapture, type CaptureResult } from '@/lib/captureEngine';
+import { getLanguage } from '@/lib/language';
 
 export default function VoiceEntryPage() {
   const router = useRouter();
@@ -48,6 +49,7 @@ export default function VoiceEntryPage() {
     setIsListening(true);
     const cleanup = startListening({
       continuous: true,
+      language: getLanguage(),
       onResult: (text) => {
         // Append new speech session text after accumulated text
         const prefix = accumulatedRef.current;

@@ -17,6 +17,7 @@ import { useJournalStore } from '@/stores/journalStore';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { MoodSelector } from '@/components/MoodSelector';
+import { getLanguage } from '@/lib/language';
 
 interface Exchange {
   question: string;
@@ -110,6 +111,7 @@ export default function GuidedSessionPage() {
       setIsListening(true);
       const cleanup = startListening({
         continuous: true,
+        language: getLanguage(),
         onResult: (transcript, isFinal) => {
           if (isFinal) {
             setCurrentAnswer(transcript);

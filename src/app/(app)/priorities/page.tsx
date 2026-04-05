@@ -25,6 +25,7 @@ import {
   startListening,
   stopListening,
 } from '@/lib/speechRecognition';
+import { getLanguage } from '@/lib/language';
 import { classifyCapture, resolveWhen, type PriorityTask } from '@/lib/captureEngine';
 import { supabase } from '@/lib/supabase';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
@@ -245,6 +246,7 @@ export default function PrioritiesPage() {
       addLog('Mic started');
       startListening({
         continuous: true,
+        language: getLanguage(),
         onResult: (text) => {
           // Prepend any previously accumulated text
           const prefix = accumulatedTextRef.current;

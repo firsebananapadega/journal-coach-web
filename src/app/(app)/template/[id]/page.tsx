@@ -10,6 +10,7 @@ import {
   startListening,
   stopListening,
 } from '@/lib/speechRecognition';
+import { getLanguage } from '@/lib/language';
 
 interface TemplateQuestion {
   id: string;
@@ -100,6 +101,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
       setIsListening(true);
       startListening({
         continuous: true,
+        language: getLanguage(),
         onResult: (text) => {
           const i = currentQRef.current;
           const updated = [...answersRef.current];
