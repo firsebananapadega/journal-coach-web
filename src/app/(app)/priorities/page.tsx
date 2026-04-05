@@ -1,13 +1,27 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { usePriorityStore, type PriorityItem } from '@/stores/priorityStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
+import {
+  isSpeechRecognitionSupported,
+  requestMicPermission,
+  startListening,
+  stopListening,
+} from '@/lib/speechRecognition';
+import { classifyCapture, type CaptureResult } from '@/lib/captureEngine';
+import { extractPriorities } from '@/lib/priorityEngine';
 
 export default function PrioritiesPage() {
   const today = toLocalDateStr(new Date());
   const { items, groceries, fetchPriorities, savePriorities, toggleItem, toggleGroceryItem, loading } = usePriorityStore();
   const [newItem, setNewItem] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
+  const transcriptRef = useRef('');
+  transcriptRef.current = transcript;
 
   useEffect(() => {
     fetchPriorities(today);
@@ -25,6 +39,53 @@ export default function PrioritiesPage() {
     setNewItem('');
   };
 
+  const toggleMic = async () => {
+    if (isListening) {
+      stopListening();
+      setIsListening(false);
+      // Process the transcript
+      if (transcriptRef.current.trim()) {
+        await processVoice(transcriptRef.current);
+      }
+    } else {
+      const granted = await requestMicPermission();
+      if (!granted) {
+        alert('Please enable microphone access.');
+        return;
+      }
+      setTranscript('');
+      setIsListening(true);
+      startListening({
+        continuous: true,
+        onResult: (text) => setTranscript(text),
+        onEnd: () => setIsListening(false),
+        onError: () => setIsListening(false),
+      });
+    }
+  };
+
+  const processVoice = async (text: string) => {
+    setProcessing(true);
+    try {
+      const extracted = await extractPriorities(text);
+      if (extracted.length > 0) {
+        const merged = [...items, ...extracted.map((p, i) => ({ ...p, sort_order: items.length + i }))];
+        await savePriorities(today, merged);
+      }
+    } catch (err) {
+      // Fallback: just add the raw text as a single priority
+      const item: PriorityItem = {
+        id: crypto.randomUUID(),
+        text: text.trim(),
+        completed: false,
+        sort_order: items.length,
+      };
+      await savePriorities(today, [...items, item]);
+    }
+    setTranscript('');
+    setProcessing(false);
+  };
+
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
       <div>
@@ -34,7 +95,44 @@ export default function PrioritiesPage() {
         </p>
       </div>
 
-      {/* Add new priority */}
+      {/* Voice capture */}
+      {speechSupported && (
+        <div className="space-y-2">
+          <button
+            onClick={toggleMic}
+            disabled={processing}
+            className={`w-full py-3 rounded-2xl flex items-center justify-center gap-2 font-medium transition-colors ${
+              isListening
+                ? 'bg-error text-white'
+                : processing
+                ? 'bg-surface-elevated text-text-tertiary'
+                : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {processing ? (
+              <>Processing...</>
+            ) : isListening ? (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                Stop &amp; Add Tasks
+              </>
+            ) : (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                </svg>
+                Speak your priorities
+              </>
+            )}
+          </button>
+          {isListening && transcript && (
+            <p className="text-sm text-text-secondary bg-surface rounded-xl p-3 italic">{transcript}</p>
+          )}
+        </div>
+      )}
+
+      {/* Add new priority manually */}
       <div className="flex gap-2">
         <input
           value={newItem}
@@ -55,6 +153,7 @@ export default function PrioritiesPage() {
       {/* Priority items */}
       {items.length > 0 ? (
         <div className="space-y-1">
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">Tasks</h2>
           {items.map((item) => (
             <button
               key={item.id}
@@ -75,10 +174,11 @@ export default function PrioritiesPage() {
           ))}
         </div>
       ) : (
-        !loading && (
+        !loading && !processing && (
           <div className="text-center py-12 space-y-2">
             <p className="text-4xl">🎯</p>
             <p className="text-text-secondary text-sm">No priorities for today yet.</p>
+            <p className="text-text-tertiary text-xs">Speak or type to add tasks.</p>
           </div>
         )
       )}

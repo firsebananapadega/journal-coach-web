@@ -12,6 +12,155 @@ import { getGuideOrDefault, type GuideId } from '@/lib/guideConfigs';
 import { getGuideAvatar } from '@/lib/guideAvatars';
 import { supabase } from '@/lib/supabase';
 
+function IntentionsSection() {
+  const { profile, updateProfile } = useAuthStore();
+  const [newIntention, setNewIntention] = useState('');
+  const intentions = profile?.intentions || [];
+
+  const addIntention = async () => {
+    if (!newIntention.trim()) return;
+    await updateProfile({ intentions: [...intentions, newIntention.trim()] });
+    setNewIntention('');
+  };
+
+  const removeIntention = async (index: number) => {
+    const updated = intentions.filter((_, i) => i !== index);
+    await updateProfile({ intentions: updated });
+  };
+
+  return (
+    <div className="space-y-2">
+      <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Intentions</h2>
+      <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
+        {intentions.length > 0 ? (
+          <div className="space-y-2">
+            {intentions.map((intention, i) => (
+              <div key={i} className="flex items-center justify-between gap-2">
+                <span className="text-sm text-text-primary flex-1">{intention}</span>
+                <button onClick={() => removeIntention(i)} className="text-text-tertiary hover:text-error text-xs px-2">✕</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-text-tertiary">No intentions set yet.</p>
+        )}
+        <div className="flex gap-2 pt-1">
+          <input
+            value={newIntention}
+            onChange={(e) => setNewIntention(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addIntention()}
+            placeholder="Add an intention..."
+            className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-primary"
+          />
+          <button
+            onClick={addIntention}
+            disabled={!newIntention.trim()}
+            className="px-3 py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-40"
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HabitsSection() {
+  const { habits, fetchHabits, createHabit, deleteHabit } = useHabitStore();
+  const [showForm, setShowForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newTime, setNewTime] = useState<'morning' | 'afternoon' | 'evening' | 'anytime'>('morning');
+
+  useEffect(() => { fetchHabits(); }, [fetchHabits]);
+
+  const handleAdd = async () => {
+    if (!newName.trim()) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await createHabit({
+      user_id: user.id,
+      name: newName.trim(),
+      description: null,
+      cue: null,
+      routine: newName.trim(),
+      reward: null,
+      frequency: 'daily',
+      custom_days: [],
+      time_of_day: newTime,
+      stack_after_habit_id: null,
+      sort_order: habits.length,
+      is_active: true,
+    });
+    setNewName('');
+    setShowForm(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Habits</h2>
+      <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
+        {habits.length > 0 ? (
+          <div className="space-y-2">
+            {habits.filter((h) => h.is_active).map((habit) => (
+              <div key={habit.id} className="flex items-center justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-text-primary truncate">{habit.name}</p>
+                  <p className="text-xs text-text-tertiary capitalize">{habit.time_of_day} · {habit.frequency}</p>
+                </div>
+                <button
+                  onClick={() => { if (confirm(`Delete "${habit.name}"?`)) deleteHabit(habit.id); }}
+                  className="text-text-tertiary hover:text-error text-xs px-2"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-text-tertiary">No habits yet.</p>
+        )}
+
+        {showForm ? (
+          <div className="space-y-2 pt-1 border-t border-border">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              placeholder="Habit name..."
+              className="w-full px-3 py-2 bg-surface-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-primary"
+              autoFocus
+            />
+            <div className="flex gap-1">
+              {(['morning', 'afternoon', 'evening', 'anytime'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setNewTime(t)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium ${
+                    newTime === t ? 'bg-primary text-white' : 'bg-surface-elevated text-text-secondary'
+                  }`}
+                >
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowForm(false)} className="flex-1 py-2 bg-surface-elevated text-text-secondary rounded-lg text-sm">Cancel</button>
+              <button onClick={handleAdd} disabled={!newName.trim()} className="flex-1 py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-40">Add Habit</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowForm(true)}
+            className="w-full py-2 bg-surface-elevated text-text-secondary rounded-lg text-sm hover:text-text-primary transition-colors"
+          >
+            + Add Habit
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const ICONS: Record<string, string> = {
   moon: '🌙', sun: '☀️', heart: '❤️', face: '😊',
   cloud: '☁️', calendar: '📅', target: '🎯', document: '📄',
@@ -249,21 +398,11 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Intentions */}
-      {profile?.intentions && profile.intentions.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Your Intentions</h2>
-          <div className="bg-surface rounded-2xl border border-border p-4">
-            <div className="flex flex-wrap gap-2">
-              {profile.intentions.map((intention, i) => (
-                <span key={i} className="px-3 py-1.5 bg-surface-elevated rounded-lg text-xs text-text-secondary">
-                  {intention}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Intentions — editable */}
+      <IntentionsSection />
+
+      {/* Habits — editable */}
+      <HabitsSection />
 
       {/* Sign Out */}
       <button

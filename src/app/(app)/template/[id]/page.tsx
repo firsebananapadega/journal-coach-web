@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, useRef, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useJournalStore } from '@/stores/journalStore';
@@ -9,6 +9,7 @@ import {
   isSpeechRecognitionSupported,
   requestMicPermission,
   startListening,
+  stopListening,
 } from '@/lib/speechRecognition';
 
 interface TemplateQuestion {
@@ -36,10 +37,16 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   const [moodScore, setMoodScore] = useState<number | null>(null);
   const [moodLabel, setMoodLabel] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [loadError, setLoadError] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
-  const [stopFn, setStopFn] = useState<(() => void) | null>(null);
+
+  // Use refs for the speech callback to always have current values
+  const answersRef = useRef(answers);
+  const currentQRef = useRef(currentQ);
+  answersRef.current = answers;
+  currentQRef.current = currentQ;
 
   useEffect(() => {
     if (!templateId) return;
@@ -48,9 +55,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
         setLoadError(true);
         return;
       }
-      // questions is JSONB — array of {id, question_text, input_type, placeholder}
       const rawQuestions = Array.isArray(data.questions) ? data.questions : [];
-      // Filter out phase headers — only show answerable questions
       const questions = rawQuestions.filter(
         (q: TemplateQuestion) => q.input_type !== 'phase_header'
       ) as TemplateQuestion[];
@@ -59,32 +64,45 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
     });
   }, [templateId]);
 
-  const toggleMic = async (index: number) => {
+  // Stop mic when changing questions
+  const stopMic = useCallback(() => {
     if (isListening) {
-      stopFn?.();
-      setStopFn(null);
+      stopListening();
       setIsListening(false);
+    }
+  }, [isListening]);
+
+  const goToQuestion = (index: number) => {
+    stopMic();
+    setCurrentQ(index);
+  };
+
+  const toggleMic = async () => {
+    if (isListening) {
+      stopMic();
     } else {
       const granted = await requestMicPermission();
       if (!granted) return;
       setIsListening(true);
-      const cleanup = startListening({
+      startListening({
         continuous: true,
         onResult: (text) => {
-          const updated = [...answers];
-          updated[index] = text;
+          // Always write to the CURRENT question using ref
+          const idx = currentQRef.current;
+          const updated = [...answersRef.current];
+          updated[idx] = text;
           setAnswers(updated);
         },
-        onEnd: () => { setIsListening(false); setStopFn(null); },
-        onError: () => { setIsListening(false); },
+        onEnd: () => setIsListening(false),
+        onError: () => setIsListening(false),
       });
-      setStopFn(() => cleanup);
     }
   };
 
   const handleSave = async () => {
     if (!template) return;
     setSaving(true);
+    setSaveError('');
     const contentParts = template.questions.map((q, i) => `Q: ${q.question_text}\nA: ${answers[i] || '(skipped)'}`);
     const contentText = contentParts.join('\n\n');
     const wordCount = answers.join(' ').split(/\s+/).filter(Boolean).length;
@@ -99,7 +117,8 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
         word_count: wordCount,
       });
       router.push('/home');
-    } catch {
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save. Please try again.');
       setSaving(false);
     }
   };
@@ -118,12 +137,12 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   }
 
   const isDone = currentQ >= template.questions.length;
-  const currentQuestion = template.questions[currentQ];
+  const currentQuestion = !isDone ? template.questions[currentQ] : null;
 
   return (
     <div className="flex flex-col h-screen bg-bg">
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
-        <button onClick={() => router.push('/home')} className="text-text-secondary text-lg">✕</button>
+        <button onClick={() => { stopMic(); router.push('/home'); }} className="text-text-secondary text-lg">✕</button>
         <span className="text-sm font-semibold text-text-primary">{template.name}</span>
         <div className="w-10" />
       </div>
@@ -136,7 +155,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
           ))}
         </div>
 
-        {!isDone ? (
+        {!isDone && currentQuestion ? (
           <div className="space-y-4">
             <p className="text-lg text-text-primary font-medium">{currentQuestion.question_text}</p>
 
@@ -152,7 +171,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
                 }}
               />
             ) : (
-              <div className="flex items-end gap-2">
+              <div className="space-y-2">
                 <textarea
                   value={answers[currentQ] || ''}
                   onChange={(e) => {
@@ -161,19 +180,22 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
                     setAnswers(updated);
                   }}
                   placeholder={currentQuestion.placeholder || 'Your answer...'}
-                  className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[100px] focus:border-primary"
+                  className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[120px] focus:border-primary"
                 />
                 {speechSupported && (
                   <button
-                    onClick={() => toggleMic(currentQ)}
-                    className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      isListening ? 'bg-error' : 'bg-primary'
+                    onClick={toggleMic}
+                    className={`w-full py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm font-medium transition-colors ${
+                      isListening
+                        ? 'bg-error text-white'
+                        : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
                     }`}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                     </svg>
+                    {isListening ? 'Stop Recording' : 'Tap to Speak'}
                   </button>
                 )}
               </div>
@@ -181,12 +203,12 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
 
             <div className="flex gap-2">
               {currentQ > 0 && (
-                <button onClick={() => setCurrentQ(currentQ - 1)} className="flex-1 py-3 bg-surface border border-border text-text-secondary rounded-xl text-sm font-medium">
+                <button onClick={() => goToQuestion(currentQ - 1)} className="flex-1 py-3 bg-surface border border-border text-text-secondary rounded-xl text-sm font-medium">
                   Previous
                 </button>
               )}
               <button
-                onClick={() => setCurrentQ(currentQ + 1)}
+                onClick={() => goToQuestion(currentQ + 1)}
                 className="flex-1 py-3 bg-primary text-white rounded-xl text-sm font-semibold"
               >
                 {currentQ < template.questions.length - 1 ? 'Next' : 'Done'}
@@ -203,6 +225,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
               </div>
             ))}
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
+            {saveError && <p className="text-error text-sm text-center">{saveError}</p>}
             <button
               onClick={handleSave}
               disabled={saving}
