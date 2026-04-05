@@ -31,7 +31,7 @@ export default function HomePage() {
   const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
   const { entries, fetchEntries } = useJournalStore();
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
-  const [enabledIds, setEnabledIds] = useState<string[] | null>(null);
+  const [enabledIds, setEnabledIds] = useState<string[]>([]);
   const [showGuidedBubble, setShowGuidedBubble] = useState(true);
 
   const today = toLocalDateStr(new Date());
@@ -68,7 +68,8 @@ export default function HomePage() {
     const guidedPref = typeof window !== 'undefined' ? localStorage.getItem('show_guided_bubble') : null;
     setShowGuidedBubble(guidedPref !== 'false');
     const stored = typeof window !== 'undefined' ? localStorage.getItem('enabled_template_ids') : null;
-    const ids = stored ? JSON.parse(stored) as string[] : null;
+    // If no preferences saved, default to empty (user must select in settings or onboarding)
+    const ids = stored ? JSON.parse(stored) as string[] : [];
     setEnabledIds(ids);
     supabase.from('templates').select('id, name, icon, description, category').eq('is_active', true).order('sort_order').then(({ data }) => {
       if (data) setTemplates(data);
@@ -138,7 +139,7 @@ export default function HomePage() {
         <div className="space-y-2">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Templates</h2>
           <div className="grid grid-cols-3 gap-2">
-            {templates.filter((t) => enabledIds === null || enabledIds.includes(t.id)).map((tmpl) => {
+            {templates.filter((t) => enabledIds !== null && enabledIds.includes(t.id)).map((tmpl) => {
               const done = templateCompletedToday.has(tmpl.id);
               return (
                 <button
