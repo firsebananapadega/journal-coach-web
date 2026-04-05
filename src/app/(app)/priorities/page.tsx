@@ -37,7 +37,7 @@ export default function PrioritiesPage() {
   const weekDates = useMemo(() => buildWeekDates(), []);
   const [selectedDate, setSelectedDate] = useState(todayDateStr);
 
-  const { items, groceries, fetchPriorities, savePriorities, saveGroceries, toggleItem, toggleGroceryItem, loading } = usePriorityStore();
+  const { items, groceries, fetchPriorities, savePriorities, saveGroceries, toggleItem, toggleGroceryItem, removeItem, removeGroceryItem, removeGroceryGroup, loading } = usePriorityStore();
   const [newItem, setNewItem] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [capturedText, setCapturedText] = useState('');
@@ -341,27 +341,51 @@ export default function PrioritiesPage() {
         </button>
       </div>
 
-      {/* Task items */}
+      {/* Priority items — numbered checkboxes with delete */}
       {items.length > 0 && (
         <div className="space-y-1">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">Priorities</h2>
-          {items.map((item) => (
-            <button
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Priorities</h2>
+            <span className="text-xs text-text-tertiary">
+              {items.filter((i) => i.completed).length}/{items.length}
+            </span>
+          </div>
+          {items.map((item, index) => (
+            <div
               key={item.id}
-              onClick={() => toggleItem(item.id)}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors ${
-                item.completed ? 'bg-success/10' : 'bg-surface hover:bg-surface-elevated'
+              className={`flex items-center gap-3 p-3.5 rounded-xl transition-colors ${
+                item.completed ? 'bg-success/5' : 'bg-surface'
               }`}
             >
-              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                item.completed ? 'bg-success border-success' : 'border-border'
+              {/* Number badge */}
+              <span className={`w-6 text-right text-sm font-bold tabular-nums ${
+                item.completed ? 'text-text-tertiary' : 'text-text-secondary'
               }`}>
-                {item.completed && <span className="text-white text-xs font-bold">&#10003;</span>}
-              </div>
-              <span className={`text-sm text-left flex-1 ${item.completed ? 'text-text-secondary line-through' : 'text-text-primary'}`}>
+                {index + 1}
+              </span>
+              {/* Checkbox */}
+              <button
+                onClick={() => toggleItem(item.id)}
+                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                  item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
+                }`}
+              >
+                {item.completed && <span className="text-white text-xs font-bold">✓</span>}
+              </button>
+              {/* Text */}
+              <span className={`text-sm flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
                 {item.text}
               </span>
-            </button>
+              {/* Delete */}
+              <button
+                onClick={() => removeItem(item.id)}
+                className="text-text-tertiary hover:text-error transition-colors px-1"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -372,22 +396,47 @@ export default function PrioritiesPage() {
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Groceries</h2>
           {groceries.map((group) => (
             <div key={group.id} className="bg-surface rounded-xl border border-border p-3 space-y-1">
-              <p className="text-xs font-semibold text-text-secondary uppercase">{group.store}</p>
-              {group.items.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => toggleGroceryItem(group.id, item.id)}
-                  className="w-full flex items-center gap-2 py-1"
-                >
-                  <div className={`w-5 h-5 rounded border flex items-center justify-center ${
-                    item.completed ? 'bg-success border-success' : 'border-border'
-                  }`}>
-                    {item.completed && <span className="text-white text-[10px]">&#10003;</span>}
-                  </div>
-                  <span className={`text-sm ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
-                    {item.name}
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-semibold text-text-secondary uppercase">{group.store}</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-text-tertiary">
+                    {group.items.filter((i) => i.completed).length}/{group.items.length}
                   </span>
-                </button>
+                  <button
+                    onClick={() => removeGroceryGroup(group.id)}
+                    className="text-text-tertiary hover:text-error transition-colors"
+                    title="Delete entire group"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              {group.items.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 py-1">
+                  <button
+                    onClick={() => toggleGroceryItem(group.id, item.id)}
+                    className="flex items-center gap-2 flex-1"
+                  >
+                    <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
+                      item.completed ? 'bg-success border-success' : 'border-border'
+                    }`}>
+                      {item.completed && <span className="text-white text-[10px]">✓</span>}
+                    </div>
+                    <span className={`text-sm ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
+                      {item.name}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => removeGroceryItem(group.id, item.id)}
+                    className="text-text-tertiary hover:text-error transition-colors px-1"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
               ))}
             </div>
           ))}

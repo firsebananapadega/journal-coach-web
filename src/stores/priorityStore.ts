@@ -31,6 +31,9 @@ interface PriorityState {
   saveGroceries: (date: string, groceries: GroceryGroup[]) => Promise<void>;
   toggleItem: (itemId: string) => Promise<void>;
   toggleGroceryItem: (groupId: string, itemId: string) => Promise<void>;
+  removeItem: (itemId: string) => Promise<void>;
+  removeGroceryItem: (groupId: string, itemId: string) => Promise<void>;
+  removeGroceryGroup: (groupId: string) => Promise<void>;
   setItems: (items: PriorityItem[]) => void;
   reset: () => void;
 }
@@ -161,6 +164,44 @@ export const usePriorityStore = create<PriorityState>((set, get) => ({
     } catch {
       set({ groceries });
     }
+  },
+
+  removeItem: async (itemId) => {
+    const { items, date } = get();
+    if (!date) return;
+    const updated = items.filter((i) => i.id !== itemId).map((i, idx) => ({ ...i, sort_order: idx }));
+    set({ items: updated });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await upsertRow(user.id, date, { items: updated });
+    } catch { set({ items }); }
+  },
+
+  removeGroceryItem: async (groupId, itemId) => {
+    const { groceries, date } = get();
+    if (!date) return;
+    const updated = groceries
+      .map((g) => g.id === groupId ? { ...g, items: g.items.filter((i) => i.id !== itemId) } : g)
+      .filter((g) => g.items.length > 0);
+    set({ groceries: updated });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await upsertRow(user.id, date, { groceries: updated });
+    } catch { set({ groceries }); }
+  },
+
+  removeGroceryGroup: async (groupId) => {
+    const { groceries, date } = get();
+    if (!date) return;
+    const updated = groceries.filter((g) => g.id !== groupId);
+    set({ groceries: updated });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await upsertRow(user.id, date, { groceries: updated });
+    } catch { set({ groceries }); }
   },
 
   setItems: (items) => set({ items }),

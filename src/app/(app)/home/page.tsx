@@ -220,12 +220,12 @@ export default function HomePage() {
     return ordered;
   }, [allItems, savedOrder]);
 
-  // Sensors: long press (500ms) to start drag
+  // Sensors: immediate drag when in edit mode (no delay needed — edit button activates)
   const pointerSensor = useSensor(PointerSensor, {
-    activationConstraint: { delay: 500, tolerance: 5 },
+    activationConstraint: { distance: 5 },
   });
   const touchSensor = useSensor(TouchSensor, {
-    activationConstraint: { delay: 500, tolerance: 5 },
+    activationConstraint: { delay: 150, tolerance: 5 },
   });
   const sensors = useSensors(pointerSensor, touchSensor);
 
@@ -244,8 +244,8 @@ export default function HomePage() {
     [orderedItems]
   );
 
-  const handleDragStart = useCallback(() => {
-    setEditMode(true);
+  const toggleEditMode = useCallback(() => {
+    setEditMode((prev) => !prev);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -307,19 +307,28 @@ export default function HomePage() {
 
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
-      {/* Greeting */}
-      <div>
-        <p className="text-sm text-text-secondary">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
-        <h1 className="text-2xl font-bold text-text-primary mt-1">{greeting}</h1>
+      {/* Greeting + Edit button */}
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-text-secondary">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </p>
+          <h1 className="text-2xl font-bold text-text-primary mt-1">{greeting}</h1>
+        </div>
+        <button
+          onClick={toggleEditMode}
+          className={`mt-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+            editMode ? 'bg-primary text-white' : 'text-text-tertiary hover:text-text-secondary'
+          }`}
+        >
+          {editMode ? 'Done' : 'Edit'}
+        </button>
       </div>
 
       {/* Draggable bubble grid */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={orderedItems.map((i) => i.id)} strategy={rectSortingStrategy}>
@@ -337,15 +346,7 @@ export default function HomePage() {
       </DndContext>
 
       {editMode && (
-        <div className="flex items-center justify-between px-1">
-          <p className="text-xs text-text-tertiary">Long press to rearrange</p>
-          <button
-            onClick={() => setEditMode(false)}
-            className="px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg"
-          >
-            Done
-          </button>
-        </div>
+        <p className="text-xs text-text-tertiary text-center">Drag bubbles to rearrange</p>
       )}
 
       {/* Weekly Reflection */}
