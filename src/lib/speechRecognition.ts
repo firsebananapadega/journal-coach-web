@@ -122,6 +122,10 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
   recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
     // 'no-speech' and 'aborted' are not real errors
     if (event.error === 'no-speech' || event.error === 'aborted') return;
+    if (event.error === 'not-allowed') {
+      options.onError?.('Microphone access denied. Please allow microphone access in your browser settings.');
+      return;
+    }
     options.onError?.(event.error);
   };
 

@@ -12,6 +12,12 @@ export const metadata: Metadata = {
   title: "JournalCoach",
   description: "Tap and talk. Science-backed journaling with AI guidance.",
   icons: { icon: "/icon.png" },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "JournalCoach",
+  },
 };
 
 export const viewport: Viewport = {

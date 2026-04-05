@@ -11,6 +11,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     initialize();
     loadTheme();
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
   }, [initialize, loadTheme]);
 
   return <>{children}</>;

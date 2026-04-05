@@ -5,7 +5,6 @@ import { usePriorityStore, type PriorityItem, type GroceryGroup } from '@/stores
 import { toLocalDateStr } from '@/lib/dateUtils';
 import {
   isSpeechRecognitionSupported,
-  requestMicPermission,
   startListening,
   stopListening,
 } from '@/lib/speechRecognition';
@@ -88,12 +87,6 @@ export default function PrioritiesPage() {
         setCapturedText(liveText.current.trim());
       }
     } else {
-      const granted = await requestMicPermission();
-      if (!granted) {
-        setError('Microphone permission denied');
-        addLog('Mic permission denied');
-        return;
-      }
       liveText.current = '';
       setError('');
       setIsListening(true);

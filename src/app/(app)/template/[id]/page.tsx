@@ -7,7 +7,6 @@ import { useJournalStore } from '@/stores/journalStore';
 import { MoodSelector } from '@/components/MoodSelector';
 import {
   isSpeechRecognitionSupported,
-  requestMicPermission,
   startListening,
   stopListening,
 } from '@/lib/speechRecognition';
@@ -95,8 +94,6 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
       accumulatedRef.current = answersRef.current[idx] || '';
       stopMic();
     } else {
-      const granted = await requestMicPermission();
-      if (!granted) return;
       // Set accumulated to current answer so new speech appends
       const idx = currentQRef.current;
       accumulatedRef.current = answersRef.current[idx] || '';

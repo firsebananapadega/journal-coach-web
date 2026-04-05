@@ -9,7 +9,6 @@ import { getGuideOrDefault, type GuideId } from '@/lib/guideConfigs';
 import { getGuideAvatar } from '@/lib/guideAvatars';
 import {
   isSpeechRecognitionSupported,
-  requestMicPermission,
   startListening,
   stopListening,
   correctTranscript,
@@ -108,11 +107,6 @@ export default function GuidedSessionPage() {
       stopRef.current = null;
       setIsListening(false);
     } else {
-      const granted = await requestMicPermission();
-      if (!granted) {
-        alert('Please enable microphone access in your browser settings.');
-        return;
-      }
       setIsListening(true);
       const cleanup = startListening({
         continuous: true,

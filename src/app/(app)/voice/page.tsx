@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   isSpeechRecognitionSupported,
-  requestMicPermission,
   startListening,
   stopListening,
 } from '@/lib/speechRecognition';
@@ -35,12 +34,7 @@ export default function VoiceEntryPage() {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
 
-  const startMic = useCallback(async () => {
-    const granted = await requestMicPermission();
-    if (!granted) {
-      alert('Please enable microphone access.');
-      return;
-    }
+  const startMic = useCallback(() => {
     setIsListening(true);
     const cleanup = startListening({
       continuous: true,
