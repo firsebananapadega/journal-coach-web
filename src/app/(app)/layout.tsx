@@ -7,7 +7,7 @@ import Link from 'next/link';
 
 const NAV_ITEMS = [
   { href: '/home', label: 'Home', icon: '🏠' },
-  { href: '/priorities', label: 'Priorities', icon: '🎯' },
+  { href: '/priorities', label: 'Tasks', icon: '🎯' },
   { href: '/journal', label: 'Journal', icon: '📖' },
   { href: '/settings', label: 'Settings', icon: '⚙️' },
 ];

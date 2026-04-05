@@ -19,12 +19,16 @@ export default function PrioritiesPage() {
   const [capturedText, setCapturedText] = useState('');
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
+  const [log, setLog] = useState<string[]>([]);
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
 
-  // Direct ref — always has latest transcript, never stale
   const liveText = useRef('');
   const itemsRef = useRef(items);
   itemsRef.current = items;
+
+  const addLog = useCallback((msg: string) => {
+    setLog(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${msg}`]);
+  }, []);
 
   useEffect(() => {
     fetchPriorities(today);
@@ -38,28 +42,35 @@ export default function PrioritiesPage() {
       completed: false,
       sort_order: items.length,
     };
-    await savePriorities(today, [...items, item]);
-    setNewItem('');
+    try {
+      await savePriorities(today, [...items, item]);
+      setNewItem('');
+      addLog(`Added: "${item.text}"`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+      addLog(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
-  // Toggle mic on/off — does NOT process, just captures text
   const toggleMic = async () => {
     if (isListening) {
       stopListening();
       setIsListening(false);
-      // Copy whatever we have to capturedText for the "Add Tasks" button
+      addLog('Mic stopped');
       if (liveText.current.trim()) {
         setCapturedText(liveText.current.trim());
       }
     } else {
       const granted = await requestMicPermission();
       if (!granted) {
-        alert('Please enable microphone access.');
+        setError('Microphone permission denied');
+        addLog('Mic permission denied');
         return;
       }
       liveText.current = '';
       setError('');
       setIsListening(true);
+      addLog('Mic started');
       startListening({
         continuous: true,
         onResult: (text) => {
@@ -67,8 +78,8 @@ export default function PrioritiesPage() {
           setCapturedText(text);
         },
         onEnd: () => {
-          // Browser auto-stopped — preserve the text, just update mic state
           setIsListening(false);
+          addLog('Mic auto-stopped (browser)');
           if (liveText.current.trim()) {
             setCapturedText(liveText.current.trim());
           }
@@ -76,17 +87,19 @@ export default function PrioritiesPage() {
         onError: (err) => {
           setIsListening(false);
           setError(`Mic error: ${err}`);
+          addLog(`Mic error: ${err}`);
         },
       });
     }
   };
 
-  // Process captured text → extract tasks → save
   const handleAddTasks = async () => {
     const text = capturedText.trim();
-    if (!text) return;
+    if (!text) {
+      addLog('No text to process');
+      return;
+    }
 
-    // Stop mic if still running
     if (isListening) {
       stopListening();
       setIsListening(false);
@@ -94,55 +107,53 @@ export default function PrioritiesPage() {
 
     setProcessing(true);
     setError('');
+    addLog(`Processing: "${text.substring(0, 50)}..."`);
+
+    const currentItems = itemsRef.current;
+
+    // Step 1: Try Gemini extraction
+    let tasks: PriorityItem[] = [];
     try {
-      const extracted = await extractPriorities(text);
-      const currentItems = itemsRef.current;
-      if (extracted.length > 0) {
-        const merged = [...currentItems, ...extracted.map((p, i) => ({ ...p, sort_order: currentItems.length + i }))];
-        await savePriorities(today, merged);
-      } else {
-        // Gemini found no tasks — save the whole thing as one item
-        await savePriorities(today, [...currentItems, {
-          id: crypto.randomUUID(),
-          text,
-          completed: false,
-          sort_order: currentItems.length,
-        }]);
-      }
+      tasks = await extractPriorities(text);
+      addLog(`Gemini extracted ${tasks.length} task(s)`);
+    } catch (geminiErr) {
+      addLog(`Gemini failed: ${geminiErr instanceof Error ? geminiErr.message : String(geminiErr)}`);
+      // Fall through — will save raw text below
+    }
+
+    // Step 2: Build the items to save
+    const newItems = tasks.length > 0
+      ? tasks.map((p, i) => ({ ...p, sort_order: currentItems.length + i }))
+      : [{ id: crypto.randomUUID(), text, completed: false, sort_order: currentItems.length }];
+
+    // Step 3: Save to Supabase
+    try {
+      const merged = [...currentItems, ...newItems];
+      await savePriorities(today, merged);
+      addLog(`Saved ${newItems.length} item(s) to Supabase`);
       setCapturedText('');
       liveText.current = '';
-    } catch {
-      // Gemini failed — save raw text as fallback
-      const currentItems = itemsRef.current;
-      try {
-        await savePriorities(today, [...currentItems, {
-          id: crypto.randomUUID(),
-          text,
-          completed: false,
-          sort_order: currentItems.length,
-        }]);
-        setCapturedText('');
-        liveText.current = '';
-      } catch {
-        setError('Failed to save. Please try again.');
-      }
+    } catch (saveErr) {
+      const msg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+      setError(`Save failed: ${msg}`);
+      addLog(`Supabase save failed: ${msg}`);
     }
+
     setProcessing(false);
   };
 
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-text-primary">Priorities</h1>
+        <h1 className="text-2xl font-bold text-text-primary">Tasks & Groceries</h1>
         <p className="text-sm text-text-secondary mt-1">
           {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
         </p>
       </div>
 
-      {/* Voice capture — two separate actions: record + process */}
+      {/* Voice capture */}
       {speechSupported && (
         <div className="space-y-2">
-          {/* Mic toggle */}
           <button
             onClick={toggleMic}
             disabled={processing}
@@ -156,14 +167,12 @@ export default function PrioritiesPage() {
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
               <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
             </svg>
-            {isListening ? 'Stop Recording' : 'Speak your priorities'}
+            {isListening ? 'Stop Recording' : 'Speak your tasks'}
           </button>
 
-          {/* Show captured text */}
           {capturedText && (
             <div className="bg-surface rounded-xl p-3 space-y-2">
               <p className="text-sm text-text-primary">{capturedText}</p>
-              {/* Process button — always visible when there's text */}
               <button
                 onClick={handleAddTasks}
                 disabled={processing}
@@ -172,7 +181,7 @@ export default function PrioritiesPage() {
                 {processing ? 'Processing...' : 'Add Tasks'}
               </button>
               <button
-                onClick={() => { setCapturedText(''); liveText.current = ''; }}
+                onClick={() => { setCapturedText(''); liveText.current = ''; addLog('Discarded text'); }}
                 className="w-full py-2 text-text-tertiary text-sm hover:text-text-secondary"
               >
                 Discard
@@ -180,17 +189,21 @@ export default function PrioritiesPage() {
             </div>
           )}
 
-          {error && <p className="text-sm text-error">{error}</p>}
+          {error && (
+            <div className="bg-error/10 border border-error/30 rounded-xl p-3">
+              <p className="text-sm text-error">{error}</p>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Add new priority manually */}
+      {/* Manual add */}
       <div className="flex gap-2">
         <input
           value={newItem}
           onChange={(e) => setNewItem(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
-          placeholder="Add a priority..."
+          placeholder="Add a task..."
           className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary outline-none text-sm"
         />
         <button
@@ -202,8 +215,8 @@ export default function PrioritiesPage() {
         </button>
       </div>
 
-      {/* Priority items */}
-      {items.length > 0 ? (
+      {/* Task items */}
+      {items.length > 0 && (
         <div className="space-y-1">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">Tasks</h2>
           {items.map((item) => (
@@ -225,17 +238,9 @@ export default function PrioritiesPage() {
             </button>
           ))}
         </div>
-      ) : (
-        !loading && !processing && !capturedText && (
-          <div className="text-center py-12 space-y-2">
-            <p className="text-4xl">🎯</p>
-            <p className="text-text-secondary text-sm">No priorities for today yet.</p>
-            <p className="text-text-tertiary text-xs">Speak or type to add tasks.</p>
-          </div>
-        )
       )}
 
-      {/* Grocery groups */}
+      {/* Groceries */}
       {groceries.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Groceries</h2>
@@ -260,6 +265,29 @@ export default function PrioritiesPage() {
               ))}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {items.length === 0 && groceries.length === 0 && !loading && !processing && !capturedText && (
+        <div className="text-center py-12 space-y-2">
+          <p className="text-4xl">🎯</p>
+          <p className="text-text-secondary text-sm">No tasks for today yet.</p>
+        </div>
+      )}
+
+      {/* Activity log — visible debug panel */}
+      {log.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Activity Log</h2>
+            <button onClick={() => setLog([])} className="text-xs text-text-tertiary hover:text-text-secondary">Clear</button>
+          </div>
+          <div className="bg-surface rounded-xl border border-border p-3 space-y-0.5">
+            {log.map((entry, i) => (
+              <p key={i} className="text-xs text-text-tertiary font-mono">{entry}</p>
+            ))}
+          </div>
         </div>
       )}
     </div>
