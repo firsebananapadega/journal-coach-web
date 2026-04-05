@@ -190,34 +190,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Recent entries */}
-      {entries.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Recent</h2>
-          <div className="space-y-2">
-            {entries.slice(0, 3).map((entry) => (
-              <button
-                key={entry.id}
-                onClick={() => router.push(`/entry/${entry.id}`)}
-                className="w-full text-left p-3 bg-surface rounded-xl border border-border hover:border-primary/50 transition-colors"
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs text-text-tertiary">
-                    {new Date(entry.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                  </span>
-                  {entry.mood_label && (
-                    <span className="text-xs text-text-secondary capitalize">· {entry.mood_label}</span>
-                  )}
-                  <span className="text-xs text-text-tertiary capitalize">· {entry.entry_type}</span>
-                </div>
-                <p className="text-sm text-text-primary line-clamp-2">
-                  {entry.content_text?.substring(0, 120) || 'No content'}
-                </p>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Recent entries removed — user can browse in Journal tab */}
     </div>
   );
 }
