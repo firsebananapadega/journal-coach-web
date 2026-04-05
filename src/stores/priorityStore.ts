@@ -99,9 +99,9 @@ export const usePriorityStore = create<PriorityState>((set, get) => ({
       await upsertRow(user.id, date, { items });
       set({ items, date });
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Failed to save priorities';
+      const msg = error instanceof Error ? error.message : (error as { message?: string })?.message || 'Failed to save priorities';
       set({ error: msg });
-      throw new Error(msg); // Re-throw so callers know it failed
+      throw new Error(msg);
     } finally {
       set({ loading: false });
     }
