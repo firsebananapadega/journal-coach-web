@@ -175,7 +175,17 @@ export default function HomePage() {
   const [enabledIds, setEnabledIds] = useState<string[]>([]);
   const [showGuidedBubble, setShowGuidedBubble] = useState(true);
   const [editMode, setEditMode] = useState(false);
-  const [gridSlots, setGridSlots] = useState<(string | null)[]>(Array(GRID_SIZE).fill(null));
+  const [gridSlots, setGridSlots] = useState<(string | null)[]>(() => {
+    if (typeof window === 'undefined') return Array(GRID_SIZE).fill(null);
+    try {
+      const saved = localStorage.getItem(GRID_SLOTS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === GRID_SIZE) return parsed;
+      }
+    } catch {}
+    return Array(GRID_SIZE).fill(null);
+  });
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [reflection, setReflection] = useState<WeeklyReflectionData | null>(null);
 
@@ -252,16 +262,18 @@ export default function HomePage() {
   // Build a map from item ID to BubbleItem for quick lookup
   const itemMap = useMemo(() => new Map(allItems.map((item) => [item.id, item])), [allItems]);
 
-  // Sync gridSlots with allItems: ensure all items are placed, remove stale ones
+  // Sync gridSlots with allItems: place new items, clean stale ones
+  // IMPORTANT: does NOT write to localStorage — only handleDragEnd saves positions
   useEffect(() => {
+    if (allItems.length === 0) return; // wait for items to load
     setGridSlots((prev) => {
       const currentIds = new Set(allItems.map((i) => i.id));
-      // Clean stale IDs from slots
       const cleaned = prev.map((id) => (id && currentIds.has(id) ? id : null));
-      // Find items not yet placed in any slot
       const placedIds = new Set(cleaned.filter(Boolean) as string[]);
       const unplaced = allItems.filter((i) => !placedIds.has(i.id));
-      // Place unplaced items in first available empty slots
+      if (unplaced.length === 0 && cleaned.every((id, i) => id === prev[i])) {
+        return prev; // no changes needed
+      }
       const result = [...cleaned];
       let emptyIdx = 0;
       for (const item of unplaced) {
@@ -270,10 +282,6 @@ export default function HomePage() {
           result[emptyIdx] = item.id;
           emptyIdx++;
         }
-      }
-      // Save to localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(result));
       }
       return result;
     });
