@@ -33,7 +33,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   // Hide bottom nav on full-screen pages (guided, voice, write, template, entry detail)
-  const hideNav = ['/guided', '/voice', '/write'].includes(pathname) ||
+  const hideNav = ['/guided', '/voice', '/write', '/habits', '/intentions', '/templates'].includes(pathname) ||
     pathname.startsWith('/template/') || pathname.startsWith('/entry/');
 
   return (
