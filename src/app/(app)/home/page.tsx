@@ -3,6 +3,18 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import {
+  DndContext,
+  DragOverlay,
+  TouchSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import { useAuthStore } from '@/stores/authStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
@@ -48,54 +60,18 @@ const ICONS: Record<string, string> = {
 const GRID_SLOTS_KEY = 'home_grid_slots';
 const GRID_SIZE = 12; // 3 columns x 4 rows
 
-// ---------- Grid slot cell ----------
+// ---------- Bubble content (shared between normal render and drag overlay) ----------
 
-function GridCell({
-  item,
-  slotIndex,
-  editMode,
-  isSelected,
-  onTap,
-  onEditTap,
-}: {
-  item: BubbleItem | null;
-  slotIndex: number;
-  editMode: boolean;
-  isSelected: boolean;
-  onTap: () => void;
-  onEditTap: () => void;
-}) {
-  if (!item) {
-    // Empty slot — only visible in edit mode
-    if (!editMode) return <div />;
-    return (
-      <button
-        onClick={onEditTap}
-        className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border-2 border-dashed transition-colors w-full min-h-[88px] ${
-          isSelected ? 'border-primary bg-primary/10' : 'border-border/40'
-        }`}
-      >
-        <span className="text-xl text-text-tertiary/40">+</span>
-      </button>
-    );
-  }
-
+function BubbleContent({ item, editMode, isDragging }: { item: BubbleItem; editMode: boolean; isDragging?: boolean }) {
   return (
-    <button
-      onClick={() => {
-        if (editMode) {
-          onEditTap();
-        } else {
-          onTap();
-        }
-      }}
+    <div
       className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-colors w-full ${
-        isSelected
-          ? 'border-primary border-2 bg-primary/10'
+        isDragging
+          ? 'border-primary border-2 bg-primary/10 opacity-80 scale-105 shadow-lg'
           : item.done
           ? 'border-success/30 bg-success/5 opacity-60'
-          : 'border-border bg-surface hover:border-primary/50'
-      } ${editMode ? 'animate-wiggle' : ''}`}
+          : 'border-border bg-surface'
+      } ${editMode && !isDragging ? 'animate-wiggle' : ''}`}
     >
       {typeof item.icon === 'string' ? (
         <span className="text-2xl">{item.icon}</span>
@@ -112,7 +88,79 @@ function GridCell({
         {item.label}
       </span>
       {item.done && <span className="text-[10px] text-success">Done</span>}
-    </button>
+    </div>
+  );
+}
+
+// ---------- Droppable grid slot ----------
+
+function DroppableSlot({
+  slotIndex,
+  item,
+  editMode,
+  isDraggedOver,
+  isBeingDragged,
+  onTap,
+}: {
+  slotIndex: number;
+  item: BubbleItem | null;
+  editMode: boolean;
+  isDraggedOver: boolean;
+  isBeingDragged: boolean;
+  onTap: () => void;
+}) {
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `slot-${slotIndex}`,
+    data: { slotIndex },
+  });
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    isDragging,
+  } = useDraggable({
+    id: item ? `drag-${item.id}` : `empty-${slotIndex}`,
+    data: { slotIndex, itemId: item?.id },
+    disabled: !editMode || !item,
+  });
+
+  const highlight = isOver || isDraggedOver;
+
+  // Merge refs
+  const mergedRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      setDropRef(node);
+      setDragRef(node);
+    },
+    [setDropRef, setDragRef],
+  );
+
+  if (!item) {
+    if (!editMode) return <div ref={setDropRef} className="min-h-[88px]" />;
+    return (
+      <div
+        ref={setDropRef}
+        className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border-2 border-dashed transition-colors w-full min-h-[88px] ${
+          highlight ? 'border-primary bg-primary/10' : 'border-border/40'
+        }`}
+      >
+        <span className="text-xl text-text-tertiary/40">+</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={mergedRef}
+      {...attributes}
+      {...(editMode ? listeners : {})}
+      onClick={() => { if (!editMode) onTap(); }}
+      className={`cursor-pointer ${isDragging || isBeingDragged ? 'opacity-30' : ''}`}
+      style={{ touchAction: editMode ? 'none' : 'auto' }}
+    >
+      <BubbleContent item={item} editMode={editMode} />
+    </div>
   );
 }
 
@@ -128,8 +176,13 @@ export default function HomePage() {
   const [showGuidedBubble, setShowGuidedBubble] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [gridSlots, setGridSlots] = useState<(string | null)[]>(Array(GRID_SIZE).fill(null));
-  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [reflection, setReflection] = useState<WeeklyReflectionData | null>(null);
+
+  // Drag sensors
+  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
+  const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } });
+  const sensors = useSensors(pointerSensor, touchSensor);
 
   const today = toLocalDateStr(new Date());
   const timeOfDay = getTimeOfDay();
@@ -226,33 +279,33 @@ export default function HomePage() {
     });
   }, [allItems]);
 
-  const handleSlotTap = useCallback(
-    (slotIndex: number) => {
-      if (selectedSlot === null) {
-        // First tap — select this slot
-        setSelectedSlot(slotIndex);
-      } else if (selectedSlot === slotIndex) {
-        // Tapped the same slot — deselect
-        setSelectedSlot(null);
-      } else {
-        // Second tap — swap the two slots
-        setGridSlots((prev) => {
-          const newSlots = [...prev];
-          const temp = newSlots[selectedSlot];
-          newSlots[selectedSlot] = newSlots[slotIndex];
-          newSlots[slotIndex] = temp;
-          localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(newSlots));
-          return newSlots;
-        });
-        setSelectedSlot(null);
-      }
-    },
-    [selectedSlot]
-  );
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const slotIndex = event.active.data.current?.slotIndex as number | undefined;
+    if (slotIndex !== undefined) setActiveSlot(slotIndex);
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveSlot(null);
+    if (!over) return;
+
+    const fromSlot = active.data.current?.slotIndex as number;
+    const toSlot = over.data.current?.slotIndex as number;
+    if (fromSlot === undefined || toSlot === undefined || fromSlot === toSlot) return;
+
+    setGridSlots((prev) => {
+      const newSlots = [...prev];
+      const temp = newSlots[fromSlot];
+      newSlots[fromSlot] = newSlots[toSlot];
+      newSlots[toSlot] = temp;
+      localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(newSlots));
+      return newSlots;
+    });
+  }, []);
 
   const toggleEditMode = useCallback(() => {
     setEditMode((prev) => !prev);
-    setSelectedSlot(null);
+    setActiveSlot(null);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -335,28 +388,43 @@ export default function HomePage() {
         </button>
       </div>
 
-      {/* Fixed-position bubble grid */}
-      <div className="grid grid-cols-3 gap-2">
-        {gridSlots.map((itemId, slotIndex) => {
-          const item = itemId ? itemMap.get(itemId) ?? null : null;
-          return (
-            <GridCell
-              key={slotIndex}
-              item={item}
-              slotIndex={slotIndex}
-              editMode={editMode}
-              isSelected={editMode && selectedSlot === slotIndex}
-              onTap={() => item && router.push(item.href)}
-              onEditTap={() => handleSlotTap(slotIndex)}
+      {/* Drag-and-drop bubble grid */}
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="grid grid-cols-3 gap-2">
+          {gridSlots.map((itemId, slotIndex) => {
+            const item = itemId ? itemMap.get(itemId) ?? null : null;
+            return (
+              <DroppableSlot
+                key={slotIndex}
+                slotIndex={slotIndex}
+                item={item}
+                editMode={editMode}
+                isDraggedOver={false}
+                isBeingDragged={activeSlot === slotIndex}
+                onTap={() => item && router.push(item.href)}
+              />
+            );
+          })}
+        </div>
+
+        {/* Drag overlay — the floating bubble that follows your finger */}
+        <DragOverlay>
+          {activeSlot !== null && gridSlots[activeSlot] ? (
+            <BubbleContent
+              item={itemMap.get(gridSlots[activeSlot]!)!}
+              editMode={false}
+              isDragging
             />
-          );
-        })}
-      </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {editMode && (
-        <p className="text-xs text-text-tertiary text-center">
-          {selectedSlot !== null ? 'Tap another position to swap' : 'Tap a bubble to select, then tap where to move it'}
-        </p>
+        <p className="text-xs text-text-tertiary text-center">Drag bubbles to rearrange</p>
       )}
 
       {/* Weekly Reflection */}
