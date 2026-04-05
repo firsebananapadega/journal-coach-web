@@ -9,7 +9,8 @@ import {
   startListening,
   stopListening,
 } from '@/lib/speechRecognition';
-import { classifyCapture } from '@/lib/captureEngine';
+import { classifyCapture, resolveWhen, type PriorityTask } from '@/lib/captureEngine';
+import { supabase } from '@/lib/supabase';
 
 function buildWeekDates(): Date[] {
   const today = new Date();
@@ -138,37 +139,60 @@ export default function PrioritiesPage() {
     const currentItems = itemsRef.current;
     const currentGroceries = groceriesRef.current;
 
-    // Use the full capture engine that classifies into priorities, groceries, intentions, habits, journal
+    // Use the full capture engine — classifies into priorities (date-aware), groceries, etc.
     try {
       const result = await classifyCapture(text);
       addLog(`Classified: ${result.priorities.length} tasks, ${result.groceries.length} grocery groups`);
 
-      // Build priority items from classified priorities
-      const newPriorityItems: PriorityItem[] = result.priorities.map((taskText, i) => ({
-        id: crypto.randomUUID(),
-        text: taskText,
-        completed: false,
-        sort_order: currentItems.length + i,
-      }));
+      // Group tasks by resolved date
+      const tasksByDate = new Map<string, PriorityTask[]>();
+      for (const task of result.priorities) {
+        const resolvedDate = resolveWhen(task.when, selectedDate);
+        if (!tasksByDate.has(resolvedDate)) tasksByDate.set(resolvedDate, []);
+        tasksByDate.get(resolvedDate)!.push(task);
+      }
 
-      // If no priorities were extracted but there's no groceries either, save raw text as a task
-      if (newPriorityItems.length === 0 && result.groceries.length === 0) {
-        newPriorityItems.push({
+      // If no priorities and no groceries, save raw text as a task for selected date
+      if (result.priorities.length === 0 && result.groceries.length === 0) {
+        tasksByDate.set(selectedDate, [{ text, when: 'today' }]);
+      }
+
+      // Save tasks to each date
+      for (const [dateStr, tasks] of tasksByDate) {
+        let existingItems: PriorityItem[] = [];
+
+        if (dateStr === selectedDate) {
+          // Current date — use items from store
+          existingItems = currentItems;
+        } else {
+          // Different date — fetch existing items from Supabase
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data } = await supabase
+              .from('daily_priorities')
+              .select('items')
+              .eq('user_id', user.id)
+              .eq('date', dateStr)
+              .maybeSingle();
+            existingItems = (data?.items as PriorityItem[]) ?? [];
+          }
+        }
+
+        const newItems: PriorityItem[] = tasks.map((task, i) => ({
           id: crypto.randomUUID(),
-          text,
+          text: task.text,
           completed: false,
-          sort_order: currentItems.length,
-        });
+          sort_order: existingItems.length + i,
+        }));
+
+        const merged = [...existingItems, ...newItems];
+        await savePriorities(dateStr, merged);
+
+        const dateLabel = dateStr === selectedDate ? 'today' : dateStr;
+        addLog(`Saved ${newItems.length} task(s) for ${dateLabel}`);
       }
 
-      // Save priorities
-      if (newPriorityItems.length > 0) {
-        const mergedItems = [...currentItems, ...newPriorityItems];
-        await savePriorities(selectedDate, mergedItems);
-        addLog(`Saved ${newPriorityItems.length} task(s)`);
-      }
-
-      // Save groceries if any were detected
+      // Save groceries to selected date if any were detected
       if (result.groceries.length > 0) {
         const newGroceryGroups: GroceryGroup[] = result.groceries.map((g) => ({
           id: crypto.randomUUID(),
@@ -180,7 +204,6 @@ export default function PrioritiesPage() {
           })),
         }));
 
-        // Merge with existing groceries — combine items for the same store
         const mergedGroceries = [...currentGroceries];
         for (const newGroup of newGroceryGroups) {
           const existingGroup = mergedGroceries.find(
@@ -197,6 +220,9 @@ export default function PrioritiesPage() {
         const totalNewItems = newGroceryGroups.reduce((sum, g) => sum + g.items.length, 0);
         addLog(`Saved ${totalNewItems} grocery item(s)`);
       }
+
+      // Re-fetch current date to refresh the view
+      await fetchPriorities(selectedDate);
 
       setCapturedText('');
       liveText.current = '';

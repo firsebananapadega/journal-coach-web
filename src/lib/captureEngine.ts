@@ -1,16 +1,22 @@
 // Universal Voice Capture Engine — Smart Router
 // Takes raw speech, Gemini classifies and extracts structured data
-// Routes to: priorities, groceries, intentions, habits, journal
+// Routes to: priorities (with date awareness), groceries, intentions, habits, journal
 
 import { callGemini, parseJsonResponse } from './geminiClient';
+import { toLocalDateStr } from './dateUtils';
 
 export interface GroceryStore {
   store: string;
   items: string[];
 }
 
+export interface PriorityTask {
+  text: string;
+  when: string; // "today", "tomorrow", "monday", or ISO date
+}
+
 export interface CaptureResult {
-  priorities: string[];
+  priorities: PriorityTask[];
   groceries: GroceryStore[];
   intentions: string[];
   habits: string[];
@@ -21,10 +27,22 @@ const ROUTER_PROMPT = `You are a smart voice assistant that categorizes and extr
 
 YOUR JOB: Analyze everything they said and extract data into the correct categories. They may talk about multiple things in one go.
 
+IMPORTANT: Today's date is {TODAY}.
+
 CATEGORIES:
 
-1. **priorities** — Actionable tasks/to-dos for the day. Things they need to DO.
-   Examples: "I need to finish the report", "call the dentist", "pick up dry cleaning"
+1. **priorities** — Actionable tasks/to-dos. Things they need to DO.
+   Each task MUST include a "when" field indicating WHICH DAY it's for:
+   - "today" — if no date is mentioned, or they say "today"
+   - "tomorrow" — if they say "tomorrow"
+   - A specific day name like "monday", "tuesday", etc. — if they mention a day of the week
+   - An ISO date like "2026-04-07" — if they mention a specific date
+
+   Examples:
+   - "I need to finish the report" → {"text": "Finish the report", "when": "today"}
+   - "tomorrow I need to call the dentist" → {"text": "Call the dentist", "when": "tomorrow"}
+   - "on Monday pick up dry cleaning" → {"text": "Pick up dry cleaning", "when": "monday"}
+   - "I need to submit taxes by April 15th" → {"text": "Submit taxes", "when": "2026-04-15"}
 
 2. **groceries** — Items to buy, grouped by store. If no store is mentioned, use "General".
    Examples: "get milk from Costco", "spinach and mushrooms from the Indian store", "I need bananas"
@@ -48,38 +66,92 @@ RULES:
 - For journal content, preserve the user's voice but clean up speech artifacts (um, uh, like, you know)
 - If the entire speech is just reflective/emotional, it's ALL journal content — don't force-extract priorities
 - Return empty arrays/null for categories with no matching content
+- ALWAYS include the "when" field for every priority task. Default to "today" if no date is mentioned.
 
 Respond with ONLY valid JSON:
-{"priorities": [], "groceries": [], "intentions": [], "habits": [], "journal": null}`;
+{"priorities": [{"text": "task", "when": "today"}], "groceries": [], "intentions": [], "habits": [], "journal": null}`;
+
+export function resolveWhen(when: string, referenceDate?: string): string {
+  const ref = referenceDate ? new Date(referenceDate + 'T12:00:00') : new Date();
+  const whenLower = (when || 'today').toLowerCase().trim();
+
+  if (whenLower === 'today') {
+    return toLocalDateStr(ref);
+  }
+
+  if (whenLower === 'tomorrow') {
+    const d = new Date(ref);
+    d.setDate(d.getDate() + 1);
+    return toLocalDateStr(d);
+  }
+
+  // Check if it's already an ISO date (YYYY-MM-DD)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(whenLower)) {
+    return whenLower;
+  }
+
+  // Day of week names
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const dayIndex = dayNames.indexOf(whenLower);
+  if (dayIndex !== -1) {
+    const current = ref.getDay();
+    let daysAhead = dayIndex - current;
+    if (daysAhead <= 0) daysAhead += 7; // next occurrence
+    const d = new Date(ref);
+    d.setDate(d.getDate() + daysAhead);
+    return toLocalDateStr(d);
+  }
+
+  // Fallback: today
+  return toLocalDateStr(ref);
+}
 
 export async function classifyCapture(speechText: string): Promise<CaptureResult> {
-  const prompt = ROUTER_PROMPT + `\n\nUser said:\n"${speechText}"\n\nRespond with JSON only.`;
+  const todayStr = toLocalDateStr(new Date());
+  const prompt = ROUTER_PROMPT.replace('{TODAY}', todayStr) + `\n\nUser said:\n"${speechText}"\n\nRespond with JSON only.`;
   const text = await callGemini('gemini-2.5-flash', prompt, 25000);
-  const parsed = parseJsonResponse<any>(text, {});
+  const parsed = parseJsonResponse<Record<string, unknown>>(text, {});
+
+  // Normalize priorities — handle both string[] and {text, when}[] formats
+  let priorities: PriorityTask[] = [];
+  if (Array.isArray(parsed.priorities)) {
+    priorities = parsed.priorities.map((p: unknown) => {
+      if (typeof p === 'string') {
+        return { text: p, when: 'today' };
+      }
+      if (p && typeof p === 'object') {
+        const obj = p as Record<string, unknown>;
+        return {
+          text: typeof obj.text === 'string' ? obj.text : String(obj.text || ''),
+          when: typeof obj.when === 'string' ? obj.when : 'today',
+        };
+      }
+      return { text: String(p), when: 'today' };
+    });
+  }
 
   // Normalize groceries — Gemini may return various formats
   let groceries: GroceryStore[] = [];
   try {
     const raw = parsed.groceries;
     if (Array.isArray(raw)) {
-      groceries = raw.map((g: any) => ({
-        store: g.store || 'General',
-        items: Array.isArray(g.items) ? g.items : [],
+      groceries = raw.map((g: Record<string, unknown>) => ({
+        store: (g.store as string) || 'General',
+        items: Array.isArray(g.items) ? g.items as string[] : [],
       }));
     } else if (raw && typeof raw === 'object') {
-      // Handle format like { "Safeway": ["apples", "milk"], "Costco": ["bread"] }
-      groceries = Object.entries(raw).map(([store, items]) => ({
+      groceries = Object.entries(raw as Record<string, unknown>).map(([store, items]) => ({
         store,
-        items: Array.isArray(items) ? items : [],
+        items: Array.isArray(items) ? items as string[] : [],
       }));
     }
   } catch {}
 
   return {
-    priorities: Array.isArray(parsed.priorities) ? parsed.priorities : [],
+    priorities,
     groceries,
-    intentions: Array.isArray(parsed.intentions) ? parsed.intentions : [],
-    habits: Array.isArray(parsed.habits) ? parsed.habits : [],
+    intentions: Array.isArray(parsed.intentions) ? parsed.intentions as string[] : [],
+    habits: Array.isArray(parsed.habits) ? parsed.habits as string[] : [],
     journal: typeof parsed.journal === 'string' ? parsed.journal : null,
   };
 }
