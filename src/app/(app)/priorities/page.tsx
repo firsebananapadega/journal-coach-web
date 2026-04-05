@@ -64,23 +64,31 @@ export default function PrioritiesPage() {
     }
   };
 
+  const addRawText = async (text: string) => {
+    const item: PriorityItem = {
+      id: crypto.randomUUID(),
+      text: text.trim(),
+      completed: false,
+      sort_order: items.length,
+    };
+    await savePriorities(today, [...items, item]);
+  };
+
   const processVoice = async (text: string) => {
+    if (!text.trim()) return;
     setProcessing(true);
     try {
       const extracted = await extractPriorities(text);
       if (extracted.length > 0) {
         const merged = [...items, ...extracted.map((p, i) => ({ ...p, sort_order: items.length + i }))];
         await savePriorities(today, merged);
+      } else {
+        // Gemini returned no tasks — save raw text as a single priority
+        await addRawText(text);
       }
-    } catch (err) {
-      // Fallback: just add the raw text as a single priority
-      const item: PriorityItem = {
-        id: crypto.randomUUID(),
-        text: text.trim(),
-        completed: false,
-        sort_order: items.length,
-      };
-      await savePriorities(today, [...items, item]);
+    } catch {
+      // API error — save raw text as fallback
+      await addRawText(text);
     }
     setTranscript('');
     setProcessing(false);
