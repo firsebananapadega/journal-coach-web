@@ -154,7 +154,7 @@ export default function PrioritiesPage() {
   const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
   const [newItem, setNewItem] = useState('');
   const [isListening, setIsListening] = useState(false);
-  const [capturedText, setCapturedText] = useState('');
+  // capturedText removed — mic transcription goes directly into newItem
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [log, setLog] = useState<string[]>([]);
@@ -189,22 +189,15 @@ export default function PrioritiesPage() {
   const handleAddItem = () => {
     if (!newItem.trim()) return;
     const text = newItem.trim();
-    const item: PriorityItem = {
-      id: crypto.randomUUID(),
-      text,
-      completed: false,
-      sort_order: items.length,
-    };
-    // Optimistic: update store immediately, save to Supabase in background
-    const newItems = [...items, item];
-    usePriorityStore.setState({ items: newItems });
     setNewItem('');
+    accumulatedTextRef.current = '';
+    liveText.current = '';
     setError('');
-    addLog(`Added: "${text}"`);
-    savePriorities(selectedDate, newItems).catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to save');
-      addLog(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
-    });
+    setProcessing(true);
+    addLog(`Processing: "${text.substring(0, 50)}..."`);
+
+    // Run through capture engine for smart classification
+    handleAddTasks(text);
   };
 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -245,30 +238,29 @@ export default function PrioritiesPage() {
       stopListening();
       setIsListening(false);
       addLog('Mic stopped');
-      // Save current captured text as accumulated for next session
-      accumulatedTextRef.current = capturedText;
+      accumulatedTextRef.current = newItem;
     } else {
       liveText.current = '';
       setError('');
+      // Save current text as accumulated so mic appends
+      accumulatedTextRef.current = newItem;
       setIsListening(true);
       addLog('Mic started');
       startListening({
         continuous: true,
         language: getLanguage(),
         onResult: (text) => {
-          // Prepend any previously accumulated text
           const prefix = accumulatedTextRef.current;
           const combined = prefix ? prefix + ' ' + text : text;
           liveText.current = combined;
-          setCapturedText(combined);
+          setNewItem(combined);
         },
         onEnd: () => {
           setIsListening(false);
           addLog('Mic auto-stopped (browser)');
-          // Save accumulated on auto-stop too
           if (liveText.current.trim()) {
             accumulatedTextRef.current = liveText.current.trim();
-            setCapturedText(liveText.current.trim());
+            setNewItem(liveText.current.trim());
           }
         },
         onError: (err) => {
@@ -280,10 +272,11 @@ export default function PrioritiesPage() {
     }
   };
 
-  const handleAddTasks = async () => {
-    const text = capturedText.trim();
+  const handleAddTasks = async (inputText?: string) => {
+    const text = (inputText || newItem).trim();
     if (!text) {
       addLog('No text to process');
+      setProcessing(false);
       return;
     }
 
@@ -294,7 +287,6 @@ export default function PrioritiesPage() {
 
     setProcessing(true);
     setError('');
-    addLog(`Processing: "${text.substring(0, 50)}..."`);
 
     const currentItems = itemsRef.current;
     const currentGroceries = groceriesRef.current;
@@ -384,7 +376,7 @@ export default function PrioritiesPage() {
       // Re-fetch current date to refresh the view
       await fetchPriorities(selectedDate);
 
-      setCapturedText('');
+      setNewItem('');
       liveText.current = '';
       accumulatedTextRef.current = '';
     } catch (err) {
@@ -401,7 +393,7 @@ export default function PrioritiesPage() {
         };
         await savePriorities(selectedDate, [...currentItems, fallbackItem]);
         addLog('Saved raw text as task (fallback)');
-        setCapturedText('');
+        setNewItem('');
         liveText.current = '';
         accumulatedTextRef.current = '';
       } catch (saveErr) {
@@ -446,23 +438,19 @@ export default function PrioritiesPage() {
         })}
       </div>
 
-      {/* Add priority — input + add + mic */}
+      {/* Add priority — input + mic, transcription goes into the input */}
       <div className="space-y-2">
         <div className="flex gap-2">
           <input
             value={newItem}
-            onChange={(e) => setNewItem(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
-            placeholder="Add a priority..."
-            className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary outline-none text-sm"
+            onChange={(e) => { if (!isListening) setNewItem(e.target.value); }}
+            onKeyDown={(e) => e.key === 'Enter' && newItem.trim() && handleAddItem()}
+            placeholder={isListening ? 'Listening...' : 'Add a priority...'}
+            readOnly={isListening}
+            className={`flex-1 px-4 py-3 bg-surface border rounded-xl text-text-primary outline-none text-sm ${
+              isListening ? 'border-error' : 'border-border focus:border-primary'
+            }`}
           />
-          <button
-            onClick={handleAddItem}
-            disabled={!newItem.trim()}
-            className="px-4 py-3 bg-primary text-white rounded-xl font-medium text-sm disabled:opacity-40 hover:bg-primary-dark transition-colors"
-          >
-            Add
-          </button>
           {speechSupported && (
             <button
               onClick={toggleMic}
@@ -479,25 +467,14 @@ export default function PrioritiesPage() {
           )}
         </div>
 
-        {capturedText && (
-          <div className="bg-surface rounded-xl p-3 space-y-2">
-            <p className="text-sm text-text-primary">{capturedText}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={handleAddTasks}
-                disabled={processing}
-                className="flex-1 py-2.5 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50 text-sm"
-              >
-                {processing ? 'Processing...' : 'Add Tasks'}
-              </button>
-              <button
-                onClick={() => { setCapturedText(''); liveText.current = ''; accumulatedTextRef.current = ''; addLog('Discarded text'); }}
-                className="px-4 py-2.5 text-text-tertiary text-sm hover:text-text-secondary bg-surface-elevated rounded-xl"
-              >
-                Discard
-              </button>
-            </div>
-          </div>
+        {newItem.trim() && !isListening && (
+          <button
+            onClick={handleAddItem}
+            disabled={processing}
+            className="w-full py-2.5 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50 text-sm"
+          >
+            {processing ? 'Processing...' : 'Add Tasks'}
+          </button>
         )}
 
         {error && (
@@ -628,7 +605,7 @@ export default function PrioritiesPage() {
       })()}
 
       {/* Empty state */}
-      {items.length === 0 && groceries.length === 0 && habits.filter((h) => h.is_active).length === 0 && !loading && !processing && !capturedText && (
+      {items.length === 0 && groceries.length === 0 && habits.filter((h) => h.is_active).length === 0 && !loading && !processing && (
         <div className="text-center py-12 space-y-2">
           <p className="text-4xl">🎯</p>
           <p className="text-text-secondary text-sm">No tasks for today yet.</p>
