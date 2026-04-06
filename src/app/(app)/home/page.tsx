@@ -262,17 +262,16 @@ export default function HomePage() {
   // Build a map from item ID to BubbleItem for quick lookup
   const itemMap = useMemo(() => new Map(allItems.map((item) => [item.id, item])), [allItems]);
 
-  // Sync gridSlots with allItems: place new items, clean stale ones
-  // IMPORTANT: does NOT write to localStorage — only handleDragEnd saves positions
+  // Sync gridSlots with allItems: place new items, clean stale ones, persist
   useEffect(() => {
-    if (allItems.length === 0) return; // wait for items to load
+    if (allItems.length === 0) return;
     setGridSlots((prev) => {
       const currentIds = new Set(allItems.map((i) => i.id));
       const cleaned = prev.map((id) => (id && currentIds.has(id) ? id : null));
       const placedIds = new Set(cleaned.filter(Boolean) as string[]);
       const unplaced = allItems.filter((i) => !placedIds.has(i.id));
       if (unplaced.length === 0 && cleaned.every((id, i) => id === prev[i])) {
-        return prev; // no changes needed
+        return prev; // no changes needed — don't save
       }
       const result = [...cleaned];
       let emptyIdx = 0;
@@ -283,6 +282,8 @@ export default function HomePage() {
           emptyIdx++;
         }
       }
+      // Save ALL positions so they persist across sessions
+      localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(result));
       return result;
     });
   }, [allItems]);
