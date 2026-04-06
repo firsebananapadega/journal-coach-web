@@ -10,6 +10,12 @@ interface ThemeState {
   loadTheme: () => void;
 }
 
+function applyTheme(mode: ThemeMode) {
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute('data-theme', mode);
+  }
+}
+
 export const useTheme = create<ThemeState>((set) => ({
   mode: 'dark',
   colors: darkColors,
@@ -17,6 +23,7 @@ export const useTheme = create<ThemeState>((set) => ({
   setMode: (mode: ThemeMode) => {
     const colors = mode === 'dark' ? darkColors : lightColors;
     set({ mode, colors });
+    applyTheme(mode);
     if (typeof window !== 'undefined') {
       localStorage.setItem('app_theme', mode);
     }
@@ -30,6 +37,9 @@ export const useTheme = create<ThemeState>((set) => ({
         mode: stored,
         colors: stored === 'dark' ? darkColors : lightColors,
       });
+      applyTheme(stored);
+    } else {
+      applyTheme('dark');
     }
   },
 }));

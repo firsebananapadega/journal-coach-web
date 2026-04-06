@@ -58,7 +58,7 @@ const ICONS: Record<string, string> = {
 };
 
 const GRID_SLOTS_KEY = 'home_grid_slots';
-const GRID_SIZE = 12; // 3 columns x 4 rows
+const GRID_SIZE = 18; // 3 columns x 6 rows
 
 // ---------- Bubble content (shared between normal render and drag overlay) ----------
 
@@ -160,8 +160,8 @@ function DroppableSlot({
       {...attributes}
       {...listeners}
       onClick={() => { if (!editMode) onTap(); }}
-      className={`cursor-pointer ${isDragging || isBeingDragged ? 'opacity-30' : ''}`}
-      style={{ touchAction: 'none' }}
+      className={`cursor-pointer select-none ${isDragging || isBeingDragged ? 'opacity-30' : ''}`}
+      style={{ touchAction: 'none', WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
     >
       <BubbleContent item={item} editMode={editMode} />
     </div>
@@ -185,7 +185,13 @@ export default function HomePage() {
       const saved = localStorage.getItem(GRID_SLOTS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length === GRID_SIZE) return parsed;
+        if (Array.isArray(parsed)) {
+          // Migrate: if saved grid is smaller, pad with nulls
+          if (parsed.length < GRID_SIZE) {
+            return [...parsed, ...Array(GRID_SIZE - parsed.length).fill(null)];
+          }
+          if (parsed.length === GRID_SIZE) return parsed;
+        }
       }
     } catch {}
     return Array(GRID_SIZE).fill(null);
@@ -278,7 +284,13 @@ export default function HomePage() {
         const saved = localStorage.getItem(GRID_SLOTS_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length === GRID_SIZE) base = parsed;
+          if (Array.isArray(parsed)) {
+            if (parsed.length < GRID_SIZE) {
+              base = [...parsed, ...Array(GRID_SIZE - parsed.length).fill(null)];
+            } else if (parsed.length === GRID_SIZE) {
+              base = parsed;
+            }
+          }
         }
       } catch {}
 
@@ -348,17 +360,19 @@ export default function HomePage() {
     const ids = stored ? (JSON.parse(stored) as string[]) : [];
     setEnabledIds(ids);
 
-    // Load saved grid slot assignments
+    // Load saved grid slot assignments (with migration for size changes)
     const slotsStr = typeof window !== 'undefined' ? localStorage.getItem(GRID_SLOTS_KEY) : null;
     if (slotsStr) {
       try {
         const parsed = JSON.parse(slotsStr) as (string | null)[];
-        if (Array.isArray(parsed) && parsed.length === GRID_SIZE) {
-          setGridSlots(parsed);
+        if (Array.isArray(parsed)) {
+          if (parsed.length < GRID_SIZE) {
+            setGridSlots([...parsed, ...Array(GRID_SIZE - parsed.length).fill(null)]);
+          } else if (parsed.length === GRID_SIZE) {
+            setGridSlots(parsed);
+          }
         }
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     }
 
     // Load cached reflection

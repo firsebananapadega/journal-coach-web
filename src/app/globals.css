@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-bg: #141517;
-  --color-surface: #1E2023;
-  --color-surface-elevated: #282B30;
-  --color-primary: #6DB88F;
-  --color-primary-dark: #5A9E79;
-  --color-primary-light: #8FCFAB;
-  --color-accent: #E88D67;
-  --color-success: #6DB88F;
-  --color-warning: #E8C468;
-  --color-error: #D4726A;
-  --color-text-primary: #F2F0ED;
-  --color-text-secondary: #9B9A97;
-  --color-text-tertiary: #6B6A67;
-  --color-border: #2F3136;
+  --color-bg: var(--theme-bg);
+  --color-surface: var(--theme-surface);
+  --color-surface-elevated: var(--theme-surface-elevated);
+  --color-primary: var(--theme-primary);
+  --color-primary-dark: var(--theme-primary-dark);
+  --color-primary-light: var(--theme-primary-light);
+  --color-accent: var(--theme-accent);
+  --color-success: var(--theme-success);
+  --color-warning: var(--theme-warning);
+  --color-error: var(--theme-error);
+  --color-text-primary: var(--theme-text-primary);
+  --color-text-secondary: var(--theme-text-secondary);
+  --color-text-tertiary: var(--theme-text-tertiary);
+  --color-border: var(--theme-border);
   --color-mood-great: #6DB88F;
   --color-mood-good: #8FCFAB;
   --color-mood-okay: #E8C468;
@@ -24,16 +24,52 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Dark theme (default) */
+:root, [data-theme="dark"] {
+  --theme-bg: #141517;
+  --theme-surface: #1E2023;
+  --theme-surface-elevated: #282B30;
+  --theme-primary: #6DB88F;
+  --theme-primary-dark: #5A9E79;
+  --theme-primary-light: #8FCFAB;
+  --theme-accent: #E88D67;
+  --theme-success: #6DB88F;
+  --theme-warning: #E8C468;
+  --theme-error: #D4726A;
+  --theme-text-primary: #F2F0ED;
+  --theme-text-secondary: #9B9A97;
+  --theme-text-tertiary: #6B6A67;
+  --theme-border: #2F3136;
+}
+
+/* Light theme */
+[data-theme="light"] {
+  --theme-bg: #FAF8F5;
+  --theme-surface: #FFFFFF;
+  --theme-surface-elevated: #F5F2EE;
+  --theme-primary: #5A9E79;
+  --theme-primary-dark: #4A8A68;
+  --theme-primary-light: #7AB896;
+  --theme-accent: #E07A52;
+  --theme-success: #5A9E79;
+  --theme-warning: #D4A84B;
+  --theme-error: #C4615A;
+  --theme-text-primary: #1A1917;
+  --theme-text-secondary: #6B6A67;
+  --theme-text-tertiary: #9B9A97;
+  --theme-border: #E8E5E0;
+}
+
 html {
-  background: var(--color-bg);
-  color: var(--color-text-primary);
+  background: var(--theme-bg);
+  color: var(--theme-text-primary);
 }
 
 body {
   font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
 }
 
-/* Custom scrollbar for dark theme */
+/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -41,7 +77,7 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: var(--theme-border);
   border-radius: 3px;
 }
 
@@ -52,7 +88,7 @@ html {
 
 /* Focus ring */
 *:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--theme-primary);
   outline-offset: 2px;
 }
 
@@ -67,7 +103,7 @@ html {
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  background: var(--color-error);
+  background: var(--theme-error);
   animation: pulse-ring 1.5s ease-out infinite;
   z-index: -1;
 }
