@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useEffect, useMemo } from 'react';
+import { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
@@ -62,32 +62,34 @@ const GRID_SIZE = 12; // 3 columns x 4 rows
 
 // ---------- Bubble content (shared between normal render and drag overlay) ----------
 
-function BubbleContent({ item, editMode, isDragging }: { item: BubbleItem; editMode: boolean; isDragging?: boolean }) {
+function BubbleContent({ item, editMode, isDragging: dragging }: { item: BubbleItem; editMode: boolean; isDragging?: boolean }) {
   return (
-    <div
-      className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-colors w-full ${
-        isDragging
-          ? 'border-primary border-2 bg-primary/10 opacity-80 scale-105 shadow-lg'
-          : item.done
-          ? 'border-success/30 bg-success/5 opacity-60'
-          : 'border-border bg-surface'
-      } ${editMode && !isDragging ? 'animate-wiggle' : ''}`}
-    >
-      {typeof item.icon === 'string' ? (
-        <span className="text-2xl">{item.icon}</span>
-      ) : (
-        <Image
-          src={item.icon.src}
-          alt={item.icon.alt}
-          width={36}
-          height={36}
-          className="rounded-full object-cover"
-        />
-      )}
-      <span className="text-xs text-text-primary text-center leading-tight line-clamp-2">
+    <div className={`flex flex-col items-center gap-1 w-full ${editMode && !dragging ? 'animate-wiggle' : ''}`}>
+      <div
+        className={`w-16 h-16 rounded-full flex items-center justify-center border-2 transition-all ${
+          dragging
+            ? 'border-primary bg-primary/10 scale-110 shadow-lg'
+            : item.done
+            ? 'border-success/30 bg-success/5 opacity-60'
+            : 'border-border bg-surface hover:border-primary/50'
+        }`}
+      >
+        {typeof item.icon === 'string' ? (
+          <span className="text-2xl">{item.icon}</span>
+        ) : (
+          <Image
+            src={item.icon.src}
+            alt={item.icon.alt}
+            width={40}
+            height={40}
+            className="rounded-full object-cover"
+          />
+        )}
+      </div>
+      <span className="text-[11px] text-text-primary text-center leading-tight line-clamp-2">
         {item.label}
       </span>
-      {item.done && <span className="text-[10px] text-success">Done</span>}
+      {item.done && <span className="text-[9px] text-success">Done</span>}
     </div>
   );
 }
@@ -137,15 +139,17 @@ function DroppableSlot({
   );
 
   if (!item) {
-    if (!editMode) return <div ref={setDropRef} className="min-h-[88px]" />;
+    if (!editMode) return <div ref={setDropRef} className="min-h-[80px]" />;
     return (
-      <div
-        ref={setDropRef}
-        className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border-2 border-dashed transition-colors w-full min-h-[88px] ${
-          highlight ? 'border-primary bg-primary/10' : 'border-border/40'
-        }`}
-      >
-        <span className="text-xl text-text-tertiary/40">+</span>
+      <div ref={setDropRef} className="flex flex-col items-center gap-1 w-full">
+        <div
+          className={`w-16 h-16 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${
+            highlight ? 'border-primary bg-primary/10' : 'border-border/40'
+          }`}
+        >
+          <span className="text-lg text-text-tertiary/40">+</span>
+        </div>
+        <span className="text-[11px] text-transparent">empty</span>
       </div>
     );
   }
@@ -188,6 +192,7 @@ export default function HomePage() {
   });
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [reflection, setReflection] = useState<WeeklyReflectionData | null>(null);
+  const isDragging = useRef(false);
 
   // Drag sensors — long press (500ms) to start drag, same as priorities
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { delay: 500, tolerance: 5 } });
@@ -262,16 +267,27 @@ export default function HomePage() {
   // Build a map from item ID to BubbleItem for quick lookup
   const itemMap = useMemo(() => new Map(allItems.map((item) => [item.id, item])), [allItems]);
 
-  // Sync gridSlots with allItems: place new items, clean stale ones, persist
+  // Sync gridSlots with allItems: place new items, clean stale ones
+  // Skip during drag to avoid overwriting user's new positions
   useEffect(() => {
-    if (allItems.length === 0) return;
+    if (allItems.length === 0 || isDragging.current) return;
     setGridSlots((prev) => {
+      // Re-read from localStorage to get the latest saved state
+      let base = prev;
+      try {
+        const saved = localStorage.getItem(GRID_SLOTS_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length === GRID_SIZE) base = parsed;
+        }
+      } catch {}
+
       const currentIds = new Set(allItems.map((i) => i.id));
-      const cleaned = prev.map((id) => (id && currentIds.has(id) ? id : null));
+      const cleaned = base.map((id: string | null) => (id && currentIds.has(id) ? id : null));
       const placedIds = new Set(cleaned.filter(Boolean) as string[]);
       const unplaced = allItems.filter((i) => !placedIds.has(i.id));
-      if (unplaced.length === 0 && cleaned.every((id, i) => id === prev[i])) {
-        return prev; // no changes needed — don't save
+      if (unplaced.length === 0 && cleaned.every((id: string | null, i: number) => id === base[i])) {
+        return base; // no changes — use localStorage version as truth
       }
       const result = [...cleaned];
       let emptyIdx = 0;
@@ -282,16 +298,16 @@ export default function HomePage() {
           emptyIdx++;
         }
       }
-      // Save ALL positions so they persist across sessions
       localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(result));
       return result;
     });
   }, [allItems]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
+    isDragging.current = true;
     const slotIndex = event.active.data.current?.slotIndex as number | undefined;
     if (slotIndex !== undefined) setActiveSlot(slotIndex);
-    setEditMode(true); // auto-activate edit mode (wiggle + empty slot placeholders)
+    setEditMode(true);
   }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -314,7 +330,10 @@ export default function HomePage() {
     }
 
     // Auto-deactivate edit mode after a brief moment
-    setTimeout(() => setEditMode(false), 600);
+    setTimeout(() => {
+      setEditMode(false);
+      isDragging.current = false;
+    }, 600);
   }, []);
 
   const loadData = useCallback(async () => {
