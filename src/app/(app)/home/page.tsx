@@ -440,37 +440,7 @@ export default function HomePage() {
         <WeeklyReflectionCard reflection={reflection} guideName={guide.name} />
       )}
 
-      {/* Habits */}
-      {activeHabits.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Today&apos;s habits</h2>
-          <div className="space-y-1">
-            {activeHabits.map((habit) => {
-              const isDone = todayCompletions.has(habit.id);
-              return (
-                <div
-                  key={habit.id}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors ${
-                    isDone ? 'bg-success/10' : 'bg-surface hover:bg-surface-elevated'
-                  }`}
-                >
-                  <button
-                    onClick={() => toggleCompletion(habit.id, today)}
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-                      isDone ? 'bg-success border-success' : 'border-border'
-                    }`}
-                  >
-                    {isDone && <span className="text-white text-xs font-bold">&#10003;</span>}
-                  </button>
-                  <span className={`text-sm ${isDone ? 'text-text-secondary line-through' : 'text-text-primary'}`}>
-                    {habit.name}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Habits moved to Tasks tab */}
     </div>
   );
 }

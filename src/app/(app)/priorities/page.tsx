@@ -19,6 +19,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { usePriorityStore, type PriorityItem, type GroceryGroup } from '@/stores/priorityStore';
+import { useHabitStore } from '@/stores/habitStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import {
   isSpeechRecognitionSupported,
@@ -148,6 +149,7 @@ export default function PrioritiesPage() {
   const [selectedDate, setSelectedDate] = useState(todayDateStr);
 
   const { items, groceries, fetchPriorities, savePriorities, saveGroceries, toggleItem, toggleGroceryItem, removeItem, removeGroceryItem, removeGroceryGroup, loading } = usePriorityStore();
+  const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
   const [newItem, setNewItem] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [capturedText, setCapturedText] = useState('');
@@ -163,12 +165,12 @@ export default function PrioritiesPage() {
   itemsRef.current = items;
   groceriesRef.current = groceries;
 
-  // DnD sensors for priority reordering
+  // DnD sensors — long press (500ms) to start drag
   const pointerSensor = useSensor(PointerSensor, {
-    activationConstraint: { distance: 5 },
+    activationConstraint: { delay: 500, tolerance: 5 },
   });
   const touchSensor = useSensor(TouchSensor, {
-    activationConstraint: { delay: 200, tolerance: 5 },
+    activationConstraint: { delay: 500, tolerance: 5 },
   });
   const sensors = useSensors(pointerSensor, touchSensor);
 
@@ -178,7 +180,9 @@ export default function PrioritiesPage() {
 
   useEffect(() => {
     fetchPriorities(selectedDate);
-  }, [fetchPriorities, selectedDate]);
+    fetchHabits();
+    fetchCompletions(selectedDate, selectedDate);
+  }, [fetchPriorities, fetchHabits, fetchCompletions, selectedDate]);
 
   const handleAddItem = async () => {
     if (!newItem.trim()) return;
@@ -579,10 +583,51 @@ export default function PrioritiesPage() {
         </div>
       )}
 
+      {/* Habits */}
+      {(() => {
+        const activeHabits = habits.filter((h) => h.is_active);
+        const dateCompletions = completions[selectedDate] || new Set<string>();
+        if (activeHabits.length === 0) return null;
+        return (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Habits</h2>
+              <span className="text-xs text-text-tertiary">
+                {activeHabits.filter((h) => dateCompletions.has(h.id)).length}/{activeHabits.length}
+              </span>
+            </div>
+            {activeHabits.map((habit) => {
+              const isDone = dateCompletions.has(habit.id);
+              return (
+                <div
+                  key={habit.id}
+                  className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${
+                    isDone ? 'bg-success/10' : 'bg-surface hover:bg-surface-elevated'
+                  }`}
+                >
+                  <button
+                    onClick={() => toggleCompletion(habit.id, selectedDate)}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                      isDone ? 'bg-success border-success' : 'border-border hover:border-primary'
+                    }`}
+                  >
+                    {isDone && <span className="text-white text-xs font-bold">✓</span>}
+                  </button>
+                  <span className={`text-sm ${isDone ? 'text-text-secondary line-through' : 'text-text-primary'}`}>
+                    {habit.name}
+                  </span>
+                  <span className="text-xs text-text-tertiary capitalize ml-auto">{habit.time_of_day}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Empty state */}
-      {items.length === 0 && groceries.length === 0 && !loading && !processing && !capturedText && (
+      {items.length === 0 && groceries.length === 0 && habits.filter((h) => h.is_active).length === 0 && !loading && !processing && !capturedText && (
         <div className="text-center py-12 space-y-2">
-          <p className="text-4xl">&#127919;</p>
+          <p className="text-4xl">🎯</p>
           <p className="text-text-secondary text-sm">No tasks for today yet.</p>
         </div>
       )}
