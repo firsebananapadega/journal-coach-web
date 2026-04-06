@@ -606,11 +606,13 @@ export default function PrioritiesPage() {
                 >
                   <button
                     onClick={() => toggleCompletion(habit.id, selectedDate)}
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-                      isDone ? 'bg-success border-success' : 'border-border hover:border-primary'
-                    }`}
+                    className="p-2 -m-2 flex-shrink-0"
                   >
-                    {isDone && <span className="text-white text-xs font-bold">✓</span>}
+                    <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      isDone ? 'bg-success border-success' : 'border-border hover:border-primary'
+                    }`}>
+                      {isDone && <span className="text-white text-sm font-bold">✓</span>}
+                    </div>
                   </button>
                   <span className={`text-sm ${isDone ? 'text-text-secondary line-through' : 'text-text-primary'}`}>
                     {habit.name}
