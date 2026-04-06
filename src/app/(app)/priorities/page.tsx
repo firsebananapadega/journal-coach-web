@@ -76,20 +76,22 @@ function PriorityRowContent({
           : 'bg-surface'
       }`}
     >
-      <span className={`w-6 text-right text-sm font-bold tabular-nums ${
+      <span className={`w-6 text-right text-base font-bold tabular-nums ${
         item.completed ? 'text-text-tertiary' : 'text-text-secondary'
       }`}>
         {index + 1}
       </span>
       <button
         onClick={onToggle}
-        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-          item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
-        }`}
+        className="p-2 -m-2 flex-shrink-0"
       >
-        {item.completed && <span className="text-white text-xs font-bold">✓</span>}
+        <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors ${
+          item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
+        }`}>
+          {item.completed && <span className="text-white text-sm font-bold">✓</span>}
+        </div>
       </button>
-      <span className={`text-sm flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
+      <span className={`text-base flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
         {item.text}
       </span>
       {!isDragOverlay && (
@@ -559,20 +561,20 @@ export default function PrioritiesPage() {
                 </div>
                 {group.items.map((item) => (
                   <SwipeToDelete key={item.id} onDelete={() => removeGroceryItem(group.id, item.id)}>
-                    <div className="flex items-center gap-2 py-1.5 bg-surface">
+                    <div className="flex items-center gap-3 py-2 bg-surface">
                       <button
                         onClick={() => toggleGroceryItem(group.id, item.id)}
-                        className="flex items-center gap-2 flex-1"
+                        className="p-2 -m-2 flex-shrink-0"
                       >
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
+                        <div className={`w-7 h-7 rounded border-2 flex items-center justify-center transition-colors ${
                           item.completed ? 'bg-success border-success' : 'border-border'
                         }`}>
-                          {item.completed && <span className="text-white text-[10px]">✓</span>}
+                          {item.completed && <span className="text-white text-sm font-bold">✓</span>}
                         </div>
-                        <span className={`text-sm ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
-                          {item.name}
-                        </span>
                       </button>
+                      <span className={`text-base flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
+                        {item.name}
+                      </span>
                     </div>
                   </SwipeToDelete>
                 ))}
@@ -614,7 +616,7 @@ export default function PrioritiesPage() {
                       {isDone && <span className="text-white text-sm font-bold">✓</span>}
                     </div>
                   </button>
-                  <span className={`text-sm ${isDone ? 'text-text-secondary line-through' : 'text-text-primary'}`}>
+                  <span className={`text-base ${isDone ? 'text-text-secondary line-through' : 'text-text-primary'}`}>
                     {habit.name}
                   </span>
                   <span className="text-xs text-text-tertiary capitalize ml-auto">{habit.time_of_day}</span>
