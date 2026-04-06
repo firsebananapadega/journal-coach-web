@@ -184,23 +184,25 @@ export default function PrioritiesPage() {
     fetchCompletions(selectedDate, selectedDate);
   }, [fetchPriorities, fetchHabits, fetchCompletions, selectedDate]);
 
-  const handleAddItem = async () => {
+  const handleAddItem = () => {
     if (!newItem.trim()) return;
+    const text = newItem.trim();
     const item: PriorityItem = {
       id: crypto.randomUUID(),
-      text: newItem.trim(),
+      text,
       completed: false,
       sort_order: items.length,
     };
-    try {
-      await savePriorities(selectedDate, [...items, item]);
-      setNewItem('');
-      setError('');
-      addLog(`Added: "${item.text}"`);
-    } catch (err) {
+    // Optimistic: update store immediately, save to Supabase in background
+    const newItems = [...items, item];
+    usePriorityStore.setState({ items: newItems });
+    setNewItem('');
+    setError('');
+    addLog(`Added: "${text}"`);
+    savePriorities(selectedDate, newItems).catch((err) => {
       setError(err instanceof Error ? err.message : 'Failed to save');
       addLog(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    });
   };
 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
