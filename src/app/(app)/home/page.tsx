@@ -122,7 +122,7 @@ function DroppableSlot({
   } = useDraggable({
     id: item ? `drag-${item.id}` : `empty-${slotIndex}`,
     data: { slotIndex, itemId: item?.id },
-    disabled: !editMode || !item,
+    disabled: !item,
   });
 
   const highlight = isOver || isDraggedOver;
@@ -154,10 +154,10 @@ function DroppableSlot({
     <div
       ref={mergedRef}
       {...attributes}
-      {...(editMode ? listeners : {})}
+      {...listeners}
       onClick={() => { if (!editMode) onTap(); }}
       className={`cursor-pointer ${isDragging || isBeingDragged ? 'opacity-30' : ''}`}
-      style={{ touchAction: editMode ? 'none' : 'auto' }}
+      style={{ touchAction: 'none' }}
     >
       <BubbleContent item={item} editMode={editMode} />
     </div>
@@ -189,9 +189,9 @@ export default function HomePage() {
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [reflection, setReflection] = useState<WeeklyReflectionData | null>(null);
 
-  // Drag sensors
-  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
-  const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } });
+  // Drag sensors — long press (500ms) to start drag, same as priorities
+  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { delay: 500, tolerance: 5 } });
+  const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 500, tolerance: 5 } });
   const sensors = useSensors(pointerSensor, touchSensor);
 
   const today = toLocalDateStr(new Date());
@@ -291,30 +291,30 @@ export default function HomePage() {
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const slotIndex = event.active.data.current?.slotIndex as number | undefined;
     if (slotIndex !== undefined) setActiveSlot(slotIndex);
+    setEditMode(true); // auto-activate edit mode (wiggle + empty slot placeholders)
   }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     setActiveSlot(null);
-    if (!over) return;
 
-    const fromSlot = active.data.current?.slotIndex as number;
-    const toSlot = over.data.current?.slotIndex as number;
-    if (fromSlot === undefined || toSlot === undefined || fromSlot === toSlot) return;
+    if (over) {
+      const fromSlot = active.data.current?.slotIndex as number;
+      const toSlot = over.data.current?.slotIndex as number;
+      if (fromSlot !== undefined && toSlot !== undefined && fromSlot !== toSlot) {
+        setGridSlots((prev) => {
+          const newSlots = [...prev];
+          const temp = newSlots[fromSlot];
+          newSlots[fromSlot] = newSlots[toSlot];
+          newSlots[toSlot] = temp;
+          localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(newSlots));
+          return newSlots;
+        });
+      }
+    }
 
-    setGridSlots((prev) => {
-      const newSlots = [...prev];
-      const temp = newSlots[fromSlot];
-      newSlots[fromSlot] = newSlots[toSlot];
-      newSlots[toSlot] = temp;
-      localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(newSlots));
-      return newSlots;
-    });
-  }, []);
-
-  const toggleEditMode = useCallback(() => {
-    setEditMode((prev) => !prev);
-    setActiveSlot(null);
+    // Auto-deactivate edit mode after a brief moment
+    setTimeout(() => setEditMode(false), 600);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -379,22 +379,12 @@ export default function HomePage() {
 
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
-      {/* Greeting + Edit button */}
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-text-secondary">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
-          <h1 className="text-2xl font-bold text-text-primary mt-1">{greeting}</h1>
-        </div>
-        <button
-          onClick={toggleEditMode}
-          className={`mt-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-            editMode ? 'bg-primary text-white' : 'text-text-tertiary hover:text-text-secondary'
-          }`}
-        >
-          {editMode ? 'Done' : 'Edit'}
-        </button>
+      {/* Greeting */}
+      <div>
+        <p className="text-sm text-text-secondary">
+          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        </p>
+        <h1 className="text-2xl font-bold text-text-primary mt-1">{greeting}</h1>
       </div>
 
       {/* Drag-and-drop bubble grid */}
