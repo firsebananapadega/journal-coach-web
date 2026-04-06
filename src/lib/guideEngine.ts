@@ -5,6 +5,7 @@
 import { callGemini, parseJsonResponse } from './geminiClient';
 import { getTimeOfDay } from './guidanceEngine';
 import { getGuideOrDefault, type GuidePersona } from './guideConfigs';
+import { getLocale } from './language';
 
 // --- Types ---
 
@@ -61,6 +62,13 @@ function buildConversationContext(
   }
 
   prompt += `\nUser's latest message:\n"${currentAnswer}"\n`;
+
+  // Language directive — force output language when not English
+  const locale = getLocale();
+  if (locale === 'es') {
+    prompt += `\nIMPORTANT: Respond entirely in Mexican Spanish (español mexicano). Use "tú" for addressing the user. Never use Spain Spanish vocabulary (no "vale", "mola", "vosotros", "coger"). Your JSON "question" and "detected_goal" fields MUST be in Mexican Spanish.\n`;
+  }
+
   prompt += `\nRespond as JSON only.\n`;
 
   return prompt;

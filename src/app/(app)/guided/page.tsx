@@ -5,7 +5,8 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { getGuideResponse, getClosingMessage, getTimeOfDay } from '@/lib/guideEngine';
 import type { ConversationExchange } from '@/lib/guideEngine';
-import { getGuideOrDefault, type GuideId } from '@/lib/guideConfigs';
+import { getGuideOrDefault, getLocalizedGreetings, type GuideId } from '@/lib/guideConfigs';
+import { getLocale } from '@/lib/language';
 import { getGuideAvatar } from '@/lib/guideAvatars';
 import {
   isSpeechRecognitionSupported,
@@ -18,6 +19,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { MoodSelector } from '@/components/MoodSelector';
 import { getLanguage } from '@/lib/language';
+import { t } from '@/lib/translations';
 
 interface Exchange {
   question: string;
@@ -36,7 +38,8 @@ export default function GuidedSessionPage() {
 
   const getGuideGreeting = useCallback(() => {
     const tod = getTimeOfDay();
-    const greetings = guide.greetings[tod as keyof typeof guide.greetings] || guide.greetings.evening;
+    const localizedGreetings = getLocalizedGreetings(guide.id, getLocale());
+    const greetings = localizedGreetings[tod as keyof typeof localizedGreetings] || localizedGreetings.evening;
     return greetings[Math.floor(Math.random() * greetings.length)];
   }, [guide]);
 
@@ -136,7 +139,7 @@ export default function GuidedSessionPage() {
   const recentEntriesSummary = entries
     .slice(0, 5)
     .map((e) => {
-      const date = new Date(e.created_at).toLocaleDateString('en-US', { weekday: 'short' });
+      const date = new Date(e.created_at).toLocaleDateString(getLanguage(), { weekday: 'short' });
       const mood = e.mood_label ? ` (${e.mood_label})` : '';
       const content = e.content_text?.substring(0, 300) || '';
       return `[${date}${mood}] ${content}`;
@@ -287,7 +290,7 @@ export default function GuidedSessionPage() {
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
         <button
           onClick={() => {
-            if (exchanges.length > 0 && !confirm('Leave session? Your progress is saved.')) return;
+            if (exchanges.length > 0 && !confirm(t('guided.leaveConfirm'))) return;
             router.push('/home');
           }}
           className="text-text-secondary hover:text-text-primary text-lg"
@@ -302,10 +305,10 @@ export default function GuidedSessionPage() {
             height={28}
             className="rounded-full"
           />
-          <span className="text-sm font-semibold text-text-primary">Session with {guide.name}</span>
+          <span className="text-sm font-semibold text-text-primary">{t('guided.sessionWith', { name: guide.name })}</span>
         </div>
         {exchanges.length > 0 && !isComplete ? (
-          <button onClick={handleEndSession} className="text-sm text-primary font-semibold">End</button>
+          <button onClick={handleEndSession} className="text-sm text-primary font-semibold">{t('guided.end')}</button>
         ) : (
           <div className="w-10" />
         )}
@@ -337,16 +340,16 @@ export default function GuidedSessionPage() {
               <Image src={getGuideAvatar(guide.id as GuideId)} alt="" width={20} height={20} className="rounded-full" />
               <span className="text-xs font-bold uppercase tracking-wider" style={{ color: guide.accentColor }}>{guide.name}</span>
             </div>
-            <p className="text-[15px] text-text-secondary italic">Reflecting...</p>
+            <p className="text-[15px] text-text-secondary italic">{t('guided.reflecting')}</p>
           </div>
         ) : geminiError ? (
           <div className="bg-[#2A1A1A] border border-[#4A2A2A] rounded-2xl p-4 text-center space-y-3">
-            <p className="text-sm text-[#FF9999]">Couldn&apos;t reach your guide. Check your connection.</p>
+            <p className="text-sm text-[#FF9999]">{t('guided.connectionError')}</p>
             <button
               onClick={() => lastFailedAnswer.current && submitAnswer(lastFailedAnswer.current)}
               className="px-6 py-2 bg-primary text-white rounded-lg text-sm font-semibold"
             >
-              Retry
+              {t('common.retry')}
             </button>
           </div>
         ) : !isComplete ? (
@@ -360,7 +363,7 @@ export default function GuidedSessionPage() {
             </div>
             {detectedGoal && (
               <div className="bg-[#2A2D1E] border border-[#4A5C3A] rounded-2xl p-4 space-y-3">
-                <p className="text-sm text-text-primary font-medium">🎯 Hold &quot;{detectedGoal}&quot; as an intention?</p>
+                <p className="text-sm text-text-primary font-medium">🎯 {t('guided.holdIntention', { goal: detectedGoal! })}</p>
                 <div className="flex gap-2">
                   <button
                     onClick={async () => {
@@ -372,13 +375,13 @@ export default function GuidedSessionPage() {
                     }}
                     className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold"
                   >
-                    Yes
+                    {t('common.yes')}
                   </button>
                   <button
                     onClick={() => setDetectedGoal(null)}
                     className="px-4 py-2 bg-border text-text-secondary rounded-lg text-sm"
                   >
-                    Not now
+                    {t('guided.notNow')}
                   </button>
                 </div>
               </div>
@@ -393,16 +396,16 @@ export default function GuidedSessionPage() {
               </div>
               <p className="text-[15px] text-[#F0F0F5] leading-relaxed">
                 {sessionWasDeep
-                  ? 'You went somewhere real today. That takes courage. Take a moment before you move on.'
-                  : `Thanks for sharing. You covered ${exchanges.length} topic${exchanges.length !== 1 ? 's' : ''}. How are you feeling now?`}
+                  ? t('guided.deepSession')
+                  : t('guided.normalSession', { count: String(exchanges.length), plural: exchanges.length !== 1 ? 's' : '' })}
               </p>
             </div>
 
             {sessionWasDeep && (
               <div className="bg-[#1A2320] rounded-2xl p-4 space-y-2">
-                <p className="text-sm font-semibold text-text-primary">Take a breath</p>
+                <p className="text-sm font-semibold text-text-primary">{t('guided.takeABreath')}</p>
                 <p className="text-sm text-text-secondary leading-relaxed">
-                  Processing heavy stuff can leave you drained. Try a slow exhale — breathe in through your nose, then let out a long sigh. Do that twice.
+                  {t('guided.breathDescription')}
                 </p>
               </div>
             )}
@@ -414,7 +417,7 @@ export default function GuidedSessionPage() {
               disabled={saving}
               className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
             >
-              {saving ? 'Saving...' : 'Save Session'}
+              {saving ? t('common.saving') : t('guided.saveSession')}
             </button>
           </div>
         )}
@@ -434,7 +437,7 @@ export default function GuidedSessionPage() {
                   submitAnswer();
                 }
               }}
-              placeholder={isListening ? 'Listening...' : 'Type or tap mic to speak...'}
+              placeholder={isListening ? t('guided.listeningPlaceholder') : t('guided.typePlaceholder')}
               className={`flex-1 px-4 py-2.5 bg-surface border rounded-2xl text-text-primary text-[15px] resize-none outline-none min-h-[44px] max-h-[120px] ${
                 isListening ? 'border-error' : 'border-border focus:border-primary'
               }`}
@@ -464,7 +467,7 @@ export default function GuidedSessionPage() {
               onClick={() => submitAnswer()}
               className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-colors"
             >
-              Send
+              {t('common.send')}
             </button>
           )}
         </div>

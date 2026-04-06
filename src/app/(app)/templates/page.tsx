@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { t } from '@/lib/translations';
 
 const ICONS: Record<string, string> = {
   moon: '🌙',
@@ -15,21 +16,11 @@ const ICONS: Record<string, string> = {
   document: '📄',
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  daily: 'Daily',
-  weekly: 'Weekly',
-  monthly: 'Monthly',
-  quarterly: 'Quarterly',
-  yearly: 'Yearly',
-  anytime: 'Anytime',
-  activity: 'Guided Activities',
-  processing: 'Processing',
-  growth: 'Growth',
-  planning: 'Planning',
-  mindset: 'Mindset',
-  inner_work: 'Inner Work',
-  science: 'Science',
-};
+function getCategoryLabel(cat: string): string {
+  const key = `templates.cat.${cat}`;
+  const translated = t(key);
+  return translated !== key ? translated : cat;
+}
 
 interface TemplateOption {
   id: string;
@@ -81,19 +72,19 @@ export default function TemplatesPage() {
             onClick={() => router.push('/settings')}
             className="text-primary text-sm font-medium flex items-center gap-1"
           >
-            <span className="text-lg">&#8249;</span> Back
+            <span className="text-lg">&#8249;</span> {t('common.back')}
           </button>
-          <h1 className="text-lg font-bold text-text-primary">Manage Templates</h1>
+          <h1 className="text-lg font-bold text-text-primary">{t('templates.title')}</h1>
           <button
             onClick={() => router.push('/settings')}
             className="text-primary text-sm font-medium"
           >
-            Done
+            {t('common.done')}
           </button>
         </div>
         <div className="max-w-lg mx-auto px-5 pb-3">
           <p className="text-sm text-text-secondary">
-            Toggle templates to show on your home screen
+            {t('templates.subtitle')}
           </p>
         </div>
       </div>
@@ -102,17 +93,17 @@ export default function TemplatesPage() {
       <div className="flex-1 max-w-lg mx-auto w-full px-5 py-4 space-y-6 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <div className="animate-pulse text-text-tertiary text-sm">Loading templates...</div>
+            <div className="animate-pulse text-text-tertiary text-sm">{t('templates.loading')}</div>
           </div>
         ) : templates.length === 0 ? (
           <div className="flex items-center justify-center py-16">
-            <p className="text-text-tertiary text-sm">No templates available yet.</p>
+            <p className="text-text-tertiary text-sm">{t('templates.noTemplates')}</p>
           </div>
         ) : (
           categories.map((cat) => (
             <div key={cat} className="space-y-2">
               <h2 className="text-xs font-bold text-primary uppercase tracking-wider px-1">
-                {CATEGORY_LABELS[cat] || cat}
+                {getCategoryLabel(cat)}
               </h2>
               <div className="bg-surface rounded-2xl border border-border divide-y divide-border overflow-hidden">
                 {templates
@@ -160,7 +151,7 @@ export default function TemplatesPage() {
       <div className="sticky bottom-0 bg-bg/80 backdrop-blur-xl border-t border-border">
         <div className="max-w-lg mx-auto px-5 py-4">
           <p className="text-center text-sm text-text-secondary">
-            {enabledIds.length} template{enabledIds.length !== 1 ? 's' : ''} active on home screen
+            {t('templates.activeCount', { count: String(enabledIds.length), plural: enabledIds.length !== 1 ? 's' : '', pluralEs: enabledIds.length !== 1 ? 's' : '' })}
           </p>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Link from 'next/link';
+import { t } from '@/lib/translations';
 
 export default function SignInPage() {
   const router = useRouter();
@@ -33,15 +34,15 @@ export default function SignInPage() {
       <div className="max-w-sm w-full space-y-6">
         <div>
           <button onClick={() => router.back()} className="text-text-secondary hover:text-text-primary text-sm mb-4">
-            &larr; Back
+            &larr; {t('common.back')}
           </button>
-          <h1 className="text-2xl font-bold text-text-primary">Welcome back</h1>
-          <p className="text-text-secondary text-sm mt-1">Sign in to continue journaling.</p>
+          <h1 className="text-2xl font-bold text-text-primary">{t('signIn.title')}</h1>
+          <p className="text-text-secondary text-sm mt-1">{t('signIn.subtitle')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-text-secondary mb-1">Email</label>
+            <label className="block text-sm text-text-secondary mb-1">{t('signIn.email')}</label>
             <input
               type="email"
               value={email}
@@ -51,7 +52,7 @@ export default function SignInPage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-text-secondary mb-1">Password</label>
+            <label className="block text-sm text-text-secondary mb-1">{t('signIn.password')}</label>
             <input
               type="password"
               value={password}
@@ -68,13 +69,13 @@ export default function SignInPage() {
             disabled={loading}
             className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? t('signIn.loading') : t('signIn.button')}
           </button>
         </form>
 
         <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-border" />
-          <span className="text-xs text-text-tertiary">or</span>
+          <span className="text-xs text-text-tertiary">{t('common.or')}</span>
           <div className="flex-1 h-px bg-border" />
         </div>
 
@@ -82,13 +83,13 @@ export default function SignInPage() {
           onClick={handleGoogle}
           className="w-full py-3 px-6 bg-surface border border-border text-text-primary font-medium rounded-2xl hover:bg-surface-elevated transition-colors"
         >
-          Continue with Google
+          {t('welcome.continueGoogle')}
         </button>
 
         <p className="text-sm text-text-secondary text-center">
-          Don&apos;t have an account?{' '}
+          {t('signIn.noAccount')}{' '}
           <Link href="/auth/sign-up" className="text-primary hover:underline">
-            Sign up
+            {t('signIn.signUp')}
           </Link>
         </p>
       </div>

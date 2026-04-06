@@ -1,3 +1,5 @@
+import { getLocale, type Locale } from './language';
+
 // Preset intentions — invitation-based, identity-focused
 // Not outcome goals ("exercise 4x/week") but directions to hold ("invite more movement")
 // Rooted in self-awareness research: change comes from identity, not checklists
@@ -58,3 +60,58 @@ export const PRESET_INTENTIONS: PresetIntention[] = [
   { title: 'Build long-term security', description: 'Small, consistent choices compound into freedom.', icon: '💰', category: 'purpose', dailyHabit: 'Make one financial choice that serves my future self' },
   { title: 'Leave things better than I found them', description: 'A life of contribution, not just consumption.', icon: '🌱', category: 'purpose', dailyHabit: 'Do one thing today that helps someone without expecting anything back' },
 ];
+
+const INTENTION_CATEGORIES_ES: { key: IntentionCategory; label: string }[] = [
+  { key: 'presence', label: 'Presencia' },
+  { key: 'body', label: 'Cuerpo' },
+  { key: 'mind', label: 'Mente' },
+  { key: 'connection', label: 'Conexión' },
+  { key: 'growth', label: 'Crecimiento' },
+  { key: 'purpose', label: 'Propósito' },
+];
+
+const PRESET_INTENTIONS_ES: PresetIntention[] = [
+  // Presencia
+  { title: 'Estar más presente en mi vida diaria', description: 'Notar los momentos en vez de pasar corriendo por ellos.', icon: '🌿', category: 'presence', dailyHabit: 'Guardar el celular durante las comidas' },
+  { title: 'Invitar más quietud', description: 'Crear espacio para el silencio, incluso cuando la vida hace ruido.', icon: '🧘', category: 'presence', dailyHabit: 'Sentarme en silencio 5 minutos cada mañana' },
+  { title: 'Ir más despacio cuando me siento apurado', description: 'La prisa es un hábito. La presencia es una elección.', icon: '🐢', category: 'presence', dailyHabit: 'Tomar 3 respiraciones profundas antes de empezar cualquier tarea' },
+  { title: 'Ser más amable conmigo mismo', description: 'Hablarme como le hablaría a alguien que quiero.', icon: '💛', category: 'presence', dailyHabit: 'Cuando me cache criticándome, reescribirlo con compasión' },
+
+  // Cuerpo
+  { title: 'Invitar más movimiento a mi día', description: 'No es un plan de ejercicio — es una relación con mi cuerpo.', icon: '🏃', category: 'body', dailyHabit: 'Mover mi cuerpo al menos 10 minutos' },
+  { title: 'Nutrir mi cuerpo con cuidado', description: 'Comer como acto de respeto, no de restricción.', icon: '🥗', category: 'body', dailyHabit: 'Elegir una comida hoy donde coma despacio y con atención' },
+  { title: 'Priorizar el descanso y la recuperación', description: 'Dormir no es flojera. Es la base de todo.', icon: '🌙', category: 'body', dailyHabit: 'Pantallas apagadas y luces bajas a las 9 PM' },
+  { title: 'Escuchar lo que mi cuerpo me dice', description: 'Tensión, cansancio, energía — mi cuerpo habla antes que mi mente.', icon: '👂', category: 'body', dailyHabit: 'Hacer un chequeo con mi cuerpo una vez en la tarde' },
+
+  // Mente
+  { title: 'Entender mis propios patrones', description: 'Ver los circuitos en mi forma de pensar — los detonantes, los ciclos, los hábitos.', icon: '🧠', category: 'mind', dailyHabit: 'Escribir sobre un patrón que noté hoy' },
+  { title: 'Cuestionar los pensamientos que me frenan', description: 'No todos los pensamientos son verdad. Algunos son solo viejos hábitos.', icon: '💭', category: 'mind', dailyHabit: 'Escribir una creencia limitante y cuestionarla' },
+  { title: 'Construir una práctica diaria de reflexión', description: 'Una vida sin examinar no vale la pena vivirla. — Sócrates', icon: '📝', category: 'mind', dailyHabit: 'Abrir esta app y reflexionar 10 minutos' },
+  { title: 'Cultivar la gratitud', description: 'Entrenar mi mente para ver lo que hay, no lo que falta.', icon: '🙏', category: 'mind', dailyHabit: 'Nombrar 3 cosas específicas por las que estoy agradecido' },
+
+  // Conexión
+  { title: 'Estar más presente con las personas que quiero', description: 'La presencia es el mejor regalo que puedo dar.', icon: '👨‍👩‍👧', category: 'connection', dailyHabit: 'Dejar el celular en otro cuarto durante tiempo de calidad' },
+  { title: 'Nutrir una relación más profundamente', description: 'Profundidad sobre cantidad. Invertir en las personas que más importan.', icon: '❤️', category: 'connection', dailyHabit: 'Enviar un mensaje con intención a alguien que me importa' },
+  { title: 'Escuchar más, arreglar menos', description: 'A veces las personas necesitan ser escuchadas, no ayudadas.', icon: '🤝', category: 'connection', dailyHabit: 'En mi próxima conversación, escuchar por completo antes de responder' },
+  { title: 'Expresar lo que siento', description: 'Guardármelo no protege a nadie. La honestidad construye confianza.', icon: '💬', category: 'connection', dailyHabit: 'Compartir un sentimiento honesto con alguien hoy' },
+
+  // Crecimiento
+  { title: 'Leer algo significativo cada día', description: 'Alimentar la mente como alimento el cuerpo.', icon: '📖', category: 'growth', dailyHabit: 'Leer al menos 10 minutos' },
+  { title: 'Aprender algo nuevo', description: 'Mantener la curiosidad. El crecimiento es el antídoto del estancamiento.', icon: '🎯', category: 'growth', dailyHabit: 'Dedicar 15 minutos a aprender una habilidad' },
+  { title: 'Menos tiempo consumiendo, más creando', description: 'Scrollear llena el tiempo. Crear llena el alma.', icon: '📵', category: 'growth', dailyHabit: 'Reemplazar 30 minutos de scroll por crear algo' },
+  { title: 'Aclarar lo que verdaderamente valoro', description: 'Cuando conozco mis valores, las decisiones se toman solas.', icon: '🧭', category: 'growth', dailyHabit: 'Preguntarme: ¿esto se alinea con lo que más me importa?' },
+
+  // Propósito
+  { title: 'Hacer trabajo que me importe', description: 'No solo productivo — significativo.', icon: '⚡', category: 'purpose', dailyHabit: 'Empezar cada día con la tarea que más importa' },
+  { title: 'Liderar con amabilidad', description: 'Cada interacción es una oportunidad de levantar a alguien.', icon: '👏', category: 'purpose', dailyHabit: 'Reconocer a una persona por algo específico que hizo' },
+  { title: 'Construir seguridad a largo plazo', description: 'Decisiones pequeñas y constantes se acumulan en libertad.', icon: '💰', category: 'purpose', dailyHabit: 'Tomar una decisión financiera que sirva a mi yo del futuro' },
+  { title: 'Dejar las cosas mejor de como las encontré', description: 'Una vida de contribución, no solo de consumo.', icon: '🌱', category: 'purpose', dailyHabit: 'Hacer algo hoy que ayude a alguien sin esperar nada a cambio' },
+];
+
+export function getLocalizedIntentionCategories() {
+  return getLocale() === 'es' ? INTENTION_CATEGORIES_ES : INTENTION_CATEGORIES;
+}
+
+export function getLocalizedIntentions() {
+  return getLocale() === 'es' ? PRESET_INTENTIONS_ES : PRESET_INTENTIONS;
+}

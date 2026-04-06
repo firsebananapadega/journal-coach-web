@@ -1,5 +1,7 @@
 'use client';
 
+import { t } from '@/lib/translations';
+
 const MOODS = [
   { score: 5, label: 'great', emoji: '😊', color: 'bg-mood-great' },
   { score: 4, label: 'good', emoji: '🙂', color: 'bg-mood-good' },
@@ -16,7 +18,7 @@ interface MoodSelectorProps {
 export function MoodSelector({ value, onChange }: MoodSelectorProps) {
   return (
     <div className="flex flex-col items-center gap-3">
-      <p className="text-sm text-text-secondary">How are you feeling?</p>
+      <p className="text-sm text-text-secondary">{t('mood.howFeeling')}</p>
       <div className="flex gap-3">
         {MOODS.map((mood) => (
           <button
@@ -29,7 +31,7 @@ export function MoodSelector({ value, onChange }: MoodSelectorProps) {
             }`}
           >
             <span className="text-2xl">{mood.emoji}</span>
-            <span className="text-xs text-text-secondary capitalize">{mood.label}</span>
+            <span className="text-xs text-text-secondary capitalize">{t('mood.' + mood.label)}</span>
           </button>
         ))}
       </div>

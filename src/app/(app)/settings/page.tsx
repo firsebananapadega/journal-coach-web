@@ -8,9 +8,10 @@ import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
 import { useTheme } from '@/lib/theme';
 import { GuideSelector } from '@/components/GuideSelector';
-import { getGuideOrDefault, type GuideId } from '@/lib/guideConfigs';
+import { getGuideOrDefault, getGuideArchetype, type GuideId } from '@/lib/guideConfigs';
 import { getGuideAvatar } from '@/lib/guideAvatars';
-import { getLanguage, setLanguage, LANGUAGES, type AppLanguage } from '@/lib/language';
+import { getLanguage, getLocale, setLanguage, LANGUAGES, type AppLanguage } from '@/lib/language';
+import { t } from '@/lib/translations';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -58,10 +59,11 @@ export default function SettingsPage() {
   const handleLanguageChange = (lang: AppLanguage) => {
     setLanguage(lang);
     setCurrentLang(lang);
+    window.location.reload();
   };
 
   const handleSignOut = async () => {
-    if (!confirm('Are you sure you want to sign out?')) return;
+    if (!confirm(t('settings.confirmSignOut'))) return;
     setSigningOut(true);
     try {
       localStorage.removeItem('enabled_template_ids');
@@ -79,7 +81,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-5 overflow-y-auto">
-      <h1 className="text-2xl font-bold text-text-primary">Settings</h1>
+      <h1 className="text-2xl font-bold text-text-primary">{t('settings.title')}</h1>
 
       {/* Profile Card */}
       <div className="bg-surface rounded-2xl border border-border p-5 flex flex-col items-center gap-2">
@@ -94,12 +96,12 @@ export default function SettingsPage() {
 
       {/* Home Screen — Guided Journal toggle */}
       <div className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Home Screen</h2>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.homeScreen')}</h2>
         <div className="bg-surface rounded-2xl border border-border p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-xl">💬</span>
-              <span className="text-sm font-medium text-text-primary">Guided Journal</span>
+              <span className="text-sm font-medium text-text-primary">{t('settings.guidedJournal')}</span>
             </div>
             <button
               onClick={() => toggleGuidedBubble(!showGuidedBubble)}
@@ -114,7 +116,7 @@ export default function SettingsPage() {
       {/* Your Guide */}
       {showGuidedBubble && (
         <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Your Guide</h2>
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.yourGuide')}</h2>
           <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
             <button
               onClick={() => setShowGuideSelector(!showGuideSelector)}
@@ -131,10 +133,10 @@ export default function SettingsPage() {
                 />
                 <div className="text-left">
                   <p className="text-sm font-semibold text-text-primary">{guide.name}</p>
-                  <p className="text-xs text-text-secondary">{guide.archetype}</p>
+                  <p className="text-xs text-text-secondary">{getGuideArchetype(guide, getLocale())}</p>
                 </div>
               </div>
-              <span className="text-sm text-text-tertiary">{showGuideSelector ? 'Done' : 'Change'}</span>
+              <span className="text-sm text-text-tertiary">{showGuideSelector ? t('common.done') : t('common.change')}</span>
             </button>
             {showGuideSelector && (
               <GuideSelector
@@ -151,7 +153,7 @@ export default function SettingsPage() {
 
       {/* Templates — nav link */}
       <div className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Templates</h2>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.templates')}</h2>
         <div className="bg-surface rounded-2xl border border-border p-4">
           <button
             onClick={() => router.push('/templates')}
@@ -160,9 +162,9 @@ export default function SettingsPage() {
             <div className="flex items-center gap-3">
               <span className="text-xl">📋</span>
               <div className="text-left">
-                <p className="text-sm font-medium text-text-primary">Manage Templates</p>
+                <p className="text-sm font-medium text-text-primary">{t('settings.manageTemplates')}</p>
                 <p className="text-xs text-text-secondary">
-                  {enabledTemplateCount} active on home screen
+                  {t('settings.activeOnHome', { count: String(enabledTemplateCount) })}
                 </p>
               </div>
             </div>
@@ -173,10 +175,10 @@ export default function SettingsPage() {
 
       {/* Appearance */}
       <div className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Appearance</h2>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.appearance')}</h2>
         <div className="bg-surface rounded-2xl border border-border p-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-text-primary">Theme</span>
+            <span className="text-sm font-medium text-text-primary">{t('settings.theme')}</span>
             <div className="flex gap-2">
               {(['dark', 'light'] as const).map((m) => (
                 <button
@@ -186,7 +188,7 @@ export default function SettingsPage() {
                     mode === m ? 'bg-primary border-primary text-white' : 'border-border text-text-secondary'
                   }`}
                 >
-                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                  {m === 'dark' ? t('settings.dark') : t('settings.light')}
                 </button>
               ))}
             </div>
@@ -196,7 +198,7 @@ export default function SettingsPage() {
 
       {/* Language */}
       <div className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Language</h2>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.language')}</h2>
         <div className="bg-surface rounded-2xl border border-border p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-text-primary">
@@ -224,18 +226,18 @@ export default function SettingsPage() {
 
       {/* Privacy */}
       <div className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Privacy</h2>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.privacy')}</h2>
         <div className="bg-surface rounded-2xl border border-border p-4 flex items-start gap-3">
           <span className="text-xl mt-0.5">🔒</span>
           <p className="text-sm text-text-secondary leading-relaxed">
-            Your journal data is stored securely in Supabase with row-level security. Only you can access your entries.
+            {t('settings.privacyMessage')}
           </p>
         </div>
       </div>
 
       {/* Intentions — compact display + nav link */}
       <div className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Intentions</h2>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.intentions')}</h2>
         <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
           {intentions.length > 0 ? (
             <div className="space-y-2">
@@ -247,14 +249,14 @@ export default function SettingsPage() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-text-tertiary">No intentions set yet.</p>
+            <p className="text-sm text-text-tertiary">{t('settings.noIntentions')}</p>
           )}
           <div className="flex gap-2">
             <input
               value={newIntention}
               onChange={(e) => setNewIntention(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && addIntention()}
-              placeholder="Add an intention..."
+              placeholder={t('settings.addIntentionPlaceholder')}
               className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-xl text-text-primary text-sm focus:border-primary outline-none"
             />
             <button
@@ -262,21 +264,21 @@ export default function SettingsPage() {
               disabled={!newIntention.trim()}
               className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-40 hover:bg-primary-dark transition-colors"
             >
-              Add
+              {t('common.add')}
             </button>
           </div>
           <button
             onClick={() => router.push('/intentions')}
             className="w-full py-2.5 bg-surface-elevated text-primary rounded-xl text-sm font-medium hover:bg-primary/10 transition-colors"
           >
-            Browse Intentions &#8250;
+            {t('settings.browseIntentions')} &#8250;
           </button>
         </div>
       </div>
 
       {/* Habits — compact display + nav link */}
       <div className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Habits</h2>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.habits')}</h2>
         <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
           {activeHabits.length > 0 ? (
             <div className="space-y-2">
@@ -287,7 +289,7 @@ export default function SettingsPage() {
                     <p className="text-xs text-text-tertiary capitalize">{habit.time_of_day} · {habit.frequency}</p>
                   </div>
                   <button
-                    onClick={() => { if (confirm(`Delete "${habit.name}"?`)) deleteHabit(habit.id); }}
+                    onClick={() => { if (confirm(t('settings.confirmDeleteHabit', { name: habit.name }))) deleteHabit(habit.id); }}
                     className="text-text-tertiary hover:text-error text-xs px-2"
                   >
                     ✕
@@ -296,13 +298,13 @@ export default function SettingsPage() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-text-tertiary">No habits yet.</p>
+            <p className="text-sm text-text-tertiary">{t('settings.noHabits')}</p>
           )}
           <button
             onClick={() => router.push('/habits')}
             className="w-full py-2.5 bg-surface-elevated text-primary rounded-xl text-sm font-medium hover:bg-primary/10 transition-colors"
           >
-            Manage Habits &#8250;
+            {t('settings.manageHabits')} &#8250;
           </button>
         </div>
       </div>
@@ -313,7 +315,7 @@ export default function SettingsPage() {
         disabled={signingOut}
         className="w-full py-3 bg-surface border border-border text-error font-medium rounded-2xl hover:bg-surface-elevated transition-colors disabled:opacity-50"
       >
-        {signingOut ? 'Signing out...' : 'Sign out'}
+        {signingOut ? t('settings.signingOut') : t('settings.signOut')}
       </button>
 
       <p className="text-center text-xs text-text-tertiary">JournalCoach Web v1.0.0</p>

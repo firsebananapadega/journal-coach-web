@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
+import { t } from '@/lib/translations';
 
 export default function RootPage() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function RootPage() {
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-bg">
-      <div className="animate-pulse text-primary text-lg">Loading...</div>
+      <div className="animate-pulse text-primary text-lg">{t('common.loading')}</div>
     </div>
   );
 }

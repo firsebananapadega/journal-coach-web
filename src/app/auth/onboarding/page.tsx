@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { GuideSelector } from '@/components/GuideSelector';
 import { supabase } from '@/lib/supabase';
 import { setLanguage, LANGUAGES, type AppLanguage } from '@/lib/language';
+import { t } from '@/lib/translations';
 
 interface TemplateOption {
   id: string;
@@ -76,8 +77,8 @@ export default function OnboardingPage() {
   const steps = [
     // Step 0: Language
     <div key="language" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">Choose your language</h2>
-      <p className="text-sm text-text-secondary">You can change this later in Settings.</p>
+      <h2 className="text-xl font-bold text-text-primary">{t('onboarding.chooseLanguage')}</h2>
+      <p className="text-sm text-text-secondary">{t('onboarding.changeLater')}</p>
       <div className="space-y-3">
         {LANGUAGES.map((lang) => (
           <button
@@ -99,18 +100,18 @@ export default function OnboardingPage() {
         onClick={() => setStep(1)}
         className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
       >
-        Next
+        {t('common.next')}
       </button>
     </div>,
 
     // Step 1: Name
     <div key="name" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">What should we call you?</h2>
-      <p className="text-sm text-text-secondary">You can always change this later.</p>
+      <h2 className="text-xl font-bold text-text-primary">{t('onboarding.whatName')}</h2>
+      <p className="text-sm text-text-secondary">{t('onboarding.changeNameLater')}</p>
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="Your name"
+        placeholder={t('onboarding.yourName')}
         autoFocus
         className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary outline-none"
       />
@@ -119,27 +120,27 @@ export default function OnboardingPage() {
         disabled={!name.trim()}
         className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-40"
       >
-        Next
+        {t('common.next')}
       </button>
     </div>,
 
     // Step 2: Pick guide
     <div key="guide" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">Choose your guide</h2>
-      <p className="text-sm text-text-secondary">Each guide has a different style. You can switch anytime.</p>
+      <h2 className="text-xl font-bold text-text-primary">{t('onboarding.chooseGuide')}</h2>
+      <p className="text-sm text-text-secondary">{t('onboarding.guideSubtitle')}</p>
       <GuideSelector value={guide} onChange={setGuide} />
       <button
         onClick={() => setStep(3)}
         className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
       >
-        Next
+        {t('common.next')}
       </button>
     </div>,
 
     // Step 3: Pick templates
     <div key="templates" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">Pick your templates</h2>
-      <p className="text-sm text-text-secondary">These show on your home screen. Tap to toggle.</p>
+      <h2 className="text-xl font-bold text-text-primary">{t('onboarding.pickTemplates')}</h2>
+      <p className="text-sm text-text-secondary">{t('onboarding.templateSubtitle')}</p>
       <div className="grid grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto">
         {templates.map((tmpl) => {
           const isSelected = selectedTemplates.has(tmpl.id);
@@ -169,7 +170,7 @@ export default function OnboardingPage() {
         disabled={loading}
         className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
       >
-        {loading ? 'Setting up...' : 'Start Journaling'}
+        {loading ? t('onboarding.settingUp') : t('onboarding.startJournaling')}
       </button>
     </div>,
   ];

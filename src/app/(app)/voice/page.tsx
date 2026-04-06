@@ -12,6 +12,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { MoodSelector } from '@/components/MoodSelector';
 import { classifyCapture, type CaptureResult } from '@/lib/captureEngine';
 import { getLanguage } from '@/lib/language';
+import { t } from '@/lib/translations';
 
 export default function VoiceEntryPage() {
   const router = useRouter();
@@ -176,7 +177,7 @@ export default function VoiceEntryPage() {
     <div className="flex flex-col h-screen bg-bg">
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
         <button onClick={() => router.push('/home')} className="text-text-secondary text-lg">&#10005;</button>
-        <span className="text-sm font-semibold text-text-primary">Voice Entry</span>
+        <span className="text-sm font-semibold text-text-primary">{t('voice.title')}</span>
         <div className="w-10" />
       </div>
 
@@ -184,7 +185,7 @@ export default function VoiceEntryPage() {
         {!speechSupported && (
           <div className="bg-warning/10 border border-warning/30 rounded-xl p-4">
             <p className="text-sm text-warning">
-              Voice input is not supported in this browser. Try Chrome or Edge for the best experience.
+              {t('voice.browserWarning')}
             </p>
           </div>
         )}
@@ -203,11 +204,11 @@ export default function VoiceEntryPage() {
                 }
               }}
               className="w-full min-h-[200px] text-text-primary text-[15px] leading-relaxed bg-transparent border-none outline-none resize-none"
-              placeholder="Your transcript will appear here..."
+              placeholder={t('voice.placeholder')}
             />
           ) : (
             <p className="text-text-tertiary text-center mt-16">
-              {isListening ? 'Listening...' : 'Tap the mic and start talking.'}
+              {isListening ? t('voice.listening') : t('voice.tapMic')}
             </p>
           )}
           <div ref={transcriptEndRef} />
@@ -221,7 +222,7 @@ export default function VoiceEntryPage() {
               onClick={handleSave}
               className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
             >
-              Save Entry
+              {t('voice.save')}
             </button>
           </>
         )}

@@ -27,6 +27,7 @@ import {
   stopListening,
 } from '@/lib/speechRecognition';
 import { getLanguage } from '@/lib/language';
+import { t } from '@/lib/translations';
 import { classifyCapture, resolveWhen, type PriorityTask } from '@/lib/captureEngine';
 import { supabase } from '@/lib/supabase';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
@@ -46,9 +47,9 @@ function formatDateBubble(date: Date, todayStr: string): { label: string; dateNu
   const dateStr = toLocalDateStr(date);
   const dateNum = date.getDate();
   if (dateStr === todayStr) {
-    return { label: 'Today', dateNum };
+    return { label: t('priorities.today'), dateNum };
   }
-  const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+  const dayName = date.toLocaleDateString(getLanguage(), { weekday: 'short' });
   return { label: dayName, dateNum };
 }
 
@@ -409,9 +410,9 @@ export default function PrioritiesPage() {
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-text-primary">Tasks & Groceries</h1>
+        <h1 className="text-2xl font-bold text-text-primary">{t('priorities.title')}</h1>
         <p className="text-sm text-text-secondary mt-1">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          {new Date().toLocaleDateString(getLanguage(), { weekday: 'long', month: 'long', day: 'numeric' })}
         </p>
       </div>
 
@@ -445,7 +446,7 @@ export default function PrioritiesPage() {
             value={newItem}
             onChange={(e) => { if (!isListening) setNewItem(e.target.value); }}
             onKeyDown={(e) => e.key === 'Enter' && newItem.trim() && handleAddItem()}
-            placeholder={isListening ? 'Listening...' : 'Add a priority...'}
+            placeholder={isListening ? t('guided.listeningPlaceholder') : t('priorities.placeholder')}
             readOnly={isListening}
             className={`flex-1 px-4 py-3 bg-surface border rounded-xl text-text-primary outline-none text-sm ${
               isListening ? 'border-error' : 'border-border focus:border-primary'
@@ -473,7 +474,7 @@ export default function PrioritiesPage() {
             disabled={processing}
             className="w-full py-2.5 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50 text-sm"
           >
-            {processing ? 'Processing...' : 'Add Tasks'}
+            {processing ? t('priorities.processing') : t('priorities.addTasks')}
           </button>
         )}
 
@@ -488,7 +489,7 @@ export default function PrioritiesPage() {
       {items.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Priorities</h2>
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('priorities.priorities')}</h2>
             <span className="text-xs text-text-tertiary">
               {items.filter((i) => i.completed).length}/{items.length}
             </span>
@@ -526,7 +527,7 @@ export default function PrioritiesPage() {
       {/* Groceries — swipe to delete items and groups */}
       {groceries.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Groceries</h2>
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('priorities.groceries')}</h2>
           {groceries.map((group) => (
             <SwipeToDelete key={group.id} onDelete={() => removeGroceryGroup(group.id)}>
               <div className="bg-surface rounded-xl border border-border p-3 space-y-1">
@@ -569,7 +570,7 @@ export default function PrioritiesPage() {
         return (
           <div className="space-y-1">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Habits</h2>
+              <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('priorities.habits')}</h2>
               <span className="text-xs text-text-tertiary">
                 {activeHabits.filter((h) => dateCompletions.has(h.id)).length}/{activeHabits.length}
               </span>
@@ -608,7 +609,7 @@ export default function PrioritiesPage() {
       {items.length === 0 && groceries.length === 0 && habits.filter((h) => h.is_active).length === 0 && !loading && !processing && (
         <div className="text-center py-12 space-y-2">
           <p className="text-4xl">🎯</p>
-          <p className="text-text-secondary text-sm">No tasks for today yet.</p>
+          <p className="text-text-secondary text-sm">{t('priorities.empty')}</p>
         </div>
       )}
 
@@ -616,8 +617,8 @@ export default function PrioritiesPage() {
       {log.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Activity Log</h2>
-            <button onClick={() => setLog([])} className="text-xs text-text-tertiary hover:text-text-secondary">Clear</button>
+            <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">{t('priorities.activityLog')}</h2>
+            <button onClick={() => setLog([])} className="text-xs text-text-tertiary hover:text-text-secondary">{t('common.clear')}</button>
           </div>
           <div className="bg-surface rounded-xl border border-border p-3 space-y-0.5">
             {log.map((entry, i) => (

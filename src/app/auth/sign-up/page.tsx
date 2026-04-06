@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Link from 'next/link';
+import { t } from '@/lib/translations';
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -17,7 +18,7 @@ export default function SignUpPage() {
     e.preventDefault();
     setError('');
     if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
+      setError(t('signUp.passwordMin'));
       return;
     }
     const result = await signUp(email, password);
@@ -32,15 +33,15 @@ export default function SignUpPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-bg">
         <div className="max-w-sm w-full space-y-4 text-center">
-          <h1 className="text-2xl font-bold text-text-primary">Check your email</h1>
+          <h1 className="text-2xl font-bold text-text-primary">{t('signUp.checkEmail')}</h1>
           <p className="text-text-secondary">
-            We sent a confirmation link to <strong>{email}</strong>. Click it to activate your account.
+            {t('signUp.confirmationSent')} <strong>{email}</strong>{t('signUp.clickToActivate')}
           </p>
           <button
             onClick={() => router.push('/auth/sign-in')}
             className="mt-4 py-3 px-6 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
           >
-            Go to Sign In
+            {t('signUp.goToSignIn')}
           </button>
         </div>
       </div>
@@ -52,15 +53,15 @@ export default function SignUpPage() {
       <div className="max-w-sm w-full space-y-6">
         <div>
           <button onClick={() => router.back()} className="text-text-secondary hover:text-text-primary text-sm mb-4">
-            &larr; Back
+            &larr; {t('common.back')}
           </button>
-          <h1 className="text-2xl font-bold text-text-primary">Create your account</h1>
-          <p className="text-text-secondary text-sm mt-1">Start your journaling practice.</p>
+          <h1 className="text-2xl font-bold text-text-primary">{t('signUp.title')}</h1>
+          <p className="text-text-secondary text-sm mt-1">{t('signUp.subtitle')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-text-secondary mb-1">Email</label>
+            <label className="block text-sm text-text-secondary mb-1">{t('signUp.email')}</label>
             <input
               type="email"
               value={email}
@@ -70,7 +71,7 @@ export default function SignUpPage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-text-secondary mb-1">Password</label>
+            <label className="block text-sm text-text-secondary mb-1">{t('signUp.password')}</label>
             <input
               type="password"
               value={password}
@@ -88,14 +89,14 @@ export default function SignUpPage() {
             disabled={loading}
             className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
           >
-            {loading ? 'Creating account...' : 'Create Account'}
+            {loading ? t('signUp.loading') : t('signUp.button')}
           </button>
         </form>
 
         <p className="text-sm text-text-secondary text-center">
-          Already have an account?{' '}
+          {t('signUp.hasAccount')}{' '}
           <Link href="/auth/sign-in" className="text-primary hover:underline">
-            Sign in
+            {t('signUp.signIn')}
           </Link>
         </p>
       </div>

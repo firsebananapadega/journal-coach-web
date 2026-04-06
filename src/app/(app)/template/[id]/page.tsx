@@ -11,6 +11,7 @@ import {
   stopListening,
 } from '@/lib/speechRecognition';
 import { getLanguage } from '@/lib/language';
+import { t } from '@/lib/translations';
 
 interface TemplateQuestion {
   id: string;
@@ -127,7 +128,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
     if (!template) return;
     setSaving(true);
     setSaveError('');
-    const contentParts = template.questions.map((q, i) => `Q: ${q.question_text}\nA: ${answers[i] || '(skipped)'}`);
+    const contentParts = template.questions.map((q, i) => `Q: ${q.question_text}\nA: ${answers[i] || t('template.skipped')}`);
     const contentText = contentParts.join('\n\n');
     const wordCount = answers.join(' ').split(/\s+/).filter(Boolean).length;
     try {
@@ -150,14 +151,14 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   if (loadError) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <p className="text-text-secondary">Template not found.</p>
-        <button onClick={() => router.push('/home')} className="text-primary">Go home</button>
+        <p className="text-text-secondary">{t('template.notFound')}</p>
+        <button onClick={() => router.push('/home')} className="text-primary">{t('template.goHome')}</button>
       </div>
     );
   }
 
   if (!template) {
-    return <div className="flex items-center justify-center min-h-screen"><div className="animate-pulse text-primary">Loading template...</div></div>;
+    return <div className="flex items-center justify-center min-h-screen"><div className="animate-pulse text-primary">{t('template.loadingTemplate')}</div></div>;
   }
 
   const isDone = currentQ >= template.questions.length;
@@ -204,7 +205,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
                     updated[currentQ] = e.target.value;
                     setAnswers(updated);
                   }}
-                  placeholder={currentQuestion.placeholder || 'Your answer...'}
+                  placeholder={currentQuestion.placeholder || t('template.yourAnswer')}
                   className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[200px] focus:border-primary"
                 />
                 {speechSupported && (
@@ -220,7 +221,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
                       <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                     </svg>
-                    {isListening ? 'Stop Recording' : 'Tap to Speak'}
+                    {isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
                   </button>
                 )}
               </div>
@@ -229,24 +230,24 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
             <div className="flex gap-2">
               {currentQ > 0 && (
                 <button onClick={() => goToQuestion(currentQ - 1)} className="flex-1 py-3 bg-surface border border-border text-text-secondary rounded-xl text-sm font-medium">
-                  Previous
+                  {t('common.previous')}
                 </button>
               )}
               <button
                 onClick={() => goToQuestion(currentQ + 1)}
                 className="flex-1 py-3 bg-primary text-white rounded-xl text-sm font-semibold"
               >
-                {currentQ < template.questions.length - 1 ? 'Next' : 'Done'}
+                {currentQ < template.questions.length - 1 ? t('common.next') : t('common.done')}
               </button>
             </div>
           </div>
         ) : (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-text-primary">Review</h2>
+            <h2 className="text-lg font-semibold text-text-primary">{t('template.review')}</h2>
             {template.questions.map((q, i) => (
               <div key={i} className="space-y-1">
                 <p className="text-xs text-text-tertiary">{q.question_text}</p>
-                <p className="text-sm text-text-primary">{answers[i] || '(skipped)'}</p>
+                <p className="text-sm text-text-primary">{answers[i] || t('template.skipped')}</p>
               </div>
             ))}
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
@@ -256,7 +257,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
               disabled={saving}
               className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
             >
-              {saving ? 'Saving...' : 'Save Entry'}
+              {saving ? t('common.saving') : t('voice.save')}
             </button>
           </div>
         )}

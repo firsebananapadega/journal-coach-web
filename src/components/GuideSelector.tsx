@@ -1,8 +1,9 @@
 'use client';
 
 import Image from 'next/image';
-import { ALL_GUIDES, type GuideId } from '@/lib/guideConfigs';
+import { ALL_GUIDES, getGuideArchetype, type GuideId } from '@/lib/guideConfigs';
 import { getGuideAvatar } from '@/lib/guideAvatars';
+import { getLocale } from '@/lib/language';
 
 interface GuideSelectorProps {
   value: string;
@@ -10,6 +11,7 @@ interface GuideSelectorProps {
 }
 
 export function GuideSelector({ value, onChange }: GuideSelectorProps) {
+  const locale = getLocale();
   return (
     <div className="grid grid-cols-2 gap-3">
       {ALL_GUIDES.map((guide) => (
@@ -31,7 +33,7 @@ export function GuideSelector({ value, onChange }: GuideSelectorProps) {
           />
           <div className="text-left">
             <p className="text-sm font-semibold text-text-primary">{guide.name}</p>
-            <p className="text-xs text-text-secondary">{guide.archetype}</p>
+            <p className="text-xs text-text-secondary">{getGuideArchetype(guide, locale)}</p>
           </div>
         </button>
       ))}

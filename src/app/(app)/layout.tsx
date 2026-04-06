@@ -4,12 +4,13 @@ import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Link from 'next/link';
+import { t } from '@/lib/translations';
 
-const NAV_ITEMS = [
-  { href: '/home', label: 'Home', icon: '🏠' },
-  { href: '/priorities', label: 'Tasks', icon: '🎯' },
-  { href: '/journal', label: 'Journal', icon: '📖' },
-  { href: '/settings', label: 'Settings', icon: '⚙️' },
+const NAV_KEYS = [
+  { href: '/home', key: 'nav.home', icon: '🏠' },
+  { href: '/priorities', key: 'nav.tasks', icon: '🎯' },
+  { href: '/journal', key: 'nav.journal', icon: '📖' },
+  { href: '/settings', key: 'nav.settings', icon: '⚙️' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -27,7 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!initialized || !session) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-bg">
-        <div className="animate-pulse text-primary">Loading...</div>
+        <div className="animate-pulse text-primary">{t('common.loading')}</div>
       </div>
     );
   }
@@ -43,7 +44,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {!hideNav && (
         <nav className="fixed bottom-0 inset-x-0 bg-surface border-t border-border z-50">
           <div className="max-w-lg mx-auto flex items-center justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-            {NAV_ITEMS.map((item) => (
+            {NAV_KEYS.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -52,7 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 }`}
               >
                 <span className="text-xl">{item.icon}</span>
-                <span className="text-[11px] font-semibold">{item.label}</span>
+                <span className="text-[11px] font-semibold">{t(item.key)}</span>
               </Link>
             ))}
           </div>

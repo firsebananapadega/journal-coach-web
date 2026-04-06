@@ -1,4 +1,5 @@
 import { callGemini } from '@/lib/geminiClient';
+import { getLanguage, getLocale } from '@/lib/language';
 
 export interface WeeklyReflectionData {
   weekKey: string;
@@ -40,7 +41,7 @@ export async function generateWeeklyReflection(
 
   // Build entry summaries
   const summaries = entries.map((e) => {
-    const date = new Date(e.created_at).toLocaleDateString('en-US', {
+    const date = new Date(e.created_at).toLocaleDateString(getLanguage(), {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -49,6 +50,10 @@ export async function generateWeeklyReflection(
     const snippet = (e.content_text || '').substring(0, 500);
     return `- ${date} | mood: ${mood} | type: ${e.entry_type}\n  "${snippet}"`;
   });
+
+  const langInstruction = getLocale() === 'es'
+    ? '\n- Write the entire letter in Mexican Spanish (español mexicano). Use "tú" form. Never use Spain Spanish vocabulary.'
+    : '';
 
   const letterPrompt = `You are ${guideName}, a warm and encouraging journaling guide. Write a personal weekly reflection letter to ${userName || 'your journaler'}.
 
@@ -60,9 +65,10 @@ Instructions:
 - Sign the letter as ${guideName}
 - End with one reflective question
 - Keep under 200 words
-- Do NOT use markdown formatting, just plain text with line breaks`;
+- Do NOT use markdown formatting, just plain text with line breaks${langInstruction}`;
 
-  const themesPrompt = `Extract 3-5 key themes (single words or short phrases) from these journal entries. Return ONLY a JSON array of strings, nothing else.
+  const themesLang = getLocale() === 'es' ? ' Return the themes in Mexican Spanish.' : '';
+  const themesPrompt = `Extract 3-5 key themes (single words or short phrases) from these journal entries. Return ONLY a JSON array of strings, nothing else.${themesLang}
 
 Entries:
 ${summaries.join('\n\n')}`;

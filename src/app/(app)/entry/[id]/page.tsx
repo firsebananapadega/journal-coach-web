@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useJournalStore, type JournalEntry } from '@/stores/journalStore';
 import { MoodSelector } from '@/components/MoodSelector';
+import { t } from '@/lib/translations';
+import { getLanguage } from '@/lib/language';
 
 const ENTRY_TYPE_LABEL: Record<string, string> = {
-  voice: '🎙️ Voice Entry',
-  guided: '💬 Guided Session',
-  template: '📋 Template',
-  freeform: '✏️ Free Write',
+  voice: 'entry.typeVoice',
+  guided: 'entry.typeGuided',
+  template: 'entry.typeTemplate',
+  freeform: 'entry.typeFreeform',
 };
 
 interface Exchange {
@@ -130,7 +132,7 @@ export default function EntryDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-pulse text-primary">Loading...</div>
+        <div className="animate-pulse text-primary">{t('common.loading')}</div>
       </div>
     );
   }
@@ -138,8 +140,8 @@ export default function EntryDetailPage() {
   if (!entry) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <p className="text-text-secondary">Entry not found.</p>
-        <button onClick={() => router.back()} className="text-primary">Go back</button>
+        <p className="text-text-secondary">{t('entry.notFound')}</p>
+        <button onClick={() => router.back()} className="text-primary">{t('entry.goBack')}</button>
       </div>
     );
   }
@@ -153,7 +155,7 @@ export default function EntryDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <button onClick={() => router.back()} className="text-text-secondary hover:text-text-primary text-sm">
-          &larr; Back
+          &larr; {t('common.back')}
         </button>
         <div className="flex items-center gap-3">
           {!editing ? (
@@ -162,7 +164,7 @@ export default function EntryDetailPage() {
                 onClick={startEditing}
                 className="text-sm text-primary font-medium hover:underline"
               >
-                Edit
+                {t('common.edit')}
               </button>
               <button
                 onClick={async () => {
@@ -181,14 +183,14 @@ export default function EntryDetailPage() {
                 onClick={cancelEditing}
                 className="text-sm text-text-secondary hover:text-text-primary"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="text-sm bg-primary text-white px-4 py-1.5 rounded-lg font-medium disabled:opacity-50"
               >
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? t('common.saving') : t('common.save')}
               </button>
             </>
           )}
@@ -199,13 +201,13 @@ export default function EntryDetailPage() {
       <div className="space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs px-2 py-0.5 bg-surface-elevated rounded-md text-text-secondary">
-            {ENTRY_TYPE_LABEL[entry.entry_type] || entry.entry_type}
+            {t(ENTRY_TYPE_LABEL[entry.entry_type]) || entry.entry_type}
           </span>
           {!editing && entry.mood_label && (
             <span className="text-xs text-text-secondary capitalize">{entry.mood_label}</span>
           )}
           {entry.word_count && (
-            <span className="text-xs text-text-tertiary">{entry.word_count} words</span>
+            <span className="text-xs text-text-tertiary">{entry.word_count} {t('common.words')}</span>
           )}
         </div>
 
@@ -214,7 +216,7 @@ export default function EntryDetailPage() {
           <input
             value={editTitle}
             onChange={(e) => setEditTitle(e.target.value)}
-            placeholder="Entry title (optional)"
+            placeholder={t('entry.titlePlaceholder')}
             className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary outline-none focus:border-primary"
           />
         ) : entry.title ? (
@@ -222,7 +224,7 @@ export default function EntryDetailPage() {
         ) : null}
 
         <p className="text-xs text-text-tertiary">
-          {new Date(entry.created_at).toLocaleDateString('en-US', {
+          {new Date(entry.created_at).toLocaleDateString(getLanguage(), {
             weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
           })}
         </p>
@@ -237,7 +239,7 @@ export default function EntryDetailPage() {
               {editExchanges.map((ex, i) => (
                 <div key={i} className="space-y-2">
                   <div className="bg-[#1A2B22] rounded-2xl p-4">
-                    <p className="text-xs text-primary font-bold uppercase tracking-wider mb-1">Guide</p>
+                    <p className="text-xs text-primary font-bold uppercase tracking-wider mb-1">{t('entry.guide')}</p>
                     <p className="text-[15px] text-[#F0F0F5] leading-relaxed">{ex.question}</p>
                   </div>
                   <textarea
@@ -293,7 +295,7 @@ export default function EntryDetailPage() {
               {exchanges!.map((ex, i) => (
                 <div key={i} className="space-y-2">
                   <div className="bg-[#1A2B22] rounded-2xl p-4">
-                    <p className="text-xs text-primary font-bold uppercase tracking-wider mb-1">Guide</p>
+                    <p className="text-xs text-primary font-bold uppercase tracking-wider mb-1">{t('entry.guide')}</p>
                     <p className="text-[15px] text-[#F0F0F5] leading-relaxed">{ex.question}</p>
                   </div>
                   <div className="bg-[#222725] rounded-2xl p-4 ml-4">
@@ -305,7 +307,7 @@ export default function EntryDetailPage() {
           ) : (
             <div className="prose prose-invert max-w-none">
               <p className="text-[15px] text-text-primary leading-relaxed whitespace-pre-wrap">
-                {entry.content_text || 'No content'}
+                {entry.content_text || t('common.noContent')}
               </p>
             </div>
           )}

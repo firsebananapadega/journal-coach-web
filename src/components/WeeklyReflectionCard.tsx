@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { WeeklyReflectionData } from '@/lib/weeklyReflection';
+import { t } from '@/lib/translations';
 
 interface Props {
   reflection: WeeklyReflectionData;
@@ -22,11 +23,11 @@ export default function WeeklyReflectionCard({ reflection, guideName }: Props) {
             &#128140;
           </span>
           <span className="font-semibold text-text-primary text-sm">
-            {guideName}&apos;s Weekly Reflection
+            {t('reflection.title', { name: guideName })}
           </span>
         </div>
         <span className="text-xs text-text-tertiary">
-          {expanded ? 'tap to collapse' : 'tap to read'}
+          {expanded ? t('reflection.tapToCollapse') : t('reflection.tapToRead')}
         </span>
       </div>
 

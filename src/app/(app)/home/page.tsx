@@ -23,6 +23,8 @@ import { getGuideOrDefault, type GuideId } from '@/lib/guideConfigs';
 import { getGuideAvatar } from '@/lib/guideAvatars';
 import { toLocalDateStr, entryDateStr } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabase';
+import { t } from '@/lib/translations';
+import { getLanguage } from '@/lib/language';
 import {
   getCachedReflection,
   generateWeeklyReflection,
@@ -89,7 +91,7 @@ function BubbleContent({ item, editMode, isDragging: dragging }: { item: BubbleI
       <span className="text-[11px] text-text-primary text-center leading-tight line-clamp-2">
         {item.label}
       </span>
-      {item.done && <span className="text-[9px] text-success">Done</span>}
+      {item.done && <span className="text-[9px] text-success">{t('common.done')}</span>}
     </div>
   );
 }
@@ -179,6 +181,7 @@ export default function HomePage() {
   const [enabledIds, setEnabledIds] = useState<string[]>([]);
   const [showGuidedBubble, setShowGuidedBubble] = useState(true);
   const [editMode, setEditMode] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
   const [gridSlots, setGridSlots] = useState<(string | null)[]>(() => {
     if (typeof window === 'undefined') return Array(GRID_SIZE).fill(null);
     try {
@@ -212,10 +215,10 @@ export default function HomePage() {
 
   const greeting =
     timeOfDay === 'morning'
-      ? `Good morning${name ? ', ' + name : ''}.`
+      ? t('home.goodMorning', { name: name ? ', ' + name : '' })
       : timeOfDay === 'afternoon'
-      ? `Good afternoon${name ? ', ' + name : ''}.`
-      : `Good evening${name ? ', ' + name : ''}.`;
+      ? t('home.goodAfternoon', { name: name ? ', ' + name : '' })
+      : t('home.goodEvening', { name: name ? ', ' + name : '' });
 
   const todayCompletions = completions[today] || new Set<string>();
   const activeHabits = habits.filter((h) => h.is_active);
@@ -246,18 +249,18 @@ export default function HomePage() {
     items.push({
       id: '__voice__',
       icon: '\uD83C\uDFA4\uFE0F',
-      label: 'Free Thought',
+      label: t('home.freeThought'),
       href: '/voice',
     });
 
     items.push({
       id: '__priorities__',
       icon: '\uD83C\uDFAF',
-      label: 'Priorities',
+      label: t('home.priorities'),
       href: '/priorities',
     });
 
-    for (const tmpl of templates.filter((t) => enabledIds.includes(t.id))) {
+    for (const tmpl of templates.filter((tp) => enabledIds.includes(tp.id))) {
       items.push({
         id: tmpl.id,
         icon: ICONS[tmpl.icon] || '\uD83D\uDCC4',
@@ -274,9 +277,10 @@ export default function HomePage() {
   const itemMap = useMemo(() => new Map(allItems.map((item) => [item.id, item])), [allItems]);
 
   // Sync gridSlots with allItems: place new items, clean stale ones
-  // Skip during drag to avoid overwriting user's new positions
+  // Only run AFTER initial data has loaded (templates from Supabase) to avoid
+  // prematurely cleaning out template IDs that haven't appeared in allItems yet.
   useEffect(() => {
-    if (allItems.length === 0 || isDragging.current) return;
+    if (!dataReady || allItems.length === 0 || isDragging.current) return;
     setGridSlots((prev) => {
       // Re-read from localStorage to get the latest saved state
       let base = prev;
@@ -313,7 +317,7 @@ export default function HomePage() {
       localStorage.setItem(GRID_SLOTS_KEY, JSON.stringify(result));
       return result;
     });
-  }, [allItems]);
+  }, [allItems, dataReady]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     isDragging.current = true;
@@ -341,11 +345,15 @@ export default function HomePage() {
       }
     }
 
-    // Auto-deactivate edit mode after a brief moment
+    // Keep isDragging true long enough to prevent the sync effect from
+    // overwriting the new positions if allItems recomputes during this window.
     setTimeout(() => {
       setEditMode(false);
-      isDragging.current = false;
     }, 600);
+    // Clear isDragging after edit mode animation settles
+    setTimeout(() => {
+      isDragging.current = false;
+    }, 1200);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -386,6 +394,7 @@ export default function HomePage() {
       .order('sort_order')
       .then(({ data }) => {
         if (data) setTemplates(data);
+        setDataReady(true);
       });
   }, [fetchHabits, fetchCompletions, fetchEntries, today]);
 
@@ -415,7 +424,7 @@ export default function HomePage() {
       {/* Greeting */}
       <div>
         <p className="text-sm text-text-secondary">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          {new Date().toLocaleDateString(getLanguage(), { weekday: 'long', month: 'long', day: 'numeric' })}
         </p>
         <h1 className="text-2xl font-bold text-text-primary mt-1">{greeting}</h1>
       </div>
@@ -456,7 +465,7 @@ export default function HomePage() {
       </DndContext>
 
       {editMode && (
-        <p className="text-xs text-text-tertiary text-center">Drag bubbles to rearrange</p>
+        <p className="text-xs text-text-tertiary text-center">{t('home.dragHint')}</p>
       )}
 
       {/* Weekly Reflection */}

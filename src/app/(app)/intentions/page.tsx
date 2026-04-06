@@ -4,10 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import {
-  PRESET_INTENTIONS,
-  INTENTION_CATEGORIES,
+  getLocalizedIntentions,
+  getLocalizedIntentionCategories,
   type IntentionCategory,
 } from '@/lib/presetIntentions';
+import { t } from '@/lib/translations';
 
 const CATEGORY_COLORS: Record<IntentionCategory, string> = {
   presence: 'bg-emerald-500/20',
@@ -48,7 +49,7 @@ export default function IntentionGalleryPage() {
     }
   };
 
-  const filteredPresets = PRESET_INTENTIONS.filter((p) => p.category === activeCategory);
+  const filteredPresets = getLocalizedIntentions().filter((p) => p.category === activeCategory);
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
@@ -59,21 +60,21 @@ export default function IntentionGalleryPage() {
             onClick={() => router.push('/settings')}
             className="text-primary text-sm font-medium flex items-center gap-1"
           >
-            <span className="text-lg">&#8249;</span> Back
+            <span className="text-lg">&#8249;</span> {t('common.back')}
           </button>
-          <h1 className="text-lg font-bold text-text-primary">Intention Gallery</h1>
+          <h1 className="text-lg font-bold text-text-primary">{t('intentions.title')}</h1>
           <button
             onClick={() => router.push('/settings')}
             className="text-primary text-sm font-medium"
           >
-            Done
+            {t('common.done')}
           </button>
         </div>
 
         {/* Category tabs */}
         <div className="max-w-lg mx-auto px-5 pb-3">
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            {INTENTION_CATEGORIES.map((cat) => (
+            {getLocalizedIntentionCategories().map((cat) => (
               <button
                 key={cat.key}
                 onClick={() => setActiveCategory(cat.key)}
@@ -137,7 +138,7 @@ export default function IntentionGalleryPage() {
               value={customInput}
               onChange={(e) => setCustomInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && addCustomIntention()}
-              placeholder="Add a custom intention..."
+              placeholder={t('intentions.placeholder')}
               className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-sm text-text-primary outline-none focus:border-primary transition-colors"
             />
             <button
@@ -145,7 +146,7 @@ export default function IntentionGalleryPage() {
               disabled={!customInput.trim() || adding === '__custom__'}
               className="px-5 py-3 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-40 transition-opacity"
             >
-              {adding === '__custom__' ? '...' : 'Add'}
+              {adding === '__custom__' ? '...' : t('common.add')}
             </button>
           </div>
         </div>

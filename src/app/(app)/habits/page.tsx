@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useHabitStore } from '@/stores/habitStore';
-import { PRESET_HABITS, HABIT_CATEGORIES, type HabitCategory } from '@/lib/presetHabits';
+import { getLocalizedHabits, getLocalizedHabitCategories, type HabitCategory, type PresetHabit } from '@/lib/presetHabits';
 import { supabase } from '@/lib/supabase';
+import { t } from '@/lib/translations';
 
 const CATEGORY_COLORS: Record<HabitCategory, string> = {
   suggested: 'bg-amber-500/20',
@@ -29,7 +30,7 @@ export default function HabitGalleryPage() {
 
   const habitNames = habits.filter((h) => h.is_active).map((h) => h.name.toLowerCase());
 
-  const addPresetHabit = async (preset: (typeof PRESET_HABITS)[number]) => {
+  const addPresetHabit = async (preset: PresetHabit) => {
     if (habitNames.includes(preset.name.toLowerCase())) return;
     setAdding(preset.name);
     try {
@@ -85,7 +86,7 @@ export default function HabitGalleryPage() {
     }
   };
 
-  const filteredPresets = PRESET_HABITS.filter((p) => p.category === activeCategory);
+  const filteredPresets = getLocalizedHabits().filter((p) => p.category === activeCategory);
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
@@ -96,21 +97,21 @@ export default function HabitGalleryPage() {
             onClick={() => router.push('/settings')}
             className="text-primary text-sm font-medium flex items-center gap-1"
           >
-            <span className="text-lg">&#8249;</span> Back
+            <span className="text-lg">&#8249;</span> {t('common.back')}
           </button>
-          <h1 className="text-lg font-bold text-text-primary">Habit Gallery</h1>
+          <h1 className="text-lg font-bold text-text-primary">{t('habits.title')}</h1>
           <button
             onClick={() => router.push('/settings')}
             className="text-primary text-sm font-medium"
           >
-            Done
+            {t('common.done')}
           </button>
         </div>
 
         {/* Category tabs */}
         <div className="max-w-lg mx-auto px-5 pb-3">
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            {HABIT_CATEGORIES.map((cat) => (
+            {getLocalizedHabitCategories().map((cat) => (
               <button
                 key={cat.key}
                 onClick={() => setActiveCategory(cat.key)}
@@ -171,27 +172,27 @@ export default function HabitGalleryPage() {
         <div className="max-w-lg mx-auto px-5 py-4">
           {showCustomForm ? (
             <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
-              <p className="text-sm font-semibold text-text-primary">Create a new habit</p>
+              <p className="text-sm font-semibold text-text-primary">{t('habits.createNewTitle')}</p>
               <input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddCustom()}
-                placeholder="Habit name..."
+                placeholder={t('habits.habitName')}
                 className="w-full px-4 py-3 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary outline-none focus:border-primary transition-colors"
                 autoFocus
               />
               <div className="flex gap-2">
-                {(['morning', 'afternoon', 'evening', 'anytime'] as const).map((t) => (
+                {(['morning', 'afternoon', 'evening', 'anytime'] as const).map((tod) => (
                   <button
-                    key={t}
-                    onClick={() => setNewTime(t)}
+                    key={tod}
+                    onClick={() => setNewTime(tod)}
                     className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${
-                      newTime === t
+                      newTime === tod
                         ? 'bg-primary text-white'
                         : 'bg-surface-elevated text-text-secondary hover:text-text-primary'
                     }`}
                   >
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                    {tod === 'morning' ? t('common.morning') : tod === 'afternoon' ? t('common.afternoon') : tod === 'evening' ? t('common.evening') : t('common.anytime')}
                   </button>
                 ))}
               </div>
@@ -200,14 +201,14 @@ export default function HabitGalleryPage() {
                   onClick={() => setShowCustomForm(false)}
                   className="flex-1 py-2.5 bg-surface-elevated text-text-secondary rounded-xl text-sm font-medium"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleAddCustom}
                   disabled={!newName.trim() || adding === '__custom__'}
                   className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-40"
                 >
-                  {adding === '__custom__' ? 'Adding...' : 'Add Habit'}
+                  {adding === '__custom__' ? t('habits.adding') : t('habits.addHabit')}
                 </button>
               </div>
             </div>
@@ -216,7 +217,7 @@ export default function HabitGalleryPage() {
               onClick={() => setShowCustomForm(true)}
               className="w-full py-3.5 bg-surface border border-border text-primary font-medium rounded-2xl hover:bg-surface-elevated transition-colors text-sm"
             >
-              + Create a new habit
+              {t('habits.createNew')}
             </button>
           )}
         </div>

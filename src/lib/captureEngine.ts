@@ -116,7 +116,9 @@ export function resolveWhen(when: string, referenceDate?: string): string {
 
 export async function classifyCapture(speechText: string): Promise<CaptureResult> {
   const todayStr = toLocalDateStr(new Date());
-  const prompt = ROUTER_PROMPT.replace('{TODAY}', todayStr) + `\n\nUser said:\n"${speechText}"\n\nRespond with JSON only.`;
+  const { getLocale } = await import('./language');
+  const langHint = getLocale() === 'es' ? '\nNote: The user is speaking in Mexican Spanish. Understand and classify accordingly, but return JSON keys in English as specified above.' : '';
+  const prompt = ROUTER_PROMPT.replace('{TODAY}', todayStr) + langHint + `\n\nUser said:\n"${speechText}"\n\nRespond with JSON only.`;
   const text = await callGemini('gemini-2.5-flash', prompt, 25000);
   const parsed = parseJsonResponse<Record<string, unknown>>(text, {});
 

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJournalStore } from '@/stores/journalStore';
 import { MoodSelector } from '@/components/MoodSelector';
+import { t } from '@/lib/translations';
 
 export default function FreeWritePage() {
   const router = useRouter();
@@ -45,7 +46,7 @@ export default function FreeWritePage() {
     <div className="flex flex-col h-screen bg-bg">
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
         <button onClick={() => router.push('/home')} className="text-text-secondary text-lg">✕</button>
-        <span className="text-sm font-semibold text-text-primary">Free Write</span>
+        <span className="text-sm font-semibold text-text-primary">{t('write.title')}</span>
         <div className="w-10" />
       </div>
 
@@ -54,7 +55,7 @@ export default function FreeWritePage() {
           ref={textareaRef}
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="What's on your mind?"
+          placeholder={t('write.placeholder')}
           className="w-full bg-transparent text-text-primary text-[15px] leading-relaxed resize-none outline-none min-h-[300px] placeholder:text-text-tertiary"
         />
 
@@ -66,7 +67,7 @@ export default function FreeWritePage() {
               disabled={saving}
               className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
             >
-              {saving ? 'Saving...' : 'Save Entry'}
+              {saving ? t('write.saving') : t('write.save')}
             </button>
           </>
         )}

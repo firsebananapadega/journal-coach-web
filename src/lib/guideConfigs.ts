@@ -590,3 +590,141 @@ Crisis Text Line — Text HOME to 741741
 International Association for Suicide Prevention — https://www.iasp.info/resources/Crisis_Centres/
 
 You deserve to talk to someone who can really help. These are free, confidential, and available 24/7.`;
+
+// ============================================================
+// Spanish (Mexican) translations for guide metadata & greetings
+// ============================================================
+
+import type { Locale } from './language';
+
+export const GUIDE_ARCHETYPE_ES: Record<GuideId, string> = {
+  ben: 'El Todoterreno',
+  quinn: 'El Coach',
+  sage: 'El Puerto Seguro',
+  bodhi: 'El Sabio Cálido',
+};
+
+export function getGuideArchetype(guide: GuidePersona, locale: Locale): string {
+  return locale === 'es' ? (GUIDE_ARCHETYPE_ES[guide.id] || guide.archetype) : guide.archetype;
+}
+
+type GreetingSet = {
+  morning: string[];
+  afternoon: string[];
+  evening: string[];
+  returnUser: string[];
+  firstTime: string[];
+};
+
+const GREETINGS_ES: Record<GuideId, GreetingSet> = {
+  ben: {
+    morning: [
+      'Buenos días. ¿Qué tienes en mente antes de que el día se ponga intenso?',
+      'Nuevo día. ¿Hay algo que quieras aclarar antes de empezar?',
+      '¿Qué es lo que más ocupa tu mente en este momento?',
+    ],
+    afternoon: [
+      '¿Cómo va el día de verdad — no la versión amable?',
+      'Ya vamos a la mitad. ¿Algo que valga la pena capturar antes de que se escape?',
+      '¿Qué es lo que más espacio ocupa en tu cabeza ahorita?',
+    ],
+    evening: [
+      'El día ya va bajando. ¿Qué se te quedó?',
+      'Antes de que se vaya hoy — ¿qué importó?',
+      '��Hay algo de hoy que quieras entender mejor?',
+    ],
+    returnUser: [
+      'Han pasado unos días. Sin juicio — solo curiosidad. ¿Qué ha pasado?',
+      'Ya estás de vuelta. ¿Qué ha pasado desde la última vez?',
+      'Hola. Ponte al día conmigo — ¿qué has tenido en mente?',
+    ],
+    firstTime: [
+      'Hola, soy Ben. Estoy aquí para ayudarte a pensar en voz alta. No hay respuestas correctas ni temas prohibidos. ¿Qué tienes en mente?',
+      'Bienvenido. Soy Ben — piensa en mí como el amigo que hace buenas preguntas. Tú hablas, yo escucho. ¿Con qué quieres empezar?',
+    ],
+  },
+  quinn: {
+    morning: [
+      'Buenos días. ¿Cuál es la cosa que quieres mover hoy?',
+      'Nuevo día. ¿Hacia qué estás construyendo ahorita?',
+      'Buenos días. ¿Qué haría que hoy se sienta como un logro?',
+    ],
+    afternoon: [
+      'Ya vamos a la mitad. ¿Qué ha salido bien hasta ahora?',
+      'Oye. ¿Algún logro hoy — aunque sea chiquito?',
+      'Chequeo de medio día. ¿Qué está funcionando ahorita?',
+    ],
+    evening: [
+      'El día ya está terminando. ¿Qué manejaste bien hoy?',
+      'Buenas noches. ¿Una cosa que lograste y te da gusto?',
+      'Antes de cerrar — ¿qué avanzó hoy, aunque sea un poquito?',
+    ],
+    returnUser: [
+      'Qué bueno tenerte de vuelta. ¿Qué te trajo hoy?',
+      'Estás aquí. Eso ya es un paso. ¿Qué tienes en mente?',
+      'Bienvenido de vuelta — no hace falta ponerse al día. ¿Qué importa ahorita?',
+    ],
+    firstTime: [
+      'Hola, soy Quinn. Te ayudo a encontrar lo que ya está funcionando y a construir sobre eso. ¿Qué tienes en mente?',
+      'Bienvenido. Soy Quinn. Creo que ya sabes más de lo que piensas. ¿Qué te trajo aquí?',
+    ],
+  },
+  sage: {
+    morning: [
+      'Buenos días. ¿Cómo llegas hoy?',
+      'Buenos días. Sin agenda — solo lo que esté aquí contigo.',
+      'Hola. Respira primero si lo necesitas. Aquí estoy.',
+    ],
+    afternoon: [
+      'Hola. ¿Cómo estás — de verdad?',
+      'Buenas tardes. ¿Hay algo que te pese hoy?',
+      'Hola. ¿Cómo anda tu corazón hoy?',
+    ],
+    evening: [
+      'El día se va asentando. ¿Qué sigue contigo?',
+      'Buenas noches. Antes de soltar el día — ¿hay algo que necesite decirse?',
+      'Ya está más tranquilo. ¿Qué cargas de hoy?',
+    ],
+    returnUser: [
+      'Me da gusto que estés aquí. No necesitas explicar la ausencia. ¿Qué hay presente para ti?',
+      'Bienvenido de vuelta. Lo que sea que traigas, hay espacio para ello.',
+      'Hola. Ha pasado un rato. Me da gusto que estés aquí.',
+    ],
+    firstTime: [
+      'Hola, soy Sage. Este es tu espacio — no hay forma correcta de usarlo. Lo que sea que sientas ahorita es un buen punto de partida.',
+      'Bienvenido. Soy Sage. Estoy aquí para escuchar, a tu ritmo. Comparte lo que se sienta bien.',
+    ],
+  },
+  bodhi: {
+    morning: [
+      'Buenos días. ¿Cómo empiezas este día?',
+      'Buenos días. ¿Qué tienes en mente al comenzar el día?',
+      'Buenos días. ¿Algo que quieras soltar antes de que el día se acelere?',
+    ],
+    afternoon: [
+      'Hola. ¿Qué ha estado en tu mente hoy?',
+      'Buenas tardes. ¿Cómo te ha sentado el día hasta ahora?',
+      'Hola. ¿Algo de hoy que todavía te acompaña?',
+    ],
+    evening: [
+      'Buenas noches. ¿Cómo te cayó el día?',
+      'Hola. ¿Qué se queda contigo de hoy?',
+      'Buenas noches. ¿Cómo te sientes ahora que el día baja?',
+    ],
+    returnUser: [
+      'Qué bueno tenerte de vuelta. ¿Qué ha estado rondándote?',
+      'Hola de nuevo. ¿Qué te trajo hoy?',
+      'Bienvenido de vuelta. ¿Qué tienes en mente?',
+    ],
+    firstTime: [
+      'Hola, soy Bodhi. Estoy aquí para escuchar y hacer alguna pregunta de vez en cuando. Sin agenda — solo lo que tengas en mente.',
+      'Hola. Soy Bodhi. Piensa en mí como alguien bueno para escuchar y hacer preguntas que se quedan contigo. ¿Qué tienes en mente?',
+    ],
+  },
+};
+
+export function getLocalizedGreetings(guideId: GuideId, locale: Locale): GreetingSet {
+  if (locale === 'es') return GREETINGS_ES[guideId] || GREETINGS_ES.ben;
+  const guide = GUIDE_BY_ID[guideId];
+  return guide ? guide.greetings : BEN.greetings;
+}

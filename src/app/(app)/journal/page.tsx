@@ -4,13 +4,15 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJournalStore, type JournalEntry } from '@/stores/journalStore';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
+import { t } from '@/lib/translations';
+import { getLanguage } from '@/lib/language';
 
 type TabKey = 'journal' | 'ideas' | 'gratitude';
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'journal', label: 'Journal' },
-  { key: 'ideas', label: 'Ideas' },
-  { key: 'gratitude', label: 'Gratitude' },
+const TABS: { key: TabKey; labelKey: string }[] = [
+  { key: 'journal', labelKey: 'journal.journal' },
+  { key: 'ideas', labelKey: 'journal.ideas' },
+  { key: 'gratitude', labelKey: 'journal.gratitude' },
 ];
 
 interface SimpleItem {
@@ -38,21 +40,21 @@ function relativeDate(dateStr: string): string {
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 1) return t('journal.justNow');
+  if (diffMin < 60) return t('journal.mAgo', { n: String(diffMin) });
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffHr < 24) return t('journal.hAgo', { n: String(diffHr) });
   const diffDays = Math.floor(diffHr / 24);
-  if (diffDays === 1) return 'yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diffDays === 1) return t('journal.yesterday');
+  if (diffDays < 7) return t('journal.dAgo', { n: String(diffDays) });
+  return date.toLocaleDateString(getLanguage(), { month: 'short', day: 'numeric' });
 }
 
 const ENTRY_TYPE_LABEL: Record<string, string> = {
-  voice: '🎙️ Voice',
-  guided: '💬 Guided',
-  template: '📋 Template',
-  freeform: '✏️ Free Write',
+  voice: 'journal.typeVoice',
+  guided: 'journal.typeGuided',
+  template: 'journal.typeTemplate',
+  freeform: 'journal.typeFreeform',
 };
 
 function SimpleListTab({ storageKey, placeholder }: { storageKey: string; placeholder: string }) {
@@ -93,7 +95,7 @@ function SimpleListTab({ storageKey, placeholder }: { storageKey: string; placeh
         <div className="text-center py-12 space-y-2">
           <p className="text-4xl">{storageKey === 'journal_ideas' ? '💡' : '🙏'}</p>
           <p className="text-text-secondary">
-            {storageKey === 'journal_ideas' ? 'No ideas yet. Capture your first one!' : 'No gratitude items yet. What are you thankful for?'}
+            {storageKey === 'journal_ideas' ? t('journal.noIdeas') : t('journal.noGratitude')}
           </p>
         </div>
       )}
@@ -123,7 +125,7 @@ function SimpleListTab({ storageKey, placeholder }: { storageKey: string; placeh
           disabled={!newText.trim()}
           className="px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-40"
         >
-          Add
+          {t('common.add')}
         </button>
       </div>
     </div>
@@ -151,7 +153,7 @@ export default function JournalPage() {
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-text-primary">Journal</h1>
+        <h1 className="text-2xl font-bold text-text-primary">{t('journal.title')}</h1>
       </div>
 
       {/* Sub-tabs */}
@@ -166,7 +168,7 @@ export default function JournalPage() {
                 : 'text-text-secondary hover:text-text-primary'
             }`}
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>
@@ -182,7 +184,7 @@ export default function JournalPage() {
                   filter === 'all' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
-                All
+                {t('journal.all')}
               </button>
               <button
                 onClick={() => setFilter('favorites')}
@@ -190,20 +192,20 @@ export default function JournalPage() {
                   filter === 'favorites' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
-                Favorites
+                {t('journal.favorites')}
               </button>
             </div>
           </div>
 
           {loading && entries.length === 0 && (
-            <div className="text-center py-12 text-text-secondary">Loading entries...</div>
+            <div className="text-center py-12 text-text-secondary">{t('journal.loadingEntries')}</div>
           )}
 
           {!loading && filtered.length === 0 && (
             <div className="text-center py-12 space-y-2">
               <p className="text-4xl">📖</p>
               <p className="text-text-secondary">
-                {filter === 'favorites' ? 'No favorites yet.' : 'No entries yet. Start journaling!'}
+                {filter === 'favorites' ? t('journal.noFavorites') : t('journal.noEntries')}
               </p>
             </div>
           )}
@@ -220,12 +222,12 @@ export default function JournalPage() {
                     className="flex items-center gap-2 text-left flex-1"
                   >
                     <span className="text-xs text-text-tertiary">
-                      {new Date(entry.created_at).toLocaleDateString('en-US', {
+                      {new Date(entry.created_at).toLocaleDateString(getLanguage(), {
                         weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
                       })}
                     </span>
                     <span className="text-xs px-2 py-0.5 bg-surface-elevated rounded-md text-text-secondary">
-                      {ENTRY_TYPE_LABEL[entry.entry_type] || entry.entry_type}
+                      {t(ENTRY_TYPE_LABEL[entry.entry_type]) || entry.entry_type}
                     </span>
                     {entry.mood_label && (
                       <span className="text-xs text-text-secondary capitalize">{entry.mood_label}</span>
@@ -245,13 +247,13 @@ export default function JournalPage() {
                           onClick={() => handleDelete(entry.id)}
                           className="px-2 py-1 text-xs bg-error text-white rounded-md"
                         >
-                          Delete
+                          {t('common.delete')}
                         </button>
                         <button
                           onClick={() => setConfirmDelete(null)}
                           className="px-2 py-1 text-xs text-text-secondary"
                         >
-                          Cancel
+                          {t('common.cancel')}
                         </button>
                       </div>
                     ) : (
@@ -284,12 +286,12 @@ export default function JournalPage() {
 
       {/* Ideas tab */}
       {activeTab === 'ideas' && (
-        <SimpleListTab storageKey="journal_ideas" placeholder="Add an idea..." />
+        <SimpleListTab storageKey="journal_ideas" placeholder={t('journal.addIdea')} />
       )}
 
       {/* Gratitude tab */}
       {activeTab === 'gratitude' && (
-        <SimpleListTab storageKey="journal_gratitude" placeholder="Add a gratitude..." />
+        <SimpleListTab storageKey="journal_gratitude" placeholder={t('journal.addGratitude')} />
       )}
     </div>
   );
