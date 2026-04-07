@@ -24,7 +24,8 @@ import { getGuideAvatar } from '@/lib/guideAvatars';
 import { toLocalDateStr, entryDateStr } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabase';
 import { t } from '@/lib/translations';
-import { getLanguage } from '@/lib/language';
+import { getLanguage, getLocale } from '@/lib/language';
+import { getTranslatedTemplateName, translateTemplateNames } from '@/lib/templateNameTranslation';
 import {
   getCachedReflection,
   generateWeeklyReflection,
@@ -260,11 +261,12 @@ export default function HomePage() {
       href: '/priorities',
     });
 
+    const locale = getLocale();
     for (const tmpl of templates.filter((tp) => enabledIds.includes(tp.id))) {
       items.push({
         id: tmpl.id,
         icon: ICONS[tmpl.icon] || '\uD83D\uDCC4',
-        label: tmpl.name,
+        label: getTranslatedTemplateName(tmpl.id, tmpl.name, locale),
         href: `/template/${tmpl.id}`,
         done: templateCompletedToday.has(tmpl.id),
       });
@@ -392,8 +394,15 @@ export default function HomePage() {
       .select('id, name, icon, description, category')
       .eq('is_active', true)
       .order('sort_order')
-      .then(({ data }) => {
-        if (data) setTemplates(data);
+      .then(async ({ data }) => {
+        if (data) {
+          setTemplates(data);
+          // Kick off translation of template names in background
+          translateTemplateNames(data).then(() => {
+            // Re-set templates to trigger allItems recompute with translated names
+            setTemplates([...data]);
+          });
+        }
         setDataReady(true);
       });
   }, [fetchHabits, fetchCompletions, fetchEntries, today]);

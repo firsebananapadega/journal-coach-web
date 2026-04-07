@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { t } from '@/lib/translations';
+import { getTranslatedTemplateName, getTranslatedTemplateDescription, translateTemplateNames } from '@/lib/templateNameTranslation';
 
 const ICONS: Record<string, string> = {
   moon: '🌙',
@@ -47,8 +48,12 @@ export default function TemplatesPage() {
       .select('id, name, icon, description, category')
       .eq('is_active', true)
       .order('sort_order')
-      .then(({ data }) => {
-        if (data) setTemplates(data);
+      .then(async ({ data }) => {
+        if (data) {
+          setTemplates(data);
+          // Translate names in background
+          translateTemplateNames(data).then(() => setTemplates([...data]));
+        }
         setLoading(false);
       });
   }, []);
@@ -61,7 +66,7 @@ export default function TemplatesPage() {
     localStorage.setItem('enabled_template_ids', JSON.stringify(next));
   };
 
-  const categories = [...new Set(templates.map((t) => t.category))];
+  const categories = [...new Set(templates.map((tp) => tp.category))];
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
@@ -120,10 +125,10 @@ export default function TemplatesPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-text-primary truncate">
-                            {tmpl.name}
+                            {getTranslatedTemplateName(tmpl.id, tmpl.name)}
                           </p>
                           <p className="text-xs text-text-tertiary truncate mt-0.5">
-                            {tmpl.description}
+                            {getTranslatedTemplateDescription(tmpl.id, tmpl.description)}
                           </p>
                         </div>
                         <button

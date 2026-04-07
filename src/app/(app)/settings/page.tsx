@@ -66,8 +66,8 @@ export default function SettingsPage() {
     if (!confirm(t('settings.confirmSignOut'))) return;
     setSigningOut(true);
     try {
-      localStorage.removeItem('enabled_template_ids');
-      localStorage.removeItem('show_guided_bubble');
+      // Keep enabled_template_ids and home_grid_slots in localStorage
+      // so they persist across logout/login on the same device
       useHabitStore.getState().reset();
       useJournalStore.getState().reset();
       await signOut();

@@ -12,6 +12,7 @@ import {
 } from '@/lib/speechRecognition';
 import { getLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
+import { translateTemplate } from '@/lib/templateTranslation';
 
 interface TemplateQuestion {
   id: string;
@@ -53,7 +54,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
 
   useEffect(() => {
     if (!templateId) return;
-    supabase.from('templates').select('*').eq('id', templateId).single().then(({ data, error }) => {
+    supabase.from('templates').select('*').eq('id', templateId).single().then(async ({ data, error }) => {
       if (error || !data) {
         setLoadError(true);
         return;
@@ -62,8 +63,23 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
       const questions = rawQuestions.filter(
         (q: TemplateQuestion) => q.input_type !== 'phase_header'
       ) as TemplateQuestion[];
-      setTemplate({ ...(data as Omit<Template, 'questions'>), questions });
-      setAnswers(new Array(questions.length).fill(''));
+
+      // Translate template content if user's language is not English
+      const translated = await translateTemplate(
+        templateId,
+        data.name as string,
+        data.description as string,
+        questions
+      );
+
+      setTemplate({
+        id: data.id as string,
+        name: translated.name,
+        description: translated.description,
+        questions: translated.questions,
+        category: data.category as string,
+      });
+      setAnswers(new Array(translated.questions.length).fill(''));
     });
   }, [templateId]);
 
