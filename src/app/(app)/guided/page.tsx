@@ -50,6 +50,7 @@ export default function GuidedSessionPage() {
   const [moodScore, setMoodScore] = useState<number | null>(null);
   const [moodLabel, setMoodLabel] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [geminiError, setGeminiError] = useState(false);
   const [detectedGoal, setDetectedGoal] = useState<string | null>(null);
@@ -220,61 +221,77 @@ export default function GuidedSessionPage() {
   const handleSave = async () => {
     if (exchanges.length === 0) return;
     setSaving(true);
+    setSaveError(false);
 
     const contentParts = exchanges.map((e) => `Q: ${e.question}\nA: ${e.answer}`);
     const contentText = contentParts.join('\n\n');
     const allAnswers = exchanges.map((e) => e.answer).join(' ');
     const wordCount = allAnswers.split(/\s+/).filter(Boolean).length;
 
+    // Wrap the entire save in a timeout so it never hangs forever
+    const saveWithTimeout = async () => {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Save timed out')), 12000)
+      );
+
+      const save = async () => {
+        if (draftEntryIdRef.current) {
+          await updateEntry(draftEntryIdRef.current, {
+            content_text: contentText,
+            mood_score: moodScore,
+            mood_label: moodLabel,
+            word_count: wordCount,
+            metadata: { exchanges, guide_id: guide.id, is_draft: false },
+          });
+
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from('guided_sessions').insert({
+              user_id: user.id,
+              journal_entry_id: draftEntryIdRef.current,
+              session_type: 'daily_reflection',
+              guide_id: guide.id,
+              exchanges,
+              completed: true,
+            });
+          }
+        } else {
+          const entry = await createEntry({
+            entry_type: 'guided',
+            title: `Guided session — ${new Date().toLocaleDateString()}`,
+            content_text: contentText,
+            mood_score: moodScore,
+            mood_label: moodLabel,
+            word_count: wordCount,
+            metadata: { exchanges, guide_id: guide.id, is_draft: false },
+          });
+
+          if (entry) {
+            await supabase.from('guided_sessions').insert({
+              user_id: entry.user_id,
+              journal_entry_id: entry.id,
+              session_type: 'daily_reflection',
+              guide_id: guide.id,
+              exchanges,
+              completed: true,
+            });
+          }
+        }
+      };
+
+      await Promise.race([save(), timeout]);
+    };
+
     try {
-      if (draftEntryIdRef.current) {
-        await updateEntry(draftEntryIdRef.current, {
-          content_text: contentText,
-          mood_score: moodScore,
-          mood_label: moodLabel,
-          word_count: wordCount,
-          metadata: { exchanges, guide_id: guide.id, is_draft: false },
-        });
-
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from('guided_sessions').insert({
-            user_id: user.id,
-            journal_entry_id: draftEntryIdRef.current,
-            session_type: 'daily_reflection',
-            guide_id: guide.id,
-            exchanges,
-            completed: true,
-          });
-        }
-      } else {
-        const entry = await createEntry({
-          entry_type: 'guided',
-          title: `Guided session — ${new Date().toLocaleDateString()}`,
-          content_text: contentText,
-          mood_score: moodScore,
-          mood_label: moodLabel,
-          word_count: wordCount,
-          metadata: { exchanges, guide_id: guide.id, is_draft: false },
-        });
-
-        if (entry) {
-          await supabase.from('guided_sessions').insert({
-            user_id: entry.user_id,
-            journal_entry_id: entry.id,
-            session_type: 'daily_reflection',
-            guide_id: guide.id,
-            exchanges,
-            completed: true,
-          });
-        }
-      }
+      await saveWithTimeout();
+      setSaving(false);
+      router.push('/home');
     } catch (err) {
       console.warn('Save failed:', err);
+      setSaving(false);
+      setSaveError(true);
+      // Don't navigate — let user retry or go home manually
     }
-
-    setSaving(false);
-    router.push('/home');
   };
 
   const handleEndSession = () => {
@@ -411,6 +428,30 @@ export default function GuidedSessionPage() {
             )}
 
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
+
+            {saveError && (
+              <div className="bg-[#2A1A1A] border border-[#4A2A2A] rounded-2xl p-4 space-y-3">
+                <p className="text-sm text-[#FF9999]">
+                  {getLocale() === 'es'
+                    ? 'No se pudo guardar. Tu sesión está guardada como borrador — no se pierde nada.'
+                    : "Couldn't save. Your session is saved as a draft — nothing is lost."}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSave}
+                    className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold"
+                  >
+                    {getLocale() === 'es' ? 'Reintentar' : 'Retry'}
+                  </button>
+                  <button
+                    onClick={() => router.push('/home')}
+                    className="flex-1 py-2.5 bg-border text-text-secondary rounded-xl text-sm"
+                  >
+                    {getLocale() === 'es' ? 'Ir al inicio' : 'Go Home'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <button
               onClick={handleSave}
