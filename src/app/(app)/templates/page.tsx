@@ -48,12 +48,8 @@ export default function TemplatesPage() {
       .select('id, name, icon, description, category')
       .eq('is_active', true)
       .order('sort_order')
-      .then(async ({ data }) => {
-        if (data) {
-          setTemplates(data);
-          // Translate names in background
-          translateTemplateNames(data).then(() => setTemplates([...data]));
-        }
+      .then(({ data }) => {
+        if (data) setTemplates(data);
         setLoading(false);
       });
   }, []);
@@ -128,7 +124,7 @@ export default function TemplatesPage() {
                             {getTranslatedTemplateName(tmpl.id, tmpl.name)}
                           </p>
                           <p className="text-xs text-text-tertiary truncate mt-0.5">
-                            {getTranslatedTemplateDescription(tmpl.id, tmpl.description)}
+                            {getTranslatedTemplateDescription(tmpl.id, tmpl.description, tmpl.name)}
                           </p>
                         </div>
                         <button

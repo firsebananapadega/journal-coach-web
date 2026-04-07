@@ -25,7 +25,7 @@ import { toLocalDateStr, entryDateStr } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabase';
 import { t } from '@/lib/translations';
 import { getLanguage, getLocale } from '@/lib/language';
-import { getTranslatedTemplateName, translateTemplateNames } from '@/lib/templateNameTranslation';
+import { getTranslatedTemplateName } from '@/lib/templateNameTranslation';
 import {
   getCachedReflection,
   generateWeeklyReflection,
@@ -394,15 +394,8 @@ export default function HomePage() {
       .select('id, name, icon, description, category')
       .eq('is_active', true)
       .order('sort_order')
-      .then(async ({ data }) => {
-        if (data) {
-          setTemplates(data);
-          // Kick off translation of template names in background
-          translateTemplateNames(data).then(() => {
-            // Re-set templates to trigger allItems recompute with translated names
-            setTemplates([...data]);
-          });
-        }
+      .then(({ data }) => {
+        if (data) setTemplates(data);
         setDataReady(true);
       });
   }, [fetchHabits, fetchCompletions, fetchEntries, today]);

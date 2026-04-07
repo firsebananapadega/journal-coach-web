@@ -1,123 +1,163 @@
-// Translates template names for display on home screen and template management
-// Uses cached translations from templateTranslation.ts if available,
-// otherwise falls back to a batch Gemini call with caching.
+// Hardcoded template name/description translations — instant, no API call needed.
+// Covers all templates from migrations 001-005.
 
-import { callGemini, parseJsonResponse } from './geminiClient';
 import { getLocale } from './language';
 
-const NAMES_CACHE_KEY = 'tmpl_names_';
-
-interface NameMap {
-  [id: string]: { name: string; description: string };
+interface TemplateTranslation {
+  name: string;
+  description: string;
 }
 
-function getCached(locale: string): NameMap | null {
-  try {
-    const raw = localStorage.getItem(NAMES_CACHE_KEY + locale);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
-}
+// Map from English template name → Spanish translation
+const TEMPLATE_TRANSLATIONS_ES: Record<string, TemplateTranslation> = {
+  // Migration 001 — core templates
+  'Evening Reflection': {
+    name: 'Reflexión nocturna',
+    description: 'Cierra tu día con tu guía. Cinco preguntas, dos minutos.',
+  },
+  'Morning Intention': {
+    name: 'Intención matutina',
+    description: 'Empieza tu día con claridad. Define tus intenciones antes de que empiece el ruido.',
+  },
+  'Gratitude': {
+    name: 'Gratitud',
+    description: 'Tres cosas por las que estás agradecido — y por qué importan.',
+  },
+  'Emotion Check-In': {
+    name: 'Chequeo emocional',
+    description: 'Nombra lo que sientes. Ese es el primer paso.',
+  },
+  'Brain Dump': {
+    name: 'Descarga mental',
+    description: 'Saca todo de tu cabeza. Sin estructura, sin juicio.',
+  },
+  'Weekly Review': {
+    name: 'Revisión semanal',
+    description: 'Una vez a la semana, aléjate un poco. Observa los patrones.',
+  },
+  'Goal Check-In': {
+    name: 'Chequeo de metas',
+    description: 'Revisa tus metas. Con honestidad, sin juicio.',
+  },
 
-function setCache(locale: string, data: NameMap): void {
-  try {
-    localStorage.setItem(NAMES_CACHE_KEY + locale, JSON.stringify(data));
-  } catch {}
-}
+  // Migration 002 — new templates
+  'Daily Record': {
+    name: 'Registro diario',
+    description: 'Una foto completa de tu día en cinco preguntas.',
+  },
+  'Deep Processing': {
+    name: 'Procesamiento profundo',
+    description: 'Trabaja algo difícil. Hechos, sentimientos, significado.',
+  },
+  'Self-Discovery': {
+    name: 'Autoconocimiento',
+    description: 'Preguntas que revelan quién eres realmente debajo de la superficie.',
+  },
+  'Energy Audit': {
+    name: 'Auditoría de energía',
+    description: 'Rastrea qué te agota y qué te llena de energía.',
+  },
+  'Values Check': {
+    name: 'Chequeo de valores',
+    description: '¿Estás viviendo alineado con lo que más te importa?',
+  },
+
+  // Migration 004 — life transformation templates
+  'Year-End Reflection': {
+    name: 'Reflexión de fin de año',
+    description: 'Mira atrás con honestidad y compasión — qué te formó, qué dejas ir.',
+  },
+  'New Year Intentions': {
+    name: 'Intenciones de año nuevo',
+    description: 'Diseña el año que viene — no metas que perseguir, sino la persona en quien quieres convertirte.',
+  },
+  'Quarterly Life Audit': {
+    name: 'Auditoría de vida trimestral',
+    description: 'Cada 90 días, aléjate. Verifica que estés subiendo la montaña correcta.',
+  },
+  'Monthly Review': {
+    name: 'Revisión mensual',
+    description: 'Atrapa los patrones antes de que se vuelvan rutinas. Una mirada honesta a tu mes.',
+  },
+  'Belief Audit': {
+    name: 'Auditoría de creencias',
+    description: 'Descubre las creencias invisibles que dirigen tu vida. Cuestiona las que no elegiste.',
+  },
+  'Old Self / New Self': {
+    name: 'Viejo yo / Nuevo yo',
+    description: 'Nombra lo que dejas atrás. Define en quién te estás convirtiendo.',
+  },
+  'Fear Setting': {
+    name: 'Definición de miedos',
+    description: 'Define tus miedos con precisión. Descubre que la inacción es el verdadero riesgo.',
+  },
+  'Shadow Work': {
+    name: 'Trabajo con la sombra',
+    description: 'Conoce las partes de ti que has estado escondiendo. Tienen algo que enseñarte.',
+  },
+  "The Story I'm Telling Myself": {
+    name: 'La historia que me cuento',
+    description: 'Atrapa la narrativa antes de que se convierta en verdad.',
+  },
+  'Finding Meaning': {
+    name: 'Encontrar significado',
+    description: 'Cuando la vida se siente pesada o vacía — busca significado, no felicidad.',
+  },
+  'Deep Expressive Writing': {
+    name: 'Escritura expresiva profunda',
+    description: 'El protocolo de escritura más investigado en la ciencia. 4 días, 15 min cada uno, un solo tema.',
+  },
+  'Gratitude Amplification': {
+    name: 'Amplificación de gratitud',
+    description: 'No es una lista de gratitud — es una práctica. Siéntela en el cuerpo, no solo en la mente.',
+  },
+  'Purpose Discovery': {
+    name: 'Descubrimiento de propósito',
+    description: 'Encuentra dónde se cruzan tu pasión, habilidad, necesidad y valor. El marco Ikigai.',
+  },
+  'Identity Check-In': {
+    name: 'Chequeo de identidad',
+    description: 'Tus hábitos votan por la persona en la que te conviertes. Revisa quién va ganando.',
+  },
+  'Stoic Evening Reflection': {
+    name: 'Reflexión estoica nocturna',
+    description: 'Cierra cada día como Marco Aurelio — no con juicio, sino con honestidad.',
+  },
+
+  // Migration 005
+  'The 5-5-5 System': {
+    name: 'El sistema 5-5-5',
+    description: '15 minutos. 3 fases. Revisa tu pasado, sueña tu futuro, luego prioriza sin piedad.',
+  },
+};
 
 export function getTranslatedTemplateName(
-  templateId: string,
+  _templateId: string,
   originalName: string,
   locale?: string
 ): string {
   const loc = locale || getLocale();
   if (loc === 'en') return originalName;
-
-  // Check individual template cache first (from full template translation)
-  try {
-    const fullCache = localStorage.getItem(`tmpl_translation_${loc}_${templateId}`);
-    if (fullCache) {
-      const parsed = JSON.parse(fullCache);
-      if (parsed.name) return parsed.name;
-    }
-  } catch {}
-
-  // Check batch names cache
-  const cached = getCached(loc);
-  if (cached && cached[templateId]) return cached[templateId].name;
-
-  return originalName;
+  return TEMPLATE_TRANSLATIONS_ES[originalName]?.name || originalName;
 }
 
 export function getTranslatedTemplateDescription(
-  templateId: string,
+  _templateId: string,
   originalDesc: string,
+  originalName?: string,
   locale?: string
 ): string {
   const loc = locale || getLocale();
   if (loc === 'en') return originalDesc;
-
-  try {
-    const fullCache = localStorage.getItem(`tmpl_translation_${loc}_${templateId}`);
-    if (fullCache) {
-      const parsed = JSON.parse(fullCache);
-      if (parsed.description) return parsed.description;
-    }
-  } catch {}
-
-  const cached = getCached(loc);
-  if (cached && cached[templateId]) return cached[templateId].description;
-
+  if (originalName && TEMPLATE_TRANSLATIONS_ES[originalName]) {
+    return TEMPLATE_TRANSLATIONS_ES[originalName].description;
+  }
   return originalDesc;
 }
 
+// No-op — translations are hardcoded, no async work needed
 export async function translateTemplateNames(
-  templates: { id: string; name: string; description: string }[]
+  _templates: { id: string; name: string; description: string }[]
 ): Promise<void> {
-  const locale = getLocale();
-  if (locale === 'en' || templates.length === 0) return;
-
-  // Check what we already have cached
-  const cached = getCached(locale) || {};
-  const untranslated = templates.filter((t) => {
-    // Check both caches
-    if (cached[t.id]) return false;
-    try {
-      const fullCache = localStorage.getItem(`tmpl_translation_${locale}_${t.id}`);
-      if (fullCache) return false;
-    } catch {}
-    return true;
-  });
-
-  if (untranslated.length === 0) return;
-
-  // Batch translate all untranslated names
-  const items = untranslated.map((t) => ({ id: t.id, name: t.name, description: t.description }));
-
-  const prompt = `Translate these journaling template names and descriptions from English to Mexican Spanish (español mexicano).
-Use warm, natural language. Never use Spain Spanish.
-
-${JSON.stringify(items, null, 2)}
-
-Return ONLY a JSON array with the same structure:
-[{"id": "original_id", "name": "translated name", "description": "translated description"}]
-
-Return ONLY the JSON array, nothing else.`;
-
-  try {
-    const text = await callGemini('gemini-2.0-flash', prompt, 15000);
-    const parsed = parseJsonResponse<{ id: string; name: string; description: string }[]>(text, []);
-
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      const updated = { ...cached };
-      for (const item of parsed) {
-        if (item.id && item.name) {
-          updated[item.id] = { name: item.name, description: item.description || '' };
-        }
-      }
-      setCache(locale, updated);
-    }
-  } catch {
-    // Silent fail — English names will be shown
-  }
+  // Hardcoded translations — nothing to do
 }
