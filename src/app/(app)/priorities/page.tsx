@@ -442,21 +442,28 @@ export default function PrioritiesPage() {
       {/* Add priority — input + mic, transcription goes into the input */}
       <div className="space-y-2">
         <div className="flex gap-2">
-          <input
+          <textarea
             value={newItem}
             onChange={(e) => { if (!isListening) setNewItem(e.target.value); }}
-            onKeyDown={(e) => e.key === 'Enter' && newItem.trim() && handleAddItem()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (newItem.trim()) handleAddItem();
+              }
+            }}
             placeholder={isListening ? t('guided.listeningPlaceholder') : t('priorities.placeholder')}
             readOnly={isListening}
-            className={`flex-1 px-4 py-3 bg-surface border rounded-xl text-text-primary outline-none text-sm ${
-              isListening ? 'border-error' : 'border-border focus:border-primary'
+            rows={isListening && newItem.length > 40 ? Math.min(6, Math.ceil(newItem.length / 35)) : 1}
+            className={`flex-1 px-4 py-3 bg-surface border rounded-xl text-text-primary outline-none text-sm resize-none transition-all ${
+              isListening ? 'border-error min-h-[44px]' : 'border-border focus:border-primary'
             }`}
+            style={{ height: isListening && newItem.length > 40 ? 'auto' : '44px' }}
           />
           {speechSupported && (
             <button
               onClick={toggleMic}
               disabled={processing}
-              className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+              className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors self-end ${
                 isListening ? 'bg-error' : 'bg-surface border border-border hover:border-primary'
               } ${processing ? 'opacity-40' : ''}`}
             >

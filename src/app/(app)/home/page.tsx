@@ -78,14 +78,14 @@ function BubbleContent({ item, editMode, isDragging: dragging }: { item: BubbleI
         }`}
       >
         {typeof item.icon === 'string' ? (
-          <span className="text-2xl">{item.icon}</span>
+          <span className="text-3xl">{item.icon}</span>
         ) : (
           <Image
             src={item.icon.src}
             alt={item.icon.alt}
-            width={40}
-            height={40}
-            className="rounded-full object-cover"
+            width={56}
+            height={56}
+            className="rounded-full object-cover w-full h-full"
           />
         )}
       </div>
@@ -178,11 +178,33 @@ export default function HomePage() {
   const profile = useAuthStore((s) => s.profile);
   const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
   const { entries, fetchEntries } = useJournalStore();
-  const [templates, setTemplates] = useState<TemplateInfo[]>([]);
-  const [enabledIds, setEnabledIds] = useState<string[]>([]);
+  const [templates, setTemplates] = useState<TemplateInfo[]>(() => {
+    // Load cached templates for instant display while Supabase fetches fresh data
+    if (typeof window === 'undefined') return [];
+    try {
+      const cached = localStorage.getItem('cached_templates');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
+  const [enabledIds, setEnabledIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const stored = localStorage.getItem('enabled_template_ids');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [];
+  });
   const [showGuidedBubble, setShowGuidedBubble] = useState(true);
   const [editMode, setEditMode] = useState(false);
-  const [dataReady, setDataReady] = useState(false);
+  const [dataReady, setDataReady] = useState(() => {
+    // If we have cached templates, data is ready immediately
+    if (typeof window === 'undefined') return false;
+    try {
+      return !!localStorage.getItem('cached_templates');
+    } catch {}
+    return false;
+  });
   const [gridSlots, setGridSlots] = useState<(string | null)[]>(() => {
     if (typeof window === 'undefined') return Array(GRID_SIZE).fill(null);
     try {
@@ -395,7 +417,11 @@ export default function HomePage() {
       .eq('is_active', true)
       .order('sort_order')
       .then(({ data }) => {
-        if (data) setTemplates(data);
+        if (data) {
+          setTemplates(data);
+          // Cache for instant load next time
+          try { localStorage.setItem('cached_templates', JSON.stringify(data)); } catch {}
+        }
         setDataReady(true);
       });
   }, [fetchHabits, fetchCompletions, fetchEntries, today]);

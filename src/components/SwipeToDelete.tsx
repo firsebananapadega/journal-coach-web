@@ -10,73 +10,99 @@ interface SwipeToDeleteProps {
 const DELETE_WIDTH = 76;
 const SNAP_THRESHOLD = 40;
 const AUTO_DELETE_THRESHOLD = 160;
+// Minimum horizontal distance before the swipe gesture activates.
+// Prevents accidental swipe when user is trying to scroll vertically.
+const DIRECTION_LOCK_THRESHOLD = 12;
 
 export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
+  const startY = useRef(0);
   const currentX = useRef(0);
   const isDragging = useRef(false);
+  // null = undecided, 'horizontal' = swiping, 'vertical' = scrolling
+  const directionLock = useRef<'horizontal' | 'vertical' | null>(null);
   const [offsetX, setOffsetX] = useState(0);
   const [isRevealed, setIsRevealed] = useState(false);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
     currentX.current = 0;
     isDragging.current = false;
+    directionLock.current = null;
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    const diff = e.touches[0].clientX - startX.current;
-    // Only allow swiping left
-    if (diff > 0 && !isRevealed) {
-      if (isRevealed) {
-        setOffsetX(0);
-        setIsRevealed(false);
+    const dx = e.touches[0].clientX - startX.current;
+    const dy = e.touches[0].clientY - startY.current;
+
+    // Determine direction if not yet locked
+    if (directionLock.current === null) {
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+
+      // Wait until movement exceeds threshold to decide
+      if (absDx < DIRECTION_LOCK_THRESHOLD && absDy < DIRECTION_LOCK_THRESHOLD) {
+        return; // Not enough movement to decide yet
       }
+
+      if (absDy > absDx) {
+        // Vertical scroll dominates — let the browser handle it
+        directionLock.current = 'vertical';
+        return;
+      }
+
+      // Horizontal swipe dominates
+      directionLock.current = 'horizontal';
+    }
+
+    // If locked to vertical scrolling, do nothing
+    if (directionLock.current === 'vertical') return;
+
+    // Only allow swiping left (or right to close revealed state)
+    if (dx > 0 && !isRevealed) {
       return;
     }
 
     // If already revealed and swiping right, close it
-    if (isRevealed && diff > 0) {
-      const newOffset = Math.min(0, -DELETE_WIDTH + diff);
+    if (isRevealed && dx > 0) {
+      const newOffset = Math.min(0, -DELETE_WIDTH + dx);
       setOffsetX(newOffset);
-      currentX.current = diff;
+      currentX.current = dx;
       isDragging.current = true;
       return;
     }
 
     isDragging.current = true;
-    currentX.current = diff;
-    const offset = isRevealed ? -DELETE_WIDTH + diff : diff;
+    currentX.current = dx;
+    const offset = isRevealed ? -DELETE_WIDTH + dx : dx;
     setOffsetX(Math.max(-AUTO_DELETE_THRESHOLD - 20, Math.min(0, offset)));
   }, [isRevealed]);
 
   const handleTouchEnd = useCallback(() => {
+    // Reset direction lock
+    directionLock.current = null;
+
     if (!isDragging.current) return;
 
-    const diff = currentX.current;
     const absOffset = Math.abs(offsetX);
 
     if (absOffset >= AUTO_DELETE_THRESHOLD) {
-      // Auto-delete: slide out completely
       setOffsetX(-400);
       setTimeout(() => onDelete(), 200);
       return;
     }
 
-    if (isRevealed && diff > SNAP_THRESHOLD / 2) {
-      // Was revealed, swiped right → close
+    if (isRevealed && currentX.current > SNAP_THRESHOLD / 2) {
       setOffsetX(0);
       setIsRevealed(false);
     } else if (!isRevealed && absOffset >= SNAP_THRESHOLD) {
-      // Reveal delete button
       setOffsetX(-DELETE_WIDTH);
       setIsRevealed(true);
     } else if (isRevealed) {
-      // Snap back to revealed position
       setOffsetX(-DELETE_WIDTH);
     } else {
-      // Snap back to origin
       setOffsetX(0);
       setIsRevealed(false);
     }
