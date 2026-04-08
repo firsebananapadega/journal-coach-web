@@ -61,11 +61,13 @@ function PriorityRowContent({
   index,
   onToggle,
   isDragOverlay,
+  dragHandleProps,
 }: {
   item: PriorityItem;
   index: number;
   onToggle?: () => void;
   isDragOverlay?: boolean;
+  dragHandleProps?: Record<string, unknown>;
 }) {
   return (
     <div
@@ -96,7 +98,11 @@ function PriorityRowContent({
         {item.text}
       </span>
       {!isDragOverlay && (
-        <div className="touch-none p-1 text-text-tertiary">
+        <div
+          className="p-2 -m-1 text-text-tertiary"
+          style={{ touchAction: 'none' }}
+          {...(dragHandleProps || {})}
+        >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <circle cx="5" cy="3" r="1.5" />
             <circle cx="11" cy="3" r="1.5" />
@@ -133,14 +139,15 @@ function SortablePriorityRow({
     <div
       ref={setNodeRef}
       {...attributes}
-      {...listeners}
-      style={{
-        opacity: isDragging ? 0 : 1,
-        touchAction: 'none',
-      }}
+      style={{ opacity: isDragging ? 0 : 1 }}
     >
       <SwipeToDelete onDelete={onDelete}>
-        <PriorityRowContent item={item} index={index} onToggle={onToggle} />
+        <PriorityRowContent
+          item={item}
+          index={index}
+          onToggle={onToggle}
+          dragHandleProps={listeners}
+        />
       </SwipeToDelete>
     </div>
   );
