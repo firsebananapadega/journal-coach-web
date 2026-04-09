@@ -77,29 +77,30 @@ CATEGORIES:
    Examples: "I'm grateful for...", "I appreciate...", "thankful for..."
 
 8. **plans** — Timed events, appointments, meals, meetups, activities, travel. Things HAPPENING at a specific time or on a specific day.
-   Each plan has: title, time (HH:MM in 24h format, "morning", "afternoon", "evening", or null), location (or null), subtasks (array of strings for prep/related items, or empty []), when (same date rules as priorities).
+   Each plan has: _time_reasoning (your internal reasoning about times — FILL THIS FIRST), title, time (HH:MM in 24h format, "morning", "afternoon", "evening", or null), location (or null), subtasks (array of strings for prep/related items, or empty []), when (same date rules as priorities).
 
-   CRITICAL TIME RULES:
-   - ALWAYS use 24-hour format for time (e.g., "21:00" not "9:00" for 9 PM)
-   - Context determines AM vs PM: "morning 9" = 09:00. "night 9" or "evening 9" = 21:00. "afternoon 3" = 15:00.
-   - If someone says "night" or "evening" + a time, it MUST be PM (add 12 if needed): "Saturday night 9 o'clock" = 21:00
-   - If someone says "morning" + a time, it is AM: "morning at 7" = 07:00
-   - If no AM/PM context, use common sense: "breakfast at 9" = 09:00, "dinner at 7" = 19:00, "flight at 11 at night" = 23:00
-   - Include ALL referenced times. If "flight is at 11" and "leave at 9", create a plan that captures both (use the departure time as the plan time, mention the flight time in the title or subtask).
+   TEMPORAL REASONING — THINK BEFORE YOU ASSIGN TIMES:
+   For each plan, you MUST fill "_time_reasoning" FIRST. In it, write out your reasoning:
+   1. What time-of-day context did the user provide? (morning/afternoon/evening/night/none)
+   2. What specific times were mentioned? List them all.
+   3. What is the logical relationship between the times? (e.g., "flight at 11, leave 2 hours before = leave at 9")
+   4. Given the context, are these times AM or PM? (e.g., "night" context = PM, "flight at 11 at night" = 23:00, "leave at 9" in the same night context = 21:00)
+   5. How many distinct events are there? (Don't split one event into multiple plans)
 
-   DEDUPLICATION: Don't create multiple plans for the same event. If the user describes one event with details, create ONE plan with subtasks. "We have to head out at 9, the flight is at 11, we need to get to the airport" = ONE plan, not two or three.
+   TIME FORMAT RULES:
+   - ALWAYS output time in 24-hour format: 21:00 (not 9:00 PM), 14:00 (not 2:00 PM)
+   - Context inheritance: if the user says "Saturday night" and then mentions times, ALL those times inherit the "night" (PM) context unless explicitly stated otherwise
+   - Inference chain: "flight at 11" + "night" context = 23:00. "leave 2 hours before" = 21:00. Both inherit PM from "night."
+   - Common sense: "breakfast" = morning. "lunch" = afternoon. "dinner" = evening. "flight at night" = PM.
 
-   CRITICAL DISTINCTION: Plans are EVENTS (things happening). Priorities are TASKS (things to do/check off).
-   - "Call dentist" = priority (task)
-   - "Dentist appointment at 3pm" = plan (event)
-   - "Pick up groceries" = priority (task)
-   - "Breakfast at Luna at 9am" = plan (event)
-   - "Lunch with parents at 2, need to bring wine and ice cream" = plan with subtasks
+   DEDUPLICATION: One described event = ONE plan. Don't split details into separate plans.
+
+   PLAN vs TASK: Plans are EVENTS (things happening at a time/place). Priorities are TASKS (to-do items to check off).
 
    Examples:
-   - "breakfast at Luna Saturday morning" → {"title": "Breakfast at Luna", "time": "morning", "location": "Luna", "subtasks": [], "when": "saturday"}
-   - "2pm lunch with parents, pick up pizza and bring wine" → {"title": "Lunch with parents", "time": "14:00", "location": null, "subtasks": ["Pick up pizza", "Bring wine"], "when": "today"}
-   - "Saturday night her parents are leaving, flight at 11, we need to head out by 9 from my place to get to the airport" → {"title": "Airport drop-off (flight at 11 PM)", "time": "21:00", "location": "Airport", "subtasks": ["Head out from my place by 9 PM"], "when": "saturday"}
+   - "breakfast at Luna Saturday morning" → {"_time_reasoning": "Saturday morning context. Breakfast = morning. Time: morning.", "title": "Breakfast at Luna", "time": "morning", "location": "Luna", "subtasks": [], "when": "saturday"}
+   - "2pm lunch with parents, pick up pizza and bring wine" → {"_time_reasoning": "Explicit 2pm = 14:00. One event with prep subtasks.", "title": "Lunch with parents", "time": "14:00", "location": null, "subtasks": ["Pick up pizza", "Bring wine"], "when": "today"}
+   - "Saturday night her parents are leaving, flight at 11, we need to head out by 9 from my place to the airport" → {"_time_reasoning": "Context: Saturday NIGHT. Flight at 11 = 23:00 (night context). Leave at 9 = 21:00 (same night context, 2 hours before flight). One event: airport drop-off.", "title": "Airport drop-off — flight at 11 PM", "time": "21:00", "location": "Airport", "subtasks": ["Leave from my place by 9 PM"], "when": "saturday"}
 
 RULES:
 - Only include categories where you actually detect relevant content
