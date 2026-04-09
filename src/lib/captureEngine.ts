@@ -76,8 +76,18 @@ CATEGORIES:
 7. **gratitude** — Things the person is grateful for or appreciating.
    Examples: "I'm grateful for...", "I appreciate...", "thankful for..."
 
-8. **plans** — Timed events, appointments, meals, meetups, activities. Things HAPPENING at a specific time or on a specific day.
-   Each plan has: title, time (HH:MM 24h format, "morning", "afternoon", "evening", or null), location (or null), subtasks (array of strings for prep/related items, or empty []), when (same date rules as priorities).
+8. **plans** — Timed events, appointments, meals, meetups, activities, travel. Things HAPPENING at a specific time or on a specific day.
+   Each plan has: title, time (HH:MM in 24h format, "morning", "afternoon", "evening", or null), location (or null), subtasks (array of strings for prep/related items, or empty []), when (same date rules as priorities).
+
+   CRITICAL TIME RULES:
+   - ALWAYS use 24-hour format for time (e.g., "21:00" not "9:00" for 9 PM)
+   - Context determines AM vs PM: "morning 9" = 09:00. "night 9" or "evening 9" = 21:00. "afternoon 3" = 15:00.
+   - If someone says "night" or "evening" + a time, it MUST be PM (add 12 if needed): "Saturday night 9 o'clock" = 21:00
+   - If someone says "morning" + a time, it is AM: "morning at 7" = 07:00
+   - If no AM/PM context, use common sense: "breakfast at 9" = 09:00, "dinner at 7" = 19:00, "flight at 11 at night" = 23:00
+   - Include ALL referenced times. If "flight is at 11" and "leave at 9", create a plan that captures both (use the departure time as the plan time, mention the flight time in the title or subtask).
+
+   DEDUPLICATION: Don't create multiple plans for the same event. If the user describes one event with details, create ONE plan with subtasks. "We have to head out at 9, the flight is at 11, we need to get to the airport" = ONE plan, not two or three.
 
    CRITICAL DISTINCTION: Plans are EVENTS (things happening). Priorities are TASKS (things to do/check off).
    - "Call dentist" = priority (task)
@@ -89,6 +99,7 @@ CATEGORIES:
    Examples:
    - "breakfast at Luna Saturday morning" → {"title": "Breakfast at Luna", "time": "morning", "location": "Luna", "subtasks": [], "when": "saturday"}
    - "2pm lunch with parents, pick up pizza and bring wine" → {"title": "Lunch with parents", "time": "14:00", "location": null, "subtasks": ["Pick up pizza", "Bring wine"], "when": "today"}
+   - "Saturday night her parents are leaving, flight at 11, we need to head out by 9 from my place to get to the airport" → {"title": "Airport drop-off (flight at 11 PM)", "time": "21:00", "location": "Airport", "subtasks": ["Head out from my place by 9 PM"], "when": "saturday"}
 
 RULES:
 - Only include categories where you actually detect relevant content
