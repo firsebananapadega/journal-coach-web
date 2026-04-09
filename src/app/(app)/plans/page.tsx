@@ -15,6 +15,15 @@ import { supabase } from '@/lib/supabase';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import { t } from '@/lib/translations';
 
+// ── Helpers ──
+
+function getLocalPlansForDate(date: string): PlanEvent[] {
+  try {
+    const raw = localStorage.getItem('plans_' + date);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
 // ── Date helpers ──
 
 function buildWeekDates(): Date[] {
@@ -147,8 +156,27 @@ export default function PlansPage() {
     setError('');
     const currentPlans = plansRef.current;
 
+    // Helper: save raw text as a plain plan (fallback)
+    const saveFallback = async () => {
+      const fb: PlanEvent = {
+        id: crypto.randomUUID(), title: text, time: null, location: null,
+        subtasks: [], completed: false, sort_order: currentPlans.length,
+      };
+      await savePlans(selectedDate, [...currentPlans, fb]);
+    };
+
+    // Hard 15-second timeout — if AI takes too long, save raw text
+    const timeoutId = setTimeout(async () => {
+      setError('');
+      await saveFallback();
+      setProcessing(false);
+      setProcessingText('');
+      setNewItem(''); liveText.current = ''; accumulatedTextRef.current = '';
+    }, 15000);
+
     try {
       const result = await classifyCapture(text);
+      clearTimeout(timeoutId);
 
       if (result.plans && result.plans.length > 0) {
         const plansByDate = new Map<string, PlanEventParsed[]>();
@@ -162,11 +190,7 @@ export default function PlansPage() {
           if (dateStr === selectedDate) {
             existingPlans = currentPlans;
           } else {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-              const { data } = await supabase.from('daily_priorities').select('plans').eq('user_id', user.id).eq('date', dateStr).maybeSingle();
-              existingPlans = (data?.plans as PlanEvent[]) ?? [];
-            }
+            existingPlans = getLocalPlansForDate(dateStr);
           }
           const newPlans: PlanEvent[] = datePlans.map((p, i) => ({
             id: crypto.randomUUID(),
@@ -181,37 +205,34 @@ export default function PlansPage() {
         }
       }
 
+      // If AI found nothing useful, save raw text as a plan
       if ((!result.plans || result.plans.length === 0) && result.priorities.length === 0) {
-        const fallbackPlan: PlanEvent = {
-          id: crypto.randomUUID(), title: text, time: null, location: null,
-          subtasks: [], completed: false, sort_order: currentPlans.length,
-        };
-        await savePlans(selectedDate, [...currentPlans, fallbackPlan]);
+        await saveFallback();
       }
 
+      // Cross-route priorities
       if (result.priorities.length > 0) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          for (const task of result.priorities) {
-            const resolvedDate = resolveWhen(task.when, selectedDate);
-            const { data } = await supabase.from('daily_priorities').select('items').eq('user_id', user.id).eq('date', resolvedDate).maybeSingle();
-            const existingItems = (data?.items as PriorityItem[]) ?? [];
-            const ni: PriorityItem = { id: crypto.randomUUID(), text: task.text, completed: false, sort_order: existingItems.length };
-            await usePriorityStore.getState().savePriorities(resolvedDate, [...existingItems, ni]);
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            for (const task of result.priorities) {
+              const resolvedDate = resolveWhen(task.when, selectedDate);
+              const { data } = await supabase.from('daily_priorities').select('items').eq('user_id', user.id).eq('date', resolvedDate).maybeSingle();
+              const existingItems = (data?.items as PriorityItem[]) ?? [];
+              const ni: PriorityItem = { id: crypto.randomUUID(), text: task.text, completed: false, sort_order: existingItems.length };
+              await usePriorityStore.getState().savePriorities(resolvedDate, [...existingItems, ni]);
+            }
           }
-        }
+        } catch {} // Cross-routing failure is non-critical
       }
 
-      // No need to re-fetch — savePlans already updated state and localStorage
       setNewItem(''); liveText.current = ''; accumulatedTextRef.current = '';
     } catch (err) {
+      clearTimeout(timeoutId);
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
-      try {
-        const fb: PlanEvent = { id: crypto.randomUUID(), title: text, time: null, location: null, subtasks: [], completed: false, sort_order: currentPlans.length };
-        await savePlans(selectedDate, [...currentPlans, fb]);
-        setNewItem(''); liveText.current = ''; accumulatedTextRef.current = '';
-      } catch {}
+      try { await saveFallback(); } catch {}
+      setNewItem(''); liveText.current = ''; accumulatedTextRef.current = '';
     }
     setProcessing(false);
     setProcessingText('');
