@@ -26,26 +26,22 @@ export default function VoiceEntryPage() {
   const startTime = useRef(Date.now());
   const accumulatedRef = useRef('');
   const transcriptRef = useRef('');
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const manualStopRef = useRef(false);
 
   useEffect(() => {
     startTime.current = Date.now();
-    // Auto-focus the textarea
     textareaRef.current?.focus();
   }, []);
 
-  // Keep transcriptRef in sync with state (avoids stale closures)
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
 
-  // Auto-scroll only during mic listening (programmatic text injection).
-  // During manual typing, the browser handles cursor visibility natively.
+  // Auto-scroll textarea to bottom during mic listening
   useEffect(() => {
-    if (isListening) {
-      transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isListening && textareaRef.current) {
+      textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
     }
   }, [transcript, isListening]);
 
@@ -84,7 +80,6 @@ export default function VoiceEntryPage() {
       stopRef.current = null;
       setIsListening(false);
     } else {
-      // Set accumulated to current text so mic appends after it
       accumulatedRef.current = transcriptRef.current;
       await startMic();
     }
@@ -111,46 +106,29 @@ export default function VoiceEntryPage() {
       if (result.ideas.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_ideas') || '[]');
-          const newItems = result.ideas.map((text) => ({
-            id: crypto.randomUUID(),
-            text,
-            createdAt: new Date().toISOString(),
-          }));
+          const newItems = result.ideas.map((txt) => ({ id: crypto.randomUUID(), text: txt, createdAt: new Date().toISOString() }));
           localStorage.setItem('journal_ideas', JSON.stringify([...newItems, ...existing]));
         } catch {}
       }
-
       if (result.gratitude.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_gratitude') || '[]');
-          const newItems = result.gratitude.map((text) => ({
-            id: crypto.randomUUID(),
-            text,
-            createdAt: new Date().toISOString(),
-          }));
+          const newItems = result.gratitude.map((txt) => ({ id: crypto.randomUUID(), text: txt, createdAt: new Date().toISOString() }));
           localStorage.setItem('journal_gratitude', JSON.stringify([...newItems, ...existing]));
         } catch {}
       }
-
       if (result.intentions.length > 0) {
         const profile = useAuthStore.getState().profile;
         const currentIntentions = profile?.intentions || [];
         const newIntentions = result.intentions.filter((i) => !currentIntentions.includes(i));
         if (newIntentions.length > 0) {
-          useAuthStore.getState().updateProfile({
-            intentions: [...currentIntentions, ...newIntentions],
-          });
+          useAuthStore.getState().updateProfile({ intentions: [...currentIntentions, ...newIntentions] });
         }
       }
-
       if (result.habits.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_ideas') || '[]');
-          const newItems = result.habits.map((text) => ({
-            id: crypto.randomUUID(),
-            text: `Habit idea: ${text}`,
-            createdAt: new Date().toISOString(),
-          }));
+          const newItems = result.habits.map((txt) => ({ id: crypto.randomUUID(), text: `Habit idea: ${txt}`, createdAt: new Date().toISOString() }));
           localStorage.setItem('journal_ideas', JSON.stringify([...newItems, ...existing]));
         } catch {}
       }
@@ -163,42 +141,42 @@ export default function VoiceEntryPage() {
 
   return (
     <div className="flex flex-col h-screen bg-bg">
-      <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border flex-shrink-0">
         <button onClick={() => router.push('/home')} className="text-text-secondary text-lg">&#10005;</button>
         <span className="text-sm font-semibold text-text-primary">{t('home.freeThought')}</span>
         <div className="w-10" />
       </div>
 
-      <div className="flex-1 flex flex-col overflow-y-auto px-5 py-4">
+      {/* Textarea — fixed height, scrolls internally */}
+      <div className="px-5 pt-4 flex-shrink-0" style={{ height: '45vh' }}>
         {!speechSupported && (
-          <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 mb-4">
-            <p className="text-sm text-warning">{t('voice.browserWarning')}</p>
+          <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
+            <p className="text-xs text-warning">{t('voice.browserWarning')}</p>
           </div>
         )}
+        <textarea
+          ref={textareaRef}
+          value={transcript}
+          readOnly={isListening}
+          onChange={(e) => {
+            if (!isListening) {
+              setTranscript(e.target.value);
+              accumulatedRef.current = e.target.value;
+            }
+          }}
+          className={`w-full h-full text-text-primary text-[15px] leading-relaxed bg-transparent outline-none resize-none placeholder:text-text-tertiary ${
+            isListening ? 'caret-transparent' : ''
+          }`}
+          placeholder={t('write.placeholder')}
+        />
+      </div>
 
-        {/* Text area — fills available space */}
-        <div className="flex-1 min-h-0">
-          <textarea
-            ref={textareaRef}
-            value={transcript}
-            readOnly={isListening}
-            onChange={(e) => {
-              if (!isListening) {
-                setTranscript(e.target.value);
-                accumulatedRef.current = e.target.value;
-              }
-            }}
-            className={`w-full h-full text-text-primary text-[15px] leading-relaxed bg-transparent border-none outline-none resize-none placeholder:text-text-tertiary ${
-              isListening ? 'caret-transparent' : ''
-            }`}
-            placeholder={t('write.placeholder')}
-          />
-          <div ref={transcriptEndRef} />
-        </div>
-
-        {/* Mood selector and Save — show when there's text and mic is off */}
+      {/* Bottom section — mood, save, mic — always visible */}
+      <div className="flex-1 flex flex-col items-center justify-end px-5 pb-6 space-y-4">
+        {/* Mood + Save — visible when there's text */}
         {transcript.trim() && !isListening && (
-          <div className="space-y-4 pt-4 flex-shrink-0">
+          <>
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
             <button
               onClick={handleSave}
@@ -206,13 +184,11 @@ export default function VoiceEntryPage() {
             >
               {t('voice.save')}
             </button>
-          </div>
+          </>
         )}
-      </div>
 
-      {/* Mic button at bottom */}
-      {speechSupported && (
-        <div className="flex justify-center pb-8 pt-4">
+        {/* Mic button — always visible */}
+        {speechSupported && (
           <button
             onClick={toggleMic}
             className={`relative w-16 h-16 rounded-full flex items-center justify-center transition-colors shadow-lg ${
@@ -229,8 +205,8 @@ export default function VoiceEntryPage() {
               </svg>
             )}
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
