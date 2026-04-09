@@ -41,10 +41,13 @@ export default function VoiceEntryPage() {
     transcriptRef.current = transcript;
   }, [transcript]);
 
-  // Auto-scroll to bottom when transcript changes
+  // Auto-scroll only during mic listening (programmatic text injection).
+  // During manual typing, the browser handles cursor visibility natively.
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcript]);
+    if (isListening) {
+      transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [transcript, isListening]);
 
   const startMic = useCallback(() => {
     manualStopRef.current = false;
@@ -166,15 +169,15 @@ export default function VoiceEntryPage() {
         <div className="w-10" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-6 space-y-6">
+      <div className="flex-1 flex flex-col overflow-y-auto px-5 py-4">
         {!speechSupported && (
-          <div className="bg-warning/10 border border-warning/30 rounded-xl p-4">
+          <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 mb-4">
             <p className="text-sm text-warning">{t('voice.browserWarning')}</p>
           </div>
         )}
 
-        {/* Text area — always visible, editable when mic is off */}
-        <div className="min-h-[200px]">
+        {/* Text area — fills available space */}
+        <div className="flex-1 min-h-0">
           <textarea
             ref={textareaRef}
             value={transcript}
@@ -185,7 +188,7 @@ export default function VoiceEntryPage() {
                 accumulatedRef.current = e.target.value;
               }
             }}
-            className={`w-full min-h-[200px] text-text-primary text-[15px] leading-relaxed bg-transparent border-none outline-none resize-none placeholder:text-text-tertiary ${
+            className={`w-full h-full text-text-primary text-[15px] leading-relaxed bg-transparent border-none outline-none resize-none placeholder:text-text-tertiary ${
               isListening ? 'caret-transparent' : ''
             }`}
             placeholder={t('write.placeholder')}
@@ -195,7 +198,7 @@ export default function VoiceEntryPage() {
 
         {/* Mood selector and Save — show when there's text and mic is off */}
         {transcript.trim() && !isListening && (
-          <>
+          <div className="space-y-4 pt-4 flex-shrink-0">
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
             <button
               onClick={handleSave}
@@ -203,7 +206,7 @@ export default function VoiceEntryPage() {
             >
               {t('voice.save')}
             </button>
-          </>
+          </div>
         )}
       </div>
 

@@ -276,13 +276,6 @@ export default function HomePage() {
       href: '/voice',
     });
 
-    items.push({
-      id: '__priorities__',
-      icon: '\uD83C\uDFAF',
-      label: t('home.priorities'),
-      href: '/priorities',
-    });
-
     const locale = getLocale();
     for (const tmpl of templates.filter((tp) => enabledIds.includes(tp.id))) {
       items.push({
