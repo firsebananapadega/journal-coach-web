@@ -8,6 +8,7 @@ const translations: Record<string, Record<Locale, string>> = {
   'nav.home': { en: 'Home', es: 'Inicio' },
   'nav.tasks': { en: 'Tasks', es: 'Tareas' },
   'nav.journal': { en: 'Journal', es: 'Diario' },
+  'nav.plans': { en: 'Plans', es: 'Planes' },
   'nav.settings': { en: 'Settings', es: 'Ajustes' },
 
   // ─── Common ───
@@ -139,6 +140,16 @@ const translations: Record<string, Record<Locale, string>> = {
   'priorities.placeholder': { en: 'Add a priority...', es: 'Agrega una prioridad...' },
   'priorities.empty': { en: 'No tasks for today yet.', es: 'Aún no hay tareas para hoy.' },
   'priorities.activityLog': { en: 'Activity Log', es: 'Registro de actividad' },
+
+  // ─── Plans ───
+  'plans.title': { en: 'Plans', es: 'Planes' },
+  'plans.today': { en: 'Today', es: 'Hoy' },
+  'plans.placeholder': { en: 'Add a plan...', es: 'Agrega un plan...' },
+  'plans.addPlans': { en: 'Add Plans', es: 'Agregar planes' },
+  'plans.processing': { en: 'Processing...', es: 'Procesando...' },
+  'plans.empty': { en: 'No plans for today yet.', es: 'Aún no hay planes para hoy.' },
+  'plans.noTime': { en: 'No time set', es: 'Sin hora' },
+  'plans.plans': { en: 'Plans', es: 'Planes' },
 
   // ─── Habits ───
   'habits.title': { en: 'Habit Gallery', es: 'Galería de hábitos' },

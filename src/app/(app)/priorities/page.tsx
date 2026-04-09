@@ -312,8 +312,8 @@ export default function PrioritiesPage() {
         tasksByDate.get(resolvedDate)!.push(task);
       }
 
-      // If no priorities and no groceries, save raw text as a task for selected date
-      if (result.priorities.length === 0 && result.groceries.length === 0) {
+      // If no priorities, no groceries, and no plans, save raw text as a task for selected date
+      if (result.priorities.length === 0 && result.groceries.length === 0 && (!result.plans || result.plans.length === 0)) {
         tasksByDate.set(selectedDate, [{ text, when: 'today' }]);
       }
 
@@ -379,6 +379,39 @@ export default function PrioritiesPage() {
         await saveGroceries(selectedDate, mergedGroceries);
         const totalNewItems = newGroceryGroups.reduce((sum, g) => sum + g.items.length, 0);
         addLog(`Saved ${totalNewItems} grocery item(s)`);
+      }
+
+      // Cross-route plans to plan store if any were detected
+      if (result.plans && result.plans.length > 0) {
+        const { usePlanStore } = await import('@/stores/planStore');
+        for (const plan of result.plans) {
+          const resolvedDate = resolveWhen(plan.when, selectedDate);
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data } = await supabase
+              .from('daily_priorities')
+              .select('plans')
+              .eq('user_id', user.id)
+              .eq('date', resolvedDate)
+              .maybeSingle();
+            const existingPlans = (data?.plans as import('@/stores/planStore').PlanEvent[]) ?? [];
+            const newPlan: import('@/stores/planStore').PlanEvent = {
+              id: crypto.randomUUID(),
+              title: plan.title,
+              time: plan.time,
+              location: plan.location,
+              subtasks: plan.subtasks.map((st: string) => ({
+                id: crypto.randomUUID(),
+                text: st,
+                completed: false,
+              })),
+              completed: false,
+              sort_order: existingPlans.length,
+            };
+            await usePlanStore.getState().savePlans(resolvedDate, [...existingPlans, newPlan]);
+          }
+        }
+        addLog(`Routed ${result.plans.length} plan(s) to Plans tab`);
       }
 
       // Re-fetch current date to refresh the view

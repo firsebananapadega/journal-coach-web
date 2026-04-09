@@ -15,8 +15,17 @@ export interface PriorityTask {
   when: string; // "today", "tomorrow", "monday", or ISO date
 }
 
+export interface PlanEventParsed {
+  title: string;
+  time: string | null;
+  location: string | null;
+  subtasks: string[];
+  when: string;
+}
+
 export interface CaptureResult {
   priorities: PriorityTask[];
+  plans: PlanEventParsed[];
   groceries: GroceryStore[];
   intentions: string[];
   habits: string[];
@@ -67,6 +76,20 @@ CATEGORIES:
 7. **gratitude** — Things the person is grateful for or appreciating.
    Examples: "I'm grateful for...", "I appreciate...", "thankful for..."
 
+8. **plans** — Timed events, appointments, meals, meetups, activities. Things HAPPENING at a specific time or on a specific day.
+   Each plan has: title, time (HH:MM 24h format, "morning", "afternoon", "evening", or null), location (or null), subtasks (array of strings for prep/related items, or empty []), when (same date rules as priorities).
+
+   CRITICAL DISTINCTION: Plans are EVENTS (things happening). Priorities are TASKS (things to do/check off).
+   - "Call dentist" = priority (task)
+   - "Dentist appointment at 3pm" = plan (event)
+   - "Pick up groceries" = priority (task)
+   - "Breakfast at Luna at 9am" = plan (event)
+   - "Lunch with parents at 2, need to bring wine and ice cream" = plan with subtasks
+
+   Examples:
+   - "breakfast at Luna Saturday morning" → {"title": "Breakfast at Luna", "time": "morning", "location": "Luna", "subtasks": [], "when": "saturday"}
+   - "2pm lunch with parents, pick up pizza and bring wine" → {"title": "Lunch with parents", "time": "14:00", "location": null, "subtasks": ["Pick up pizza", "Bring wine"], "when": "today"}
+
 RULES:
 - Only include categories where you actually detect relevant content
 - If something could be both a priority and a habit, ask: is it a one-time task (priority) or recurring (habit)?
@@ -77,7 +100,7 @@ RULES:
 - ALWAYS include the "when" field for every priority task. Default to "today" if no date is mentioned.
 
 Respond with ONLY valid JSON:
-{"priorities": [{"text": "task", "when": "today"}], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null}`;
+{"priorities": [{"text": "task", "when": "today"}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null}`;
 
 export function resolveWhen(when: string, referenceDate?: string): string {
   const ref = referenceDate ? new Date(referenceDate + 'T12:00:00') : new Date();
@@ -157,8 +180,27 @@ export async function classifyCapture(speechText: string): Promise<CaptureResult
     }
   } catch {}
 
+  // Normalize plans
+  let plans: PlanEventParsed[] = [];
+  if (Array.isArray(parsed.plans)) {
+    plans = parsed.plans.map((p: unknown) => {
+      if (p && typeof p === 'object') {
+        const obj = p as Record<string, unknown>;
+        return {
+          title: typeof obj.title === 'string' ? obj.title : String(obj.title || ''),
+          time: typeof obj.time === 'string' ? obj.time : null,
+          location: typeof obj.location === 'string' ? obj.location : null,
+          subtasks: Array.isArray(obj.subtasks) ? (obj.subtasks as string[]) : [],
+          when: typeof obj.when === 'string' ? obj.when : 'today',
+        };
+      }
+      return { title: String(p), time: null, location: null, subtasks: [], when: 'today' };
+    });
+  }
+
   return {
     priorities,
+    plans,
     groceries,
     intentions: Array.isArray(parsed.intentions) ? parsed.intentions as string[] : [],
     habits: Array.isArray(parsed.habits) ? parsed.habits as string[] : [],
@@ -171,6 +213,7 @@ export async function classifyCapture(speechText: string): Promise<CaptureResult
 export function hasContent(result: CaptureResult): boolean {
   return (
     result.priorities.length > 0 ||
+    result.plans.length > 0 ||
     result.groceries.length > 0 ||
     result.intentions.length > 0 ||
     result.habits.length > 0 ||
@@ -183,6 +226,7 @@ export function hasContent(result: CaptureResult): boolean {
 export function summarizeCapture(result: CaptureResult): string {
   const parts: string[] = [];
   if (result.priorities.length > 0) parts.push(`${result.priorities.length} task${result.priorities.length > 1 ? 's' : ''}`);
+  if (result.plans.length > 0) parts.push(`${result.plans.length} plan${result.plans.length > 1 ? 's' : ''}`);
   if (result.groceries.length > 0) {
     const totalItems = result.groceries.reduce((sum, g) => sum + g.items.length, 0);
     parts.push(`${totalItems} grocery item${totalItems > 1 ? 's' : ''}`);

@@ -28,11 +28,12 @@ export default function VoiceEntryPage() {
   const transcriptRef = useRef('');
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const hasAutoStarted = useRef(false);
   const manualStopRef = useRef(false);
 
   useEffect(() => {
     startTime.current = Date.now();
+    // Auto-focus the textarea
+    textareaRef.current?.focus();
   }, []);
 
   // Keep transcriptRef in sync with state (avoids stale closures)
@@ -52,13 +53,11 @@ export default function VoiceEntryPage() {
       continuous: true,
       language: getLanguage(),
       onResult: (text) => {
-        // Append new speech session text after accumulated text
         const prefix = accumulatedRef.current;
         const newTranscript = prefix ? prefix + ' ' + text : text;
         setTranscript(newTranscript);
       },
       onEnd: () => {
-        // Only update accumulated if browser auto-stopped (not manual stop)
         if (!manualStopRef.current) {
           accumulatedRef.current = transcriptRef.current;
         }
@@ -74,24 +73,16 @@ export default function VoiceEntryPage() {
     stopRef.current = cleanup;
   }, []);
 
-  // Auto-start mic on mount
-  useEffect(() => {
-    if (speechSupported && !hasAutoStarted.current) {
-      hasAutoStarted.current = true;
-      startMic();
-    }
-  }, [speechSupported, startMic]);
-
   const toggleMic = async () => {
     if (isListening) {
-      // Flag manual stop so onEnd doesn't also update accumulated
       manualStopRef.current = true;
-      // Save current transcript as accumulated using ref for latest value
       accumulatedRef.current = transcriptRef.current;
       stopRef.current?.();
       stopRef.current = null;
       setIsListening(false);
     } else {
+      // Set accumulated to current text so mic appends after it
+      accumulatedRef.current = transcriptRef.current;
       await startMic();
     }
   };
@@ -101,7 +92,6 @@ export default function VoiceEntryPage() {
     const duration = Math.round((Date.now() - startTime.current) / 1000);
     const wordCount = transcript.split(/\s+/).filter(Boolean).length;
 
-    // Save the journal entry immediately
     createEntry({
       entry_type: 'voice',
       content_text: transcript,
@@ -114,9 +104,7 @@ export default function VoiceEntryPage() {
       console.warn('Voice entry failed to save to Supabase');
     });
 
-    // Classify and route in the background
     classifyCapture(transcript).then((result: CaptureResult) => {
-      // Route ideas to localStorage
       if (result.ideas.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_ideas') || '[]');
@@ -129,7 +117,6 @@ export default function VoiceEntryPage() {
         } catch {}
       }
 
-      // Route gratitude to localStorage
       if (result.gratitude.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_gratitude') || '[]');
@@ -142,7 +129,6 @@ export default function VoiceEntryPage() {
         } catch {}
       }
 
-      // Route intentions to profile
       if (result.intentions.length > 0) {
         const profile = useAuthStore.getState().profile;
         const currentIntentions = profile?.intentions || [];
@@ -154,7 +140,6 @@ export default function VoiceEntryPage() {
         }
       }
 
-      // Route habits to ideas for now (as specified)
       if (result.habits.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_ideas') || '[]');
@@ -177,44 +162,38 @@ export default function VoiceEntryPage() {
     <div className="flex flex-col h-screen bg-bg">
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
         <button onClick={() => router.push('/home')} className="text-text-secondary text-lg">&#10005;</button>
-        <span className="text-sm font-semibold text-text-primary">{t('voice.title')}</span>
+        <span className="text-sm font-semibold text-text-primary">{t('home.freeThought')}</span>
         <div className="w-10" />
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-6 space-y-6">
         {!speechSupported && (
           <div className="bg-warning/10 border border-warning/30 rounded-xl p-4">
-            <p className="text-sm text-warning">
-              {t('voice.browserWarning')}
-            </p>
+            <p className="text-sm text-warning">{t('voice.browserWarning')}</p>
           </div>
         )}
 
-        {/* Transcript — editable when mic is off */}
+        {/* Text area — always visible, editable when mic is off */}
         <div className="min-h-[200px]">
-          {transcript ? (
-            <textarea
-              ref={textareaRef}
-              value={transcript}
-              readOnly={isListening}
-              onChange={(e) => {
-                if (!isListening) {
-                  setTranscript(e.target.value);
-                  accumulatedRef.current = e.target.value;
-                }
-              }}
-              className="w-full min-h-[200px] text-text-primary text-[15px] leading-relaxed bg-transparent border-none outline-none resize-none"
-              placeholder={t('voice.placeholder')}
-            />
-          ) : (
-            <p className="text-text-tertiary text-center mt-16">
-              {isListening ? t('voice.listening') : t('voice.tapMic')}
-            </p>
-          )}
+          <textarea
+            ref={textareaRef}
+            value={transcript}
+            readOnly={isListening}
+            onChange={(e) => {
+              if (!isListening) {
+                setTranscript(e.target.value);
+                accumulatedRef.current = e.target.value;
+              }
+            }}
+            className={`w-full min-h-[200px] text-text-primary text-[15px] leading-relaxed bg-transparent border-none outline-none resize-none placeholder:text-text-tertiary ${
+              isListening ? 'caret-transparent' : ''
+            }`}
+            placeholder={t('write.placeholder')}
+          />
           <div ref={transcriptEndRef} />
         </div>
 
-        {/* Mood selector and Save — only show when mic is off and there's text */}
+        {/* Mood selector and Save — show when there's text and mic is off */}
         {transcript.trim() && !isListening && (
           <>
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />

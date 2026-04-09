@@ -9,6 +9,7 @@ import { t } from '@/lib/translations';
 const NAV_KEYS = [
   { href: '/home', key: 'nav.home', icon: '🏠' },
   { href: '/priorities', key: 'nav.tasks', icon: '🎯' },
+  { href: '/plans', key: 'nav.plans', icon: '📅' },
   { href: '/journal', key: 'nav.journal', icon: '📖' },
   { href: '/settings', key: 'nav.settings', icon: '⚙️' },
 ];
@@ -34,7 +35,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   // Hide bottom nav on full-screen pages (guided, voice, write, template, entry detail)
-  const hideNav = ['/guided', '/voice', '/write', '/habits', '/intentions', '/templates'].includes(pathname) ||
+  const hideNav = ['/guided', '/voice', '/write', '/habits', '/intentions', '/templates', '/plans'].includes(pathname) ||
     pathname.startsWith('/template/') || pathname.startsWith('/entry/');
 
   return (
@@ -48,7 +49,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center gap-0.5 px-4 py-1 ${
+                className={`flex flex-col items-center gap-0.5 px-3 py-1 ${
                   pathname === item.href ? 'text-primary' : 'text-text-tertiary hover:text-text-secondary'
                 }`}
               >
