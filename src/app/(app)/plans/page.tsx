@@ -85,14 +85,25 @@ export default function PlansPage() {
 
   // ── Input handlers ──
 
+  const [processingText, setProcessingText] = useState('');
+
   const handleAddItem = () => {
     if (!newItem.trim()) return;
     const text = newItem.trim();
+    setProcessingText(text);
     setNewItem('');
     accumulatedTextRef.current = '';
     liveText.current = '';
     setError('');
     setProcessing(true);
+
+    // Save raw text to journal Plans tab immediately (before AI processing)
+    try {
+      const existing = JSON.parse(localStorage.getItem('journal_plans') || '[]');
+      const entry = { id: crypto.randomUUID(), text, createdAt: new Date().toISOString() };
+      localStorage.setItem('journal_plans', JSON.stringify([entry, ...existing]));
+    } catch {}
+
     handleAddPlans(text);
   };
 
@@ -203,6 +214,7 @@ export default function PlansPage() {
       } catch {}
     }
     setProcessing(false);
+    setProcessingText('');
   };
 
   // Sort plans by time
@@ -316,14 +328,24 @@ export default function PlansPage() {
           )}
         </div>
 
-        {newItem.trim() && !isListening && (
+        {newItem.trim() && !isListening && !processing && (
           <button
             onClick={handleAddItem}
-            disabled={processing}
-            className="w-full py-2.5 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50 text-sm"
+            className="w-full py-2.5 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors text-sm"
           >
-            {processing ? t('plans.processing') : t('plans.addPlans')}
+            {t('plans.addPlans')}
           </button>
+        )}
+
+        {/* Processing indicator — shows after input is cleared */}
+        {processing && (
+          <div className="bg-surface rounded-2xl p-3 flex items-center gap-3">
+            <div className="animate-pulse text-primary text-sm">●</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-text-secondary">{t('plans.processing')}</p>
+              <p className="text-sm text-text-primary truncate">{processingText}</p>
+            </div>
+          </div>
         )}
 
         {error && (

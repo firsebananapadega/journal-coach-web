@@ -204,6 +204,13 @@ export default function PrioritiesPage() {
     setProcessing(true);
     addLog(`Processing: "${text.substring(0, 50)}..."`);
 
+    // Save raw text to journal Priorities tab immediately (before AI processing)
+    try {
+      const existing = JSON.parse(localStorage.getItem('journal_priorities') || '[]');
+      const entry = { id: crypto.randomUUID(), text, createdAt: new Date().toISOString() };
+      localStorage.setItem('journal_priorities', JSON.stringify([entry, ...existing]));
+    } catch {}
+
     // Run through capture engine for smart classification
     handleAddTasks(text);
   };

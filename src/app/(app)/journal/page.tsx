@@ -7,12 +7,14 @@ import { SwipeToDelete } from '@/components/SwipeToDelete';
 import { t } from '@/lib/translations';
 import { getLanguage } from '@/lib/language';
 
-type TabKey = 'journal' | 'ideas' | 'gratitude';
+type TabKey = 'journal' | 'ideas' | 'gratitude' | 'plans' | 'priorities';
 
 const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'journal', labelKey: 'journal.journal' },
   { key: 'ideas', labelKey: 'journal.ideas' },
   { key: 'gratitude', labelKey: 'journal.gratitude' },
+  { key: 'plans', labelKey: 'nav.plans' },
+  { key: 'priorities', labelKey: 'nav.tasks' },
 ];
 
 interface SimpleItem {
@@ -156,13 +158,13 @@ export default function JournalPage() {
         <h1 className="text-2xl font-bold text-text-primary">{t('journal.title')}</h1>
       </div>
 
-      {/* Sub-tabs */}
-      <div className="flex gap-2 bg-surface rounded-xl p-1.5">
+      {/* Sub-tabs — scrollable for 5 tabs */}
+      <div className="flex gap-1.5 bg-surface rounded-xl p-1.5 overflow-x-auto scrollbar-hide">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
               activeTab === tab.key
                 ? 'bg-primary text-white'
                 : 'text-text-secondary hover:text-text-primary'
@@ -292,6 +294,16 @@ export default function JournalPage() {
       {/* Gratitude tab */}
       {activeTab === 'gratitude' && (
         <SimpleListTab storageKey="journal_gratitude" placeholder={t('journal.addGratitude')} />
+      )}
+
+      {/* Plans tab — raw plan entries */}
+      {activeTab === 'plans' && (
+        <SimpleListTab storageKey="journal_plans" placeholder={t('plans.placeholder')} />
+      )}
+
+      {/* Priorities tab — raw priority entries */}
+      {activeTab === 'priorities' && (
+        <SimpleListTab storageKey="journal_priorities" placeholder={t('priorities.placeholder')} />
       )}
     </div>
   );

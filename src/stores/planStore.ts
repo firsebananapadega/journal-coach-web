@@ -17,28 +17,74 @@ export interface PlanEvent {
   sort_order: number;
 }
 
-async function upsertPlans(userId: string, date: string, plans: PlanEvent[]) {
-  const { data: existing } = await supabase
-    .from('daily_priorities')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('date', date)
-    .maybeSingle();
+// ── localStorage-based storage (works without DB migration) ──
 
-  const row = {
-    user_id: userId,
-    date,
-    items: existing?.items ?? [],
-    groceries: existing?.groceries ?? [],
-    plans: JSON.parse(JSON.stringify(plans)),
-    updated_at: new Date().toISOString(),
-  };
+const PLANS_KEY_PREFIX = 'plans_';
 
-  const { error } = await supabase
-    .from('daily_priorities')
-    .upsert(row, { onConflict: 'user_id,date' });
-  if (error) throw error;
+function getLocalPlans(date: string): PlanEvent[] {
+  try {
+    const raw = localStorage.getItem(PLANS_KEY_PREFIX + date);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
 }
+
+function setLocalPlans(date: string, plans: PlanEvent[]) {
+  try {
+    localStorage.setItem(PLANS_KEY_PREFIX + date, JSON.stringify(plans));
+  } catch {}
+}
+
+// Also try Supabase if the column exists (best-effort)
+async function trySaveToSupabase(date: string, plans: PlanEvent[]) {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: existing } = await supabase
+      .from('daily_priorities')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('date', date)
+      .maybeSingle();
+
+    const row = {
+      user_id: user.id,
+      date,
+      items: existing?.items ?? [],
+      groceries: existing?.groceries ?? [],
+      plans: JSON.parse(JSON.stringify(plans)),
+      updated_at: new Date().toISOString(),
+    };
+
+    await supabase
+      .from('daily_priorities')
+      .upsert(row, { onConflict: 'user_id,date' });
+  } catch {
+    // Column may not exist yet — localStorage is the fallback
+  }
+}
+
+async function tryLoadFromSupabase(date: string): Promise<PlanEvent[] | null> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data, error } = await supabase
+      .from('daily_priorities')
+      .select('plans')
+      .eq('user_id', user.id)
+      .eq('date', date)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    const plans = data.plans as PlanEvent[] | null;
+    return plans && plans.length > 0 ? plans : null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Store ──
 
 interface PlanState {
   plans: PlanEvent[];
@@ -60,104 +106,74 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   error: null,
 
   fetchPlans: async (date) => {
+    set({ loading: true, error: null });
     try {
-      set({ loading: true, error: null });
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No authenticated user');
-      const { data, error } = await supabase
-        .from('daily_priorities')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('date', date)
-        .maybeSingle();
-      if (error) throw error;
-      set({
-        plans: (data?.plans as PlanEvent[]) ?? [],
-        date,
-      });
-    } catch (error: unknown) {
-      set({ error: error instanceof Error ? error.message : 'Failed to fetch plans' });
+      // Load from localStorage immediately
+      let plans = getLocalPlans(date);
+
+      // Try Supabase as well (may have plans from another device)
+      const supabasePlans = await tryLoadFromSupabase(date);
+      if (supabasePlans && supabasePlans.length > 0) {
+        // Merge: use Supabase if it has more plans, otherwise keep local
+        if (supabasePlans.length >= plans.length) {
+          plans = supabasePlans;
+          setLocalPlans(date, plans); // sync to local
+        }
+      }
+
+      set({ plans, date });
+    } catch {
+      // Fallback to localStorage only
+      set({ plans: getLocalPlans(date), date });
     } finally {
       set({ loading: false });
     }
   },
 
   savePlans: async (date, plans) => {
-    try {
-      set({ loading: true, error: null });
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No authenticated user');
-      await upsertPlans(user.id, date, plans);
-      set({ plans, date });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : (error as { message?: string })?.message || 'Failed to save plans';
-      set({ error: msg });
-      throw new Error(msg);
-    } finally {
-      set({ loading: false });
-    }
+    set({ plans, date });
+    // Save to localStorage (always works)
+    setLocalPlans(date, plans);
+    // Best-effort save to Supabase
+    trySaveToSupabase(date, plans);
   },
 
   togglePlan: (planId) => {
     const { plans, date } = get();
     if (!date) return;
-    const updated = plans.map((plan) =>
-      plan.id === planId ? { ...plan, completed: !plan.completed } : plan
+    const updated = plans.map((p) =>
+      p.id === planId ? { ...p, completed: !p.completed } : p
     );
     set({ plans: updated });
-    // Save to Supabase in background
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        await upsertPlans(user.id, date, updated);
-      } catch {
-        set({ plans });
-      }
-    })();
+    setLocalPlans(date, updated);
+    trySaveToSupabase(date, updated);
   },
 
   toggleSubtask: (planId, subtaskId) => {
     const { plans, date } = get();
     if (!date) return;
-    const updated = plans.map((plan) =>
-      plan.id === planId
+    const updated = plans.map((p) =>
+      p.id === planId
         ? {
-            ...plan,
-            subtasks: plan.subtasks.map((st) =>
+            ...p,
+            subtasks: p.subtasks.map((st) =>
               st.id === subtaskId ? { ...st, completed: !st.completed } : st
             ),
           }
-        : plan
+        : p
     );
     set({ plans: updated });
-    // Save to Supabase in background
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        await upsertPlans(user.id, date, updated);
-      } catch {
-        set({ plans });
-      }
-    })();
+    setLocalPlans(date, updated);
+    trySaveToSupabase(date, updated);
   },
 
   removePlan: (planId) => {
     const { plans, date } = get();
     if (!date) return;
-    const updated = plans.filter((p) => p.id !== planId).map((p, idx) => ({ ...p, sort_order: idx }));
+    const updated = plans.filter((p) => p.id !== planId);
     set({ plans: updated });
-    // Save to Supabase in background
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        await upsertPlans(user.id, date, updated);
-      } catch {
-        set({ plans });
-      }
-    })();
+    setLocalPlans(date, updated);
+    trySaveToSupabase(date, updated);
   },
 
   reset: () => set({ plans: [], date: null, loading: false, error: null }),
