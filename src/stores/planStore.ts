@@ -106,35 +106,34 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   error: null,
 
   fetchPlans: async (date) => {
-    set({ loading: true, error: null });
-    try {
-      // Load from localStorage immediately
-      let plans = getLocalPlans(date);
+    // Instant load from localStorage — no blocking on network
+    const plans = getLocalPlans(date);
+    set({ plans, date, loading: false, error: null });
 
-      // Try Supabase as well (may have plans from another device)
-      const supabasePlans = await tryLoadFromSupabase(date);
+    // Background sync from Supabase (non-blocking)
+    tryLoadFromSupabase(date).then((supabasePlans) => {
       if (supabasePlans && supabasePlans.length > 0) {
-        // Merge: use Supabase if it has more plans, otherwise keep local
-        if (supabasePlans.length >= plans.length) {
-          plans = supabasePlans;
-          setLocalPlans(date, plans); // sync to local
+        const localPlans = getLocalPlans(date);
+        // Only use Supabase data if it has MORE plans (newer sync from another device)
+        if (supabasePlans.length > localPlans.length) {
+          setLocalPlans(date, supabasePlans);
+          // Only update UI if still viewing this date
+          if (get().date === date) {
+            set({ plans: supabasePlans });
+          }
         }
       }
-
-      set({ plans, date });
-    } catch {
-      // Fallback to localStorage only
-      set({ plans: getLocalPlans(date), date });
-    } finally {
-      set({ loading: false });
-    }
+    });
   },
 
   savePlans: async (date, plans) => {
-    set({ plans, date });
-    // Save to localStorage (always works)
+    // Always save to localStorage
     setLocalPlans(date, plans);
-    // Best-effort save to Supabase
+    // Only update UI state if saving to the currently viewed date
+    if (get().date === date || get().date === null) {
+      set({ plans, date });
+    }
+    // Best-effort save to Supabase (non-blocking)
     trySaveToSupabase(date, plans);
   },
 

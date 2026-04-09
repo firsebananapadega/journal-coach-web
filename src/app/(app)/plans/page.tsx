@@ -202,7 +202,7 @@ export default function PlansPage() {
         }
       }
 
-      await fetchPlans(selectedDate);
+      // No need to re-fetch — savePlans already updated state and localStorage
       setNewItem(''); liveText.current = ''; accumulatedTextRef.current = '';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
