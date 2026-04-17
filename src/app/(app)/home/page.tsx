@@ -32,6 +32,8 @@ import {
   type WeeklyReflectionData,
 } from '@/lib/weeklyReflection';
 import WeeklyReflectionCard from '@/components/WeeklyReflectionCard';
+import DailyPulseCard from '@/components/DailyPulseCard';
+import Link from 'next/link';
 
 interface TemplateInfo {
   id: string;
@@ -246,6 +248,8 @@ export default function HomePage() {
   const todayCompletions = completions[today] || new Set<string>();
   const activeHabits = habits.filter((h) => h.is_active);
 
+  const pulseCount = useMemo(() => entries.filter((e) => e.entry_type === 'pulse').length, [entries]);
+
   const templateCompletedToday = useMemo(() => {
     const completed = new Set<string>();
     entries.forEach((e) => {
@@ -449,6 +453,20 @@ export default function HomePage() {
         </p>
         <h1 className="text-2xl font-bold text-text-primary mt-1">{greeting}</h1>
       </div>
+
+      {/* Daily Pulse — always first after greeting */}
+      <DailyPulseCard entries={entries} />
+
+      {/* Patterns link — after 7+ pulses */}
+      {pulseCount >= 7 && (
+        <Link
+          href="/pulse"
+          className="flex items-center justify-between bg-surface/50 rounded-xl border border-border px-4 py-2.5 hover:border-primary/30 transition-colors"
+        >
+          <span className="text-sm text-text-secondary">{t('pulse.viewPatterns')}</span>
+          <span className="text-text-tertiary">→</span>
+        </Link>
+      )}
 
       {/* Drag-and-drop bubble grid */}
       <DndContext

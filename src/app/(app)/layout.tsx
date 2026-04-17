@@ -40,11 +40,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex flex-col min-h-screen bg-bg">
-      <main className={`flex-1 ${hideNav ? '' : 'pb-20'}`}>{children}</main>
+      <main className={`flex-1 ${hideNav ? '' : 'pb-36'}`}>{children}</main>
 
       {!hideNav && (
         <nav className="fixed bottom-0 inset-x-0 bg-surface border-t border-border z-50">
-          <div className="max-w-lg mx-auto flex items-center justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <div className="max-w-lg mx-auto flex items-center justify-around pt-2 pb-[max(2.25rem,env(safe-area-inset-bottom))]">
             {NAV_KEYS.map((item) => (
               <Link
                 key={item.href}
@@ -53,8 +53,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   pathname === item.href ? 'text-primary' : 'text-text-tertiary hover:text-text-secondary'
                 }`}
               >
-                <span className="text-xl">{item.icon}</span>
-                <span className="text-[11px] font-semibold">{t(item.key)}</span>
+                <span className="text-3xl leading-none">{item.icon}</span>
+                <span className="text-xs font-semibold mt-1">{t(item.key)}</span>
               </Link>
             ))}
           </div>

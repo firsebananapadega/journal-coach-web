@@ -95,6 +95,7 @@ interface PlanState {
   savePlans: (date: string, plans: PlanEvent[]) => Promise<void>;
   togglePlan: (planId: string) => void;
   toggleSubtask: (planId: string, subtaskId: string) => void;
+  updatePlan: (planId: string, updates: Partial<Omit<PlanEvent, 'id'>>) => void;
   removePlan: (planId: string) => void;
   reset: () => void;
 }
@@ -160,6 +161,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
             ),
           }
         : p
+    );
+    set({ plans: updated });
+    setLocalPlans(date, updated);
+    trySaveToSupabase(date, updated);
+  },
+
+  updatePlan: (planId, updates) => {
+    const { plans, date } = get();
+    if (!date) return;
+    const updated = plans.map((p) =>
+      p.id === planId ? { ...p, ...updates } : p
     );
     set({ plans: updated });
     setLocalPlans(date, updated);

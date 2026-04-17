@@ -13,6 +13,7 @@ import { getLanguage } from '@/lib/language';
 import { classifyCapture, resolveWhen, type PlanEventParsed } from '@/lib/captureEngine';
 import { supabase } from '@/lib/supabase';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
+import { MonthlyCalendar } from '@/components/MonthlyCalendar';
 import { t } from '@/lib/translations';
 
 // ── Helpers ──
@@ -76,11 +77,13 @@ export default function PlansPage() {
   const weekDates = useMemo(() => buildWeekDates(), []);
   const [selectedDate, setSelectedDate] = useState(todayDateStr);
 
-  const { plans, fetchPlans, savePlans, togglePlan, toggleSubtask, removePlan, loading } = usePlanStore();
+  const { plans, fetchPlans, savePlans, togglePlan, toggleSubtask, removePlan, updatePlan, loading } = usePlanStore();
   const [newItem, setNewItem] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
+  const [editingPlan, setEditingPlan] = useState<PlanEvent | null>(null);
+  const [showMonthly, setShowMonthly] = useState(false);
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
 
   const liveText = useRef('');
@@ -256,60 +259,100 @@ export default function PlansPage() {
     });
   }, [plans]);
 
+  // Dates with plans for monthly calendar dot indicators
+  const datesWithPlans = useMemo(() => {
+    if (!showMonthly) return new Set<string>();
+    const set = new Set<string>();
+    // Scan the visible month in localStorage
+    const selDate = new Date(selectedDate + 'T12:00:00');
+    const year = selDate.getFullYear();
+    const month = selDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = toLocalDateStr(new Date(year, month, d));
+      try {
+        const raw = localStorage.getItem('plans_' + dateStr);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (Array.isArray(p) && p.length > 0) set.add(dateStr);
+        }
+      } catch {}
+    }
+    return set;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMonthly, selectedDate, plans]);
+
   // Selected date info for display
   const selectedDateObj = new Date(selectedDate + 'T12:00:00');
   const isToday = selectedDate === todayDateStr;
 
   return (
     <div className="max-w-lg mx-auto px-5 pt-14 pb-24 space-y-5">
-      {/* Header — month + year */}
-      <div>
-        <h1 className="text-2xl font-bold text-text-primary">{t('plans.title')}</h1>
-        <p className="text-sm text-text-secondary mt-0.5">
-          {selectedDateObj.toLocaleDateString(getLanguage(), {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
+      {/* Header — month + year + view toggle */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary">{t('plans.title')}</h1>
+          <p className="text-sm text-text-secondary mt-0.5">
+            {selectedDateObj.toLocaleDateString(getLanguage(), {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+            })}
+            {isToday ? '' : ` · ${selectedDateObj.toLocaleDateString(getLanguage(), { year: 'numeric' })}`}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowMonthly(!showMonthly)}
+          className="mt-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-surface-elevated text-text-secondary hover:text-text-primary transition-colors"
+        >
+          {showMonthly ? t('plans.weekView') : t('plans.monthView')}
+        </button>
+      </div>
+
+      {/* Date picker — weekly strip or monthly calendar */}
+      {showMonthly ? (
+        <MonthlyCalendar
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+          datesWithPlans={datesWithPlans}
+          todayDateStr={todayDateStr}
+        />
+      ) : (
+        <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-hide">
+          {weekDates.map((date) => {
+            const dateStr = toLocalDateStr(date);
+            const dateNum = date.getDate();
+            const isSelected = dateStr === selectedDate;
+            const isTodayDate = dateStr === todayDateStr;
+            const dayName = date.toLocaleDateString(getLanguage(), { weekday: 'short' });
+
+            return (
+              <button
+                key={dateStr}
+                onClick={() => setSelectedDate(dateStr)}
+                className="flex flex-col items-center min-w-[46px] py-2 px-1 rounded-2xl transition-all"
+              >
+                <span className={`text-[10px] uppercase font-medium ${
+                  isSelected ? 'text-text-primary' : 'text-text-tertiary'
+                }`}>
+                  {isTodayDate ? t('plans.today') : dayName}
+                </span>
+                <span className={`text-lg font-bold mt-0.5 w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
+                  isSelected
+                    ? 'bg-text-primary text-bg'
+                    : 'text-text-secondary'
+                }`}>
+                  {dateNum}
+                </span>
+                {/* Dot indicator — shows for today and selected */}
+                <div className={`w-1 h-1 rounded-full mt-1 transition-colors ${
+                  isSelected ? 'bg-primary' : isTodayDate ? 'bg-text-tertiary' : 'bg-transparent'
+                }`} />
+              </button>
+            );
           })}
-          {isToday ? '' : ` · ${selectedDateObj.toLocaleDateString(getLanguage(), { year: 'numeric' })}`}
-        </p>
-      </div>
-
-      {/* Date picker — scrollable, dot indicator design */}
-      <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-hide">
-        {weekDates.map((date) => {
-          const dateStr = toLocalDateStr(date);
-          const dateNum = date.getDate();
-          const isSelected = dateStr === selectedDate;
-          const isTodayDate = dateStr === todayDateStr;
-          const dayName = date.toLocaleDateString(getLanguage(), { weekday: 'short' });
-
-          return (
-            <button
-              key={dateStr}
-              onClick={() => setSelectedDate(dateStr)}
-              className="flex flex-col items-center min-w-[46px] py-2 px-1 rounded-2xl transition-all"
-            >
-              <span className={`text-[10px] uppercase font-medium ${
-                isSelected ? 'text-text-primary' : 'text-text-tertiary'
-              }`}>
-                {isTodayDate ? t('plans.today') : dayName}
-              </span>
-              <span className={`text-lg font-bold mt-0.5 w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
-                isSelected
-                  ? 'bg-text-primary text-bg'
-                  : 'text-text-secondary'
-              }`}>
-                {dateNum}
-              </span>
-              {/* Dot indicator — shows for today and selected */}
-              <div className={`w-1 h-1 rounded-full mt-1 transition-colors ${
-                isSelected ? 'bg-primary' : isTodayDate ? 'bg-text-tertiary' : 'bg-transparent'
-              }`} />
-            </button>
-          );
-        })}
-      </div>
+        </div>
+      )}
 
       {/* Input — clean rounded white surface */}
       <div className="space-y-2">
@@ -376,79 +419,21 @@ export default function PlansPage() {
         )}
       </div>
 
-      {/* Plans list — clean cards */}
+      {/* Plans list */}
       {sortedPlans.length > 0 && (
         <div className="space-y-3">
           {sortedPlans.map((plan) => (
-            <SwipeToDelete key={plan.id} onDelete={() => removePlan(plan.id)}>
-              <div className={`bg-surface rounded-2xl p-4 transition-opacity ${plan.completed ? 'opacity-40' : ''}`}>
-                <div className="flex items-start gap-3">
-                  {/* Time badge */}
-                  <div className="flex flex-col items-center min-w-[42px] pt-0.5">
-                    <span className="text-lg">{getTimeIcon(plan.time)}</span>
-                    <span className="text-[10px] text-text-tertiary font-medium mt-0.5 text-center leading-tight">
-                      {formatTime(plan.time) || t('plans.noTime')}
-                    </span>
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-[15px] font-semibold leading-snug ${
-                      plan.completed ? 'text-text-tertiary line-through' : 'text-text-primary'
-                    }`}>
-                      {plan.title}
-                    </p>
-                    {plan.location && (
-                      <p className="text-xs text-text-secondary mt-1 flex items-center gap-1">
-                        <span className="text-[10px]">📍</span> {plan.location}
-                      </p>
-                    )}
-
-                    {/* Subtasks */}
-                    {plan.subtasks.length > 0 && (
-                      <div className="mt-2.5 space-y-1.5">
-                        {plan.subtasks.map((st) => (
-                          <button
-                            key={st.id}
-                            onClick={() => toggleSubtask(plan.id, st.id)}
-                            className="flex items-center gap-2 w-full text-left"
-                          >
-                            <div className={`w-4 h-4 rounded-md border-[1.5px] flex items-center justify-center flex-shrink-0 transition-colors ${
-                              st.completed ? 'bg-primary border-primary' : 'border-text-tertiary'
-                            }`}>
-                              {st.completed && (
-                                <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="2,6 5,9 10,3" />
-                                </svg>
-                              )}
-                            </div>
-                            <span className={`text-sm ${st.completed ? 'text-text-tertiary line-through' : 'text-text-secondary'}`}>
-                              {st.text}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Plan checkbox */}
-                  <button
-                    onClick={() => togglePlan(plan.id)}
-                    className="p-1 flex-shrink-0 mt-0.5"
-                  >
-                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      plan.completed ? 'bg-primary border-primary' : 'border-text-tertiary/40 hover:border-primary'
-                    }`}>
-                      {plan.completed && (
-                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="2,6 5,9 10,3" />
-                        </svg>
-                      )}
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </SwipeToDelete>
+            <PlanCard
+              key={plan.id}
+              plan={plan}
+              isEditing={editingPlan?.id === plan.id}
+              onTap={() => setEditingPlan(plan)}
+              onSave={(updates) => { updatePlan(plan.id, updates); setEditingPlan(null); }}
+              onDiscard={() => setEditingPlan(null)}
+              onToggle={() => togglePlan(plan.id)}
+              onToggleSubtask={(stId) => toggleSubtask(plan.id, stId)}
+              onDelete={() => removePlan(plan.id)}
+            />
           ))}
         </div>
       )}
@@ -460,6 +445,218 @@ export default function PlansPage() {
           <p className="text-text-secondary text-sm">{t('plans.empty')}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Inline-editable plan card ──
+
+function PlanCard({
+  plan,
+  isEditing,
+  onTap,
+  onSave,
+  onDiscard,
+  onToggle,
+  onToggleSubtask,
+  onDelete,
+}: {
+  plan: PlanEvent;
+  isEditing: boolean;
+  onTap: () => void;
+  onSave: (updates: Partial<PlanEvent>) => void;
+  onDiscard: () => void;
+  onToggle: () => void;
+  onToggleSubtask: (stId: string) => void;
+  onDelete: () => void;
+}) {
+  // Local edit state — only used when isEditing
+  const [editTitle, setEditTitle] = useState(plan.title);
+  const [editTime, setEditTime] = useState(plan.time);
+  const [editSubtasks, setEditSubtasks] = useState<PlanSubtask[]>(plan.subtasks);
+
+  // Reset edit state when entering edit mode
+  useEffect(() => {
+    if (isEditing) {
+      setEditTitle(plan.title);
+      setEditTime(plan.time);
+      setEditSubtasks(plan.subtasks.map(st => ({ ...st })));
+    }
+  }, [isEditing, plan]);
+
+  const handleSave = () => {
+    onSave({
+      title: editTitle.trim() || plan.title,
+      time: editTime,
+      subtasks: editSubtasks.filter(st => st.text.trim()),
+    });
+  };
+
+  // Convert 24h time to input value
+  const timeInputValue = (() => {
+    if (!editTime || !(/^\d{1,2}:\d{2}$/.test(editTime))) return '';
+    return editTime.padStart(5, '0'); // "9:00" -> "09:00"
+  })();
+
+  const handleTimeInput = (val: string) => {
+    if (!val) { setEditTime(null); return; }
+    // val comes as "HH:MM" from input[type=time]
+    setEditTime(val);
+  };
+
+  // ── Read-only card (normal view) ──
+  if (!isEditing) {
+    return (
+      <SwipeToDelete onDelete={onDelete} onTap={onTap}>
+        <div className={`bg-surface rounded-2xl p-4 transition-opacity ${plan.completed ? 'opacity-40' : ''}`}>
+          <div className="flex items-start gap-3">
+            {/* Time badge */}
+            <div className="flex flex-col items-center min-w-[42px] pt-0.5">
+              <span className="text-lg">{getTimeIcon(plan.time)}</span>
+              <span className="text-[10px] text-text-tertiary font-medium mt-0.5 text-center leading-tight">
+                {formatTime(plan.time) || t('plans.noTime')}
+              </span>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 min-w-0">
+              <p className={`text-[15px] font-semibold leading-snug ${
+                plan.completed ? 'text-text-tertiary line-through' : 'text-text-primary'
+              }`}>
+                {plan.title}
+              </p>
+
+              {/* Subtasks */}
+              {plan.subtasks.length > 0 && (
+                <div className="mt-2.5 space-y-0.5">
+                  {plan.subtasks.map((st) => (
+                    <button
+                      key={st.id}
+                      data-checkbox
+                      onClick={(e) => { e.stopPropagation(); onToggleSubtask(st.id); }}
+                      className="flex items-center gap-2 w-full text-left py-1.5 -my-0.5"
+                    >
+                      <div className={`w-4 h-4 rounded-md border-[1.5px] flex items-center justify-center flex-shrink-0 transition-colors ${
+                        st.completed ? 'bg-primary border-primary' : 'border-text-tertiary'
+                      }`}>
+                        {st.completed && (
+                          <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="2,6 5,9 10,3" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className={`text-sm ${st.completed ? 'text-text-tertiary line-through' : 'text-text-secondary'}`}>
+                        {st.text}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Plan checkbox — large tap target */}
+            <button
+              data-checkbox
+              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+              className="p-3 -m-2 flex-shrink-0"
+            >
+              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                plan.completed ? 'bg-primary border-primary' : 'border-text-tertiary/40 hover:border-primary'
+              }`}>
+                {plan.completed && (
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="2,6 5,9 10,3" />
+                  </svg>
+                )}
+              </div>
+            </button>
+          </div>
+        </div>
+      </SwipeToDelete>
+    );
+  }
+
+  // ── Edit mode (same layout, fields become inputs) ──
+  return (
+    <div className="bg-surface rounded-2xl p-5 ring-1 ring-border">
+      {/* Close button */}
+      <div className="flex justify-end -mt-1 -mr-1 mb-3">
+        <button
+          onClick={onDiscard}
+          className="w-7 h-7 flex items-center justify-center rounded-full bg-surface-elevated text-text-secondary"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="flex items-start gap-4">
+        {/* Time — editable */}
+        <div className="flex flex-col items-center min-w-[62px] pt-0.5">
+          <input
+            type="time"
+            value={timeInputValue}
+            onChange={(e) => handleTimeInput(e.target.value)}
+            className="w-[62px] text-center text-sm font-semibold text-primary bg-surface-elevated rounded-lg px-1.5 py-2 outline-none"
+          />
+        </div>
+
+        {/* Content — editable */}
+        <div className="flex-1 min-w-0 space-y-3">
+          <input
+            type="text"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            className="w-full text-[15px] font-semibold text-text-primary bg-transparent outline-none border-b border-border pb-1"
+            autoFocus
+          />
+          {/* Subtasks — editable */}
+          <div className="space-y-1.5">
+            {editSubtasks.map((st, idx) => (
+              <div key={st.id} className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-md border-[1.5px] border-text-tertiary flex-shrink-0" />
+                <input
+                  type="text"
+                  value={st.text}
+                  onChange={(e) => {
+                    const updated = [...editSubtasks];
+                    updated[idx] = { ...st, text: e.target.value };
+                    setEditSubtasks(updated);
+                  }}
+                  placeholder={t('plans.subtaskPlaceholder')}
+                  className="flex-1 text-sm text-text-secondary bg-transparent outline-none border-b border-border pb-0.5 placeholder:text-text-tertiary"
+                />
+                <button
+                  onClick={() => setEditSubtasks(editSubtasks.filter((_, i) => i !== idx))}
+                  className="text-text-tertiary hover:text-error flex-shrink-0"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setEditSubtasks([...editSubtasks, { id: crypto.randomUUID(), text: '', completed: false }])}
+              className="text-xs text-primary font-medium flex items-center gap-1 pt-1"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              {t('plans.addSubtask')}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Save button */}
+      <button
+        onClick={handleSave}
+        className="mt-4 w-full py-2.5 bg-primary text-white font-semibold rounded-xl text-sm hover:bg-primary-dark transition-colors"
+      >
+        {t('plans.saveChanges')}
+      </button>
     </div>
   );
 }

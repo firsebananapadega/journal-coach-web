@@ -57,6 +57,7 @@ const ENTRY_TYPE_LABEL: Record<string, string> = {
   guided: 'journal.typeGuided',
   template: 'journal.typeTemplate',
   freeform: 'journal.typeFreeform',
+  pulse: 'journal.typePulse',
 };
 
 function SimpleListTab({ storageKey, placeholder }: { storageKey: string; placeholder: string }) {
@@ -136,7 +137,7 @@ function SimpleListTab({ storageKey, placeholder }: { storageKey: string; placeh
 
 export default function JournalPage() {
   const router = useRouter();
-  const { entries, fetchEntries, deleteEntry, toggleFavorite, loading } = useJournalStore();
+  const { entries, fetchEntries, deleteEntry, toggleFavorite, loading, error } = useJournalStore();
   const [filter, setFilter] = useState<'all' | 'favorites'>('all');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('journal');
@@ -199,8 +200,20 @@ export default function JournalPage() {
             </div>
           </div>
 
-          {loading && entries.length === 0 && (
+          {loading && entries.length === 0 && !error && (
             <div className="text-center py-12 text-text-secondary">{t('journal.loadingEntries')}</div>
+          )}
+
+          {error && !loading && (
+            <div className="text-center py-12 space-y-3">
+              <p className="text-text-secondary text-sm">{error}</p>
+              <button
+                onClick={() => fetchEntries()}
+                className="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-xl"
+              >
+                Retry
+              </button>
+            </div>
           )}
 
           {!loading && filtered.length === 0 && (

@@ -54,7 +54,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
 
   useEffect(() => {
     if (!templateId) return;
-    supabase.from('templates').select('*').eq('id', templateId).single().then(async ({ data, error }) => {
+    supabase.from('templates').select('*').eq('id', templateId).single().then(({ data, error }) => {
       if (error || !data) {
         setLoadError(true);
         return;
@@ -64,22 +64,32 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
         (q: TemplateQuestion) => q.input_type !== 'phase_header'
       ) as TemplateQuestion[];
 
-      // Translate template content if user's language is not English
-      const translated = await translateTemplate(
+      // Phase 1: Show template immediately with raw English data
+      setTemplate({
+        id: data.id as string,
+        name: data.name as string,
+        description: data.description as string,
+        questions,
+        category: data.category as string,
+      });
+      setAnswers(new Array(questions.length).fill(''));
+
+      // Phase 2: Translate in background and update when ready
+      translateTemplate(
         templateId,
         data.name as string,
         data.description as string,
         questions
-      );
-
-      setTemplate({
-        id: data.id as string,
-        name: translated.name,
-        description: translated.description,
-        questions: translated.questions,
-        category: data.category as string,
+      ).then((translated) => {
+        setTemplate((prev) => prev ? {
+          ...prev,
+          name: translated.name,
+          description: translated.description,
+          questions: translated.questions,
+        } : null);
+      }).catch(() => {
+        // Translation failed — keep English version, no error needed
       });
-      setAnswers(new Array(translated.questions.length).fill(''));
     });
   }, [templateId]);
 

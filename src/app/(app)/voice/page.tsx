@@ -10,7 +10,11 @@ import {
 import { useJournalStore } from '@/stores/journalStore';
 import { useAuthStore } from '@/stores/authStore';
 import { MoodSelector } from '@/components/MoodSelector';
-import { classifyCapture, type CaptureResult } from '@/lib/captureEngine';
+import { classifyCapture, resolveWhen, type CaptureResult } from '@/lib/captureEngine';
+import { usePlanStore, type PlanEvent } from '@/stores/planStore';
+import { usePriorityStore, type PriorityItem, type GroceryGroup, type GroceryItem } from '@/stores/priorityStore';
+import { toLocalDateStr } from '@/lib/dateUtils';
+import { supabase } from '@/lib/supabase';
 import { getLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
 
@@ -47,7 +51,6 @@ export default function VoiceEntryPage() {
 
   const startMic = useCallback(() => {
     manualStopRef.current = false;
-    setIsListening(true);
     const cleanup = startListening({
       continuous: true,
       language: getLanguage(),
@@ -57,11 +60,44 @@ export default function VoiceEntryPage() {
         setTranscript(newTranscript);
       },
       onEnd: () => {
-        if (!manualStopRef.current) {
-          accumulatedRef.current = transcriptRef.current;
-        }
-        setIsListening(false);
+        // Always sync accumulatedRef with current transcript
+        accumulatedRef.current = transcriptRef.current;
         stopRef.current = null;
+
+        if (!manualStopRef.current) {
+          // Recognition ended naturally (iOS pause, timeout, etc.)
+          // Auto-restart with a fresh instance — no stale state
+          const retry = startListening({
+            continuous: true,
+            language: getLanguage(),
+            onResult: (text) => {
+              const prefix = accumulatedRef.current;
+              const newTranscript = prefix ? prefix + ' ' + text : text;
+              setTranscript(newTranscript);
+            },
+            onEnd: () => {
+              accumulatedRef.current = transcriptRef.current;
+              stopRef.current = null;
+              if (!manualStopRef.current) {
+                // If still not manually stopped, give up after second auto-end
+                // (avoids infinite restart loops)
+                setIsListening(false);
+              }
+            },
+            onError: () => {
+              accumulatedRef.current = transcriptRef.current;
+              setIsListening(false);
+              stopRef.current = null;
+            },
+          });
+          if (retry) {
+            stopRef.current = retry;
+          } else {
+            setIsListening(false);
+          }
+        } else {
+          setIsListening(false);
+        }
       },
       onError: () => {
         accumulatedRef.current = transcriptRef.current;
@@ -69,19 +105,25 @@ export default function VoiceEntryPage() {
         stopRef.current = null;
       },
     });
-    stopRef.current = cleanup;
+    if (cleanup) {
+      setIsListening(true);
+      stopRef.current = cleanup;
+    }
   }, []);
 
-  const toggleMic = async () => {
+  const toggleMic = () => {
     if (isListening) {
       manualStopRef.current = true;
-      accumulatedRef.current = transcriptRef.current;
+      // Don't update accumulatedRef here — recognition.stop() fires a final
+      // onresult with the full finalTranscript. If we set accumulatedRef to
+      // the current transcript now, that final onresult callback would prepend
+      // it again, causing duplication. The onEnd handler sets accumulatedRef.
       stopRef.current?.();
       stopRef.current = null;
       setIsListening(false);
     } else {
       accumulatedRef.current = transcriptRef.current;
-      await startMic();
+      startMic();
     }
   };
 
@@ -102,7 +144,79 @@ export default function VoiceEntryPage() {
       console.warn('Voice entry failed to save to Supabase');
     });
 
-    classifyCapture(transcript).then((result: CaptureResult) => {
+    classifyCapture(transcript).then(async (result: CaptureResult) => {
+      const todayStr = toLocalDateStr(new Date());
+
+      // ── Plans → planStore (localStorage + Supabase) ──
+      if (result.plans && result.plans.length > 0) {
+        try {
+          for (const plan of result.plans) {
+            const resolvedDate = resolveWhen(plan.when, todayStr);
+            const existingRaw = localStorage.getItem('plans_' + resolvedDate);
+            const existing: PlanEvent[] = existingRaw ? JSON.parse(existingRaw) : [];
+            const newPlan: PlanEvent = {
+              id: crypto.randomUUID(),
+              title: plan.title,
+              time: plan.time,
+              location: plan.location,
+              subtasks: plan.subtasks.map((st) => ({ id: crypto.randomUUID(), text: st, completed: false })),
+              completed: false,
+              sort_order: existing.length,
+            };
+            await usePlanStore.getState().savePlans(resolvedDate, [...existing, newPlan]);
+          }
+        } catch {}
+      }
+
+      // ── Priorities → priorityStore (Supabase) ──
+      if (result.priorities.length > 0) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            for (const task of result.priorities) {
+              const resolvedDate = resolveWhen(task.when, todayStr);
+              const { data } = await supabase.from('daily_priorities')
+                .select('items').eq('user_id', user.id).eq('date', resolvedDate).maybeSingle();
+              const existingItems = (data?.items as PriorityItem[]) ?? [];
+              const ni: PriorityItem = {
+                id: crypto.randomUUID(), text: task.text, completed: false, sort_order: existingItems.length,
+              };
+              await usePriorityStore.getState().savePriorities(resolvedDate, [...existingItems, ni]);
+            }
+          }
+        } catch {}
+      }
+
+      // ── Groceries → priorityStore (Supabase) ──
+      if (result.groceries && result.groceries.length > 0) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data } = await supabase.from('daily_priorities')
+              .select('groceries').eq('user_id', user.id).eq('date', todayStr).maybeSingle();
+            const existingGroups: GroceryGroup[] = (data?.groceries as GroceryGroup[]) ?? [];
+            const merged = [...existingGroups];
+            for (const newGroup of result.groceries) {
+              const match = merged.find((g) => g.store.toLowerCase() === newGroup.store.toLowerCase());
+              if (match) {
+                const newItems = newGroup.items.filter(
+                  (item) => !match.items.some((ei: GroceryItem) => ei.name.toLowerCase() === item.toLowerCase()),
+                );
+                match.items.push(...newItems.map((name) => ({ id: crypto.randomUUID(), name, completed: false })));
+              } else {
+                merged.push({
+                  id: crypto.randomUUID(),
+                  store: newGroup.store,
+                  items: newGroup.items.map((name) => ({ id: crypto.randomUUID(), name, completed: false })),
+                });
+              }
+            }
+            await usePriorityStore.getState().saveGroceries(todayStr, merged);
+          }
+        } catch {}
+      }
+
+      // ── Ideas → localStorage ──
       if (result.ideas.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_ideas') || '[]');
@@ -110,6 +224,8 @@ export default function VoiceEntryPage() {
           localStorage.setItem('journal_ideas', JSON.stringify([...newItems, ...existing]));
         } catch {}
       }
+
+      // ── Gratitude → localStorage ──
       if (result.gratitude.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_gratitude') || '[]');
@@ -117,6 +233,8 @@ export default function VoiceEntryPage() {
           localStorage.setItem('journal_gratitude', JSON.stringify([...newItems, ...existing]));
         } catch {}
       }
+
+      // ── Intentions → user profile ──
       if (result.intentions.length > 0) {
         const profile = useAuthStore.getState().profile;
         const currentIntentions = profile?.intentions || [];
@@ -125,6 +243,8 @@ export default function VoiceEntryPage() {
           useAuthStore.getState().updateProfile({ intentions: [...currentIntentions, ...newIntentions] });
         }
       }
+
+      // ── Habits → localStorage (as idea) ──
       if (result.habits.length > 0) {
         try {
           const existing = JSON.parse(localStorage.getItem('journal_ideas') || '[]');
@@ -148,8 +268,8 @@ export default function VoiceEntryPage() {
         <div className="w-10" />
       </div>
 
-      {/* Textarea — fixed height, scrolls internally */}
-      <div className="px-5 pt-4 flex-shrink-0" style={{ height: '45vh' }}>
+      {/* Textarea — capped height, scrolls internally */}
+      <div className="px-5 pt-4 flex-shrink-0" style={{ height: '26vh' }}>
         {!speechSupported && (
           <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
             <p className="text-xs text-warning">{t('voice.browserWarning')}</p>
@@ -165,27 +285,27 @@ export default function VoiceEntryPage() {
               accumulatedRef.current = e.target.value;
             }
           }}
-          className={`w-full h-full text-text-primary text-[15px] leading-relaxed bg-transparent outline-none resize-none placeholder:text-text-tertiary ${
+          className={`w-full h-full text-text-primary text-[15px] leading-relaxed bg-transparent outline-none resize-none overflow-y-auto placeholder:text-text-tertiary ${
             isListening ? 'caret-transparent' : ''
           }`}
           placeholder={t('write.placeholder')}
         />
       </div>
 
-      {/* Bottom section — mood, save, mic — always visible */}
-      <div className="flex-1 flex flex-col items-center justify-end px-5 pb-6 space-y-4">
-        {/* Mood + Save — visible when there's text */}
-        {transcript.trim() && !isListening && (
-          <>
-            <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
-            <button
-              onClick={handleSave}
-              className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
-            >
-              {t('voice.save')}
-            </button>
-          </>
-        )}
+      {/* Bottom section — mood, save, mic — sits right below textarea */}
+      <div className="flex-shrink-0 flex flex-col items-center px-5 pt-3 pb-4 space-y-3">
+        {/* Mood + Save — always rendered to keep mic position fixed, hidden when no text */}
+        <div className={`w-full space-y-3 flex flex-col items-center transition-opacity ${
+          transcript.trim() && !isListening ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}>
+          <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
+          <button
+            onClick={handleSave}
+            className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
+          >
+            {t('voice.save')}
+          </button>
+        </div>
 
         {/* Mic button — always visible */}
         {speechSupported && (

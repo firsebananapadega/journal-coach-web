@@ -108,12 +108,27 @@ const translations: Record<string, Record<Locale, string>> = {
   'journal.typeGuided': { en: '💬 Guided', es: '💬 Guiada' },
   'journal.typeTemplate': { en: '📋 Template', es: '📋 Plantilla' },
   'journal.typeFreeform': { en: '✏️ Free Write', es: '✏️ Escritura libre' },
+  'journal.typePulse': { en: '✨ Pulse', es: '✨ Pulso' },
   // Relative dates
   'journal.justNow': { en: 'just now', es: 'ahora' },
   'journal.mAgo': { en: '{n}m ago', es: 'hace {n}m' },
   'journal.hAgo': { en: '{n}h ago', es: 'hace {n}h' },
   'journal.yesterday': { en: 'yesterday', es: 'ayer' },
   'journal.dAgo': { en: '{n}d ago', es: 'hace {n}d' },
+
+  // ─── Pulse ───
+  'pulse.title': { en: 'Daily Pulse', es: 'Pulso del día' },
+  'pulse.alive': { en: 'What moment today made you feel most alive?', es: '¿Qué momento de hoy te hizo sentir más vivo?' },
+  'pulse.drained': { en: 'What moment today drained you?', es: '¿Qué momento de hoy te agotó?' },
+  'pulse.save': { en: 'Save', es: 'Guardar' },
+  'pulse.saved': { en: "Today's Pulse", es: 'Pulso de hoy' },
+  'pulse.tapToRead': { en: 'tap to read', es: 'toca para leer' },
+  'pulse.viewPatterns': { en: 'View your patterns', es: 'Ver tus patrones' },
+  'pulse.patternsTitle': { en: 'Pulse Patterns', es: 'Patrones del pulso' },
+  'pulse.analyzing': { en: 'Analyzing your patterns...', es: 'Analizando tus patrones...' },
+  'pulse.aliveLabel': { en: 'Alive', es: 'Vivo' },
+  'pulse.drainedLabel': { en: 'Drained', es: 'Agotado' },
+  'pulse.entries': { en: '{count} entries', es: '{count} entradas' },
 
   // ─── Voice Entry ───
   'voice.title': { en: 'Voice Entry', es: 'Entrada de voz' },
@@ -150,6 +165,17 @@ const translations: Record<string, Record<Locale, string>> = {
   'plans.empty': { en: 'No plans for today yet.', es: 'Aún no hay planes para hoy.' },
   'plans.noTime': { en: 'No time set', es: 'Sin hora' },
   'plans.plans': { en: 'Plans', es: 'Planes' },
+  'plans.editPlan': { en: 'Edit Plan', es: 'Editar plan' },
+  'plans.time': { en: 'Time', es: 'Hora' },
+  'plans.titleLabel': { en: 'Title', es: 'Título' },
+  'plans.locationLabel': { en: 'Location', es: 'Ubicación' },
+  'plans.subtasks': { en: 'Subtasks', es: 'Subtareas' },
+  'plans.addSubtask': { en: 'Add subtask', es: 'Agregar subtarea' },
+  'plans.saveChanges': { en: 'Save Changes', es: 'Guardar cambios' },
+  'plans.noTimeSet': { en: 'No time', es: 'Sin hora' },
+  'plans.subtaskPlaceholder': { en: 'Subtask...', es: 'Subtarea...' },
+  'plans.monthView': { en: 'Monthly', es: 'Mensual' },
+  'plans.weekView': { en: 'Weekly', es: 'Semanal' },
 
   // ─── Habits ───
   'habits.title': { en: 'Habit Gallery', es: 'Galería de hábitos' },

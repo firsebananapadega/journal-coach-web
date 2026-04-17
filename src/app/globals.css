@@ -86,10 +86,14 @@ html {
   scroll-behavior: smooth;
 }
 
-/* Focus ring */
+/* Focus ring — skip on text inputs to keep edit views clean */
 *:focus-visible {
   outline: 2px solid var(--theme-primary);
   outline-offset: 2px;
+}
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
 /* Mic pulse animation */
@@ -106,6 +110,35 @@ html {
   background: var(--theme-error);
   animation: pulse-ring 1.5s ease-out infinite;
   z-index: -1;
+}
+
+/* Bottom sheet animations */
+@keyframes sheet-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes sheet-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-sheet-up {
+  animation: sheet-slide-up 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+.animate-fade-in {
+  animation: sheet-fade-in 0.2s ease-out forwards;
+}
+
+/* Scroll wheel picker */
+.scroll-wheel-container {
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.scroll-wheel-container::-webkit-scrollbar {
+  display: none;
+}
+.scroll-wheel-item {
+  scroll-snap-align: center;
 }
 
 /* Edit-mode wiggle for draggable items */

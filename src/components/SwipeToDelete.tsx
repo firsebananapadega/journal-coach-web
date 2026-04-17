@@ -4,6 +4,7 @@ import { useRef, useState, useCallback } from 'react';
 
 interface SwipeToDeleteProps {
   onDelete: () => void;
+  onTap?: () => void;
   children: React.ReactNode;
 }
 
@@ -14,12 +15,13 @@ const AUTO_DELETE_THRESHOLD = 160;
 // Prevents accidental swipe when user is trying to scroll vertically.
 const DIRECTION_LOCK_THRESHOLD = 12;
 
-export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
+export function SwipeToDelete({ onDelete, onTap, children }: SwipeToDeleteProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
   const startY = useRef(0);
   const currentX = useRef(0);
   const isDragging = useRef(false);
+  const tapTarget = useRef<EventTarget | null>(null);
   // null = undecided, 'horizontal' = swiping, 'vertical' = scrolling
   const directionLock = useRef<'horizontal' | 'vertical' | null>(null);
   const [offsetX, setOffsetX] = useState(0);
@@ -31,6 +33,7 @@ export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
     currentX.current = 0;
     isDragging.current = false;
     directionLock.current = null;
+    tapTarget.current = e.target;
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
@@ -84,7 +87,12 @@ export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
     // Reset direction lock
     directionLock.current = null;
 
-    if (!isDragging.current) return;
+    if (!isDragging.current) {
+      // No drag happened — this was a tap. Skip if target is a checkbox area.
+      const el = tapTarget.current as HTMLElement | null;
+      if (onTap && !isRevealed && !el?.closest?.('[data-checkbox]')) onTap();
+      return;
+    }
 
     const absOffset = Math.abs(offsetX);
 
@@ -108,13 +116,14 @@ export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
     }
 
     isDragging.current = false;
-  }, [offsetX, isRevealed, onDelete]);
+  }, [offsetX, isRevealed, onDelete, onTap]);
 
   // Also support mouse for desktop
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     startX.current = e.clientX;
     currentX.current = 0;
     isDragging.current = false;
+    tapTarget.current = e.target;
 
     const handleMouseMove = (ev: MouseEvent) => {
       const diff = ev.clientX - startX.current;
@@ -129,7 +138,11 @@ export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
 
-      if (!isDragging.current) return;
+      if (!isDragging.current) {
+        const el = tapTarget.current as HTMLElement | null;
+        if (onTap && !isRevealed && !el?.closest?.('[data-checkbox]')) onTap();
+        return;
+      }
       const absOffset = Math.abs(offsetX);
 
       if (absOffset >= AUTO_DELETE_THRESHOLD) {
@@ -155,7 +168,7 @@ export function SwipeToDelete({ onDelete, children }: SwipeToDeleteProps) {
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [isRevealed, offsetX, onDelete]);
+  }, [isRevealed, offsetX, onDelete, onTap]);
 
   return (
     <div ref={containerRef} className="relative overflow-hidden rounded-xl">

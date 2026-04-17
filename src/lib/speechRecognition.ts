@@ -106,15 +106,6 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
   };
 
   recognition.onend = () => {
-    // Auto-restart if continuous mode and not manually stopped
-    if (options.continuous && activeRecognition === recognition) {
-      try {
-        recognition.start();
-        return;
-      } catch {
-        // Fall through to onEnd
-      }
-    }
     activeRecognition = null;
     options.onEnd?.();
   };

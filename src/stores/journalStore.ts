@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 export interface JournalEntry {
   id: string;
   user_id: string;
-  entry_type: 'voice' | 'template' | 'guided' | 'freeform';
+  entry_type: 'voice' | 'template' | 'guided' | 'freeform' | 'pulse';
   title: string | null;
   content_text: string | null;
   template_id: string | null;
@@ -43,8 +43,13 @@ export const useJournalStore = create<JournalState>((set, get) => ({
   fetchEntries: async () => {
     try {
       set({ loading: true, error: null });
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No authenticated user');
+      let user = (await supabase.auth.getUser()).data.user;
+      // Retry once if auth not ready yet
+      if (!user) {
+        await new Promise((r) => setTimeout(r, 1000));
+        user = (await supabase.auth.getUser()).data.user;
+      }
+      if (!user) throw new Error('Not signed in');
       const { data, error } = await supabase
         .from('journal_entries')
         .select('*')
