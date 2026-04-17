@@ -128,6 +128,8 @@ const translations: Record<string, Record<Locale, string>> = {
   'pulse.analyzing': { en: 'Analyzing your patterns...', es: 'Analizando tus patrones...' },
   'pulse.aliveLabel': { en: 'Alive', es: 'Vivo' },
   'pulse.drainedLabel': { en: 'Drained', es: 'Agotado' },
+  'pulse.alivePlaceholder': { en: 'Describe the moment...', es: 'Describe el momento...' },
+  'pulse.drainedPlaceholder': { en: 'What happened...', es: 'Qué pasó...' },
   'pulse.entries': { en: '{count} entries', es: '{count} entradas' },
 
   // ─── Voice Entry ───
