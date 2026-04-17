@@ -71,15 +71,12 @@ export default function PulsePatternsPage() {
             {analysis.insight}
           </p>
 
-          {analysis.aliveThemes.length > 0 && (
+          {analysis.wentRightThemes.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-xs font-medium text-primary">{t('pulse.aliveLabel')}</span>
+              <span className="text-xs font-medium text-primary">{t('pulse.wentRightLabel')}</span>
               <div className="flex flex-wrap gap-1.5">
-                {analysis.aliveThemes.map((theme) => (
-                  <span
-                    key={theme}
-                    className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full"
-                  >
+                {analysis.wentRightThemes.map((theme) => (
+                  <span key={theme} className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full">
                     {theme}
                   </span>
                 ))}
@@ -87,15 +84,25 @@ export default function PulsePatternsPage() {
             </div>
           )}
 
-          {analysis.drainedThemes.length > 0 && (
+          {analysis.improvementThemes.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-xs font-medium text-accent">{t('pulse.drainedLabel')}</span>
+              <span className="text-xs font-medium text-accent">{t('pulse.doneBetterLabel')}</span>
               <div className="flex flex-wrap gap-1.5">
-                {analysis.drainedThemes.map((theme) => (
-                  <span
-                    key={theme}
-                    className="px-2.5 py-1 bg-accent/10 text-accent text-xs font-medium rounded-full"
-                  >
+                {analysis.improvementThemes.map((theme) => (
+                  <span key={theme} className="px-2.5 py-1 bg-accent/10 text-accent text-xs font-medium rounded-full">
+                    {theme}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {analysis.intentionThemes.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="text-xs font-medium text-text-secondary">{t('pulse.intentionLabel')}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {analysis.intentionThemes.map((theme) => (
+                  <span key={theme} className="px-2.5 py-1 bg-surface-elevated text-text-primary text-xs font-medium rounded-full">
                     {theme}
                   </span>
                 ))}
@@ -108,34 +115,69 @@ export default function PulsePatternsPage() {
       {/* Timeline */}
       <div className="space-y-3">
         {pulseEntries.map((entry) => {
-          const meta = entry.metadata as { alive?: string; drained?: string } | null;
+          const meta = entry.metadata as Record<string, string> | null;
+          const pulseMode = meta?.pulseMode;
+          const icon = pulseMode === 'morning' ? '☀️' : '🌙';
+
           return (
-            <div
-              key={entry.id}
-              className="bg-surface rounded-xl border border-border p-3 space-y-2"
-            >
-              <span className="text-xs text-text-tertiary">
-                {new Date(entry.created_at).toLocaleDateString(getLanguage(), {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>
-              {meta?.alive && (
+            <div key={entry.id} className="bg-surface rounded-xl border border-border p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{icon}</span>
+                <span className="text-xs text-text-tertiary">
+                  {new Date(entry.created_at).toLocaleDateString(getLanguage(), {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </span>
+              </div>
+
+              {pulseMode === 'morning' && meta?.intention && (
                 <div>
-                  <span className="text-[10px] font-medium text-primary uppercase tracking-wide">
-                    {t('pulse.aliveLabel')}
+                  <span className="text-[10px] font-medium text-text-secondary uppercase tracking-wide">
+                    {t('pulse.intentionLabel')}
                   </span>
-                  <p className="text-sm text-text-primary">{meta.alive}</p>
+                  <p className="text-sm text-text-primary">{meta.intention}</p>
                 </div>
               )}
-              {meta?.drained && (
-                <div>
-                  <span className="text-[10px] font-medium text-accent uppercase tracking-wide">
-                    {t('pulse.drainedLabel')}
-                  </span>
-                  <p className="text-sm text-text-primary">{meta.drained}</p>
-                </div>
+
+              {pulseMode === 'evening' && (
+                <>
+                  {meta?.wentRight && (
+                    <div>
+                      <span className="text-[10px] font-medium text-primary uppercase tracking-wide">
+                        {t('pulse.wentRightLabel')}
+                      </span>
+                      <p className="text-sm text-text-primary">{meta.wentRight}</p>
+                    </div>
+                  )}
+                  {meta?.doneBetter && (
+                    <div>
+                      <span className="text-[10px] font-medium text-accent uppercase tracking-wide">
+                        {t('pulse.doneBetterLabel')}
+                      </span>
+                      <p className="text-sm text-text-primary">{meta.doneBetter}</p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Legacy entries (alive/drained) */}
+              {!pulseMode && (
+                <>
+                  {meta?.alive && (
+                    <div>
+                      <span className="text-[10px] font-medium text-primary uppercase tracking-wide">Alive</span>
+                      <p className="text-sm text-text-primary">{meta.alive}</p>
+                    </div>
+                  )}
+                  {meta?.drained && (
+                    <div>
+                      <span className="text-[10px] font-medium text-accent uppercase tracking-wide">Drained</span>
+                      <p className="text-sm text-text-primary">{meta.drained}</p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           );

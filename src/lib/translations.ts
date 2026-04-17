@@ -117,20 +117,22 @@ const translations: Record<string, Record<Locale, string>> = {
   'journal.dAgo': { en: '{n}d ago', es: 'hace {n}d' },
 
   // ─── Pulse ───
-  'pulse.title': { en: 'Daily Pulse', es: 'Pulso del día' },
-  'pulse.alive': { en: 'What moment today made you feel most alive?', es: '¿Qué momento de hoy te hizo sentir más vivo?' },
-  'pulse.drained': { en: 'What moment today drained you?', es: '¿Qué momento de hoy te agotó?' },
   'pulse.save': { en: 'Save', es: 'Guardar' },
-  'pulse.saved': { en: "Today's Pulse", es: 'Pulso de hoy' },
-  'pulse.tapToRead': { en: 'tap to read', es: 'toca para leer' },
+  'pulse.placeholder': { en: 'Speak or type your answer...', es: 'Habla o escribe tu respuesta...' },
   'pulse.viewPatterns': { en: 'View your patterns', es: 'Ver tus patrones' },
   'pulse.patternsTitle': { en: 'Pulse Patterns', es: 'Patrones del pulso' },
   'pulse.analyzing': { en: 'Analyzing your patterns...', es: 'Analizando tus patrones...' },
-  'pulse.aliveLabel': { en: 'Alive', es: 'Vivo' },
-  'pulse.drainedLabel': { en: 'Drained', es: 'Agotado' },
-  'pulse.alivePlaceholder': { en: 'Describe the moment...', es: 'Describe el momento...' },
-  'pulse.drainedPlaceholder': { en: 'What happened...', es: 'Qué pasó...' },
   'pulse.entries': { en: '{count} entries', es: '{count} entradas' },
+  // Morning pulse
+  'pulse.morning.q1': { en: "What's the one thing that would make today feel like a win?", es: '¿Cuál es la cosa que haría que hoy se sienta como un logro?' },
+  'pulse.morningDone': { en: 'Morning Pulse', es: 'Pulso matutino' },
+  'pulse.intentionLabel': { en: 'Intention', es: 'Intención' },
+  // Evening pulse
+  'pulse.evening.q1': { en: 'What went right today?', es: '¿Qué salió bien hoy?' },
+  'pulse.evening.q2': { en: 'What could you have done better today?', es: '¿Qué podrías haber hecho mejor hoy?' },
+  'pulse.eveningDone': { en: 'Evening Pulse', es: 'Pulso nocturno' },
+  'pulse.wentRightLabel': { en: 'Went right', es: 'Salió bien' },
+  'pulse.doneBetterLabel': { en: 'Done better', es: 'Mejorar' },
 
   // ─── Voice Entry ───
   'voice.title': { en: 'Voice Entry', es: 'Entrada de voz' },

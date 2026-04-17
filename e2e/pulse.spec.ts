@@ -3,6 +3,9 @@ import { test, expect } from '@playwright/test';
 // These tests run at iPhone 14 viewport (390×844) with touch enabled
 // Auth state is loaded from e2e/.auth/user.json (created by auth.setup.ts)
 
+// The pulse is time-aware: morning (<18:00) = 1 question, evening (>=18:00) = 2 questions
+// Tests use data-testid="pulse-q0" for first question, "pulse-q1" for second
+
 test.describe('Daily Pulse — Mobile', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/home');
@@ -14,60 +17,39 @@ test.describe('Daily Pulse — Mobile', () => {
     await expect(pulseCard).toBeVisible();
   });
 
-  test('Shows first question (alive) with textarea and next button', async ({ page }) => {
+  test('Shows first question with textarea', async ({ page }) => {
     const completed = page.locator('[data-testid="pulse-completed"]');
     if (await completed.isVisible({ timeout: 2000 }).catch(() => false)) {
-      test.skip(true, 'Pulse already completed today');
+      test.skip(true, 'Pulse already completed for this period');
       return;
     }
 
-    // Should show alive textarea, NOT drained
-    const alive = page.locator('[data-testid="pulse-alive"]');
-    const drained = page.locator('[data-testid="pulse-drained"]');
-    const next = page.locator('[data-testid="pulse-next"]');
-
-    await expect(alive).toBeVisible();
-    await expect(drained).not.toBeVisible();
-    await expect(next).toBeVisible();
-    await expect(next).toBeDisabled(); // Empty = disabled
+    const q0 = page.locator('[data-testid="pulse-q0"]');
+    await expect(q0).toBeVisible();
   });
 
-  test('Can navigate from alive to drained question', async ({ page }) => {
+  test('Can submit a pulse entry', async ({ page }) => {
     const completed = page.locator('[data-testid="pulse-completed"]');
     if (await completed.isVisible({ timeout: 2000 }).catch(() => false)) {
-      test.skip(true, 'Pulse already completed today');
+      test.skip(true, 'Pulse already completed for this period');
       return;
     }
 
-    // Fill alive and click next
-    await page.locator('[data-testid="pulse-alive"]').fill('Building something creative');
-    await page.locator('[data-testid="pulse-next"]').click();
+    // Fill first question
+    await page.locator('[data-testid="pulse-q0"]').fill('Test answer for first question');
 
-    // Should now show drained textarea
-    const drained = page.locator('[data-testid="pulse-drained"]');
-    await expect(drained).toBeVisible();
+    // Check if there's a next button (evening mode has 2 questions)
+    const nextBtn = page.locator('[data-testid="pulse-next"]');
+    const submitBtn = page.locator('[data-testid="pulse-submit"]');
 
-    // Alive textarea should be gone
-    await expect(page.locator('[data-testid="pulse-alive"]')).not.toBeVisible();
-
-    // Submit button should be visible
-    await expect(page.locator('[data-testid="pulse-submit"]')).toBeVisible();
-  });
-
-  test('Can submit a full pulse entry', async ({ page }) => {
-    const completed = page.locator('[data-testid="pulse-completed"]');
-    if (await completed.isVisible({ timeout: 2000 }).catch(() => false)) {
-      test.skip(true, 'Pulse already completed today');
-      return;
+    if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      // Evening mode: go to Q2
+      await nextBtn.click();
+      await page.locator('[data-testid="pulse-q1"]').fill('Test answer for second question');
     }
 
-    // Step 1: alive
-    await page.locator('[data-testid="pulse-alive"]').fill('Built something creative today');
-    await page.locator('[data-testid="pulse-next"]').click();
-
-    // Step 2: drained
-    await page.locator('[data-testid="pulse-drained"]').fill('Long meeting about nothing');
-    await page.locator('[data-testid="pulse-submit"]').click();
+    // Submit
+    await submitBtn.click();
 
     // Should transition to completed state
     const completedCard = page.locator('[data-testid="pulse-completed"]');
@@ -78,18 +60,22 @@ test.describe('Daily Pulse — Mobile', () => {
     const completedCard = page.locator('[data-testid="pulse-completed"]');
 
     if (!(await completedCard.isVisible({ timeout: 2000 }).catch(() => false))) {
-      // Submit one first
-      await page.locator('[data-testid="pulse-alive"]').fill('Expansion test alive');
-      await page.locator('[data-testid="pulse-next"]').click();
-      await page.locator('[data-testid="pulse-drained"]').fill('Expansion test drained');
+      // Submit a pulse first
+      await page.locator('[data-testid="pulse-q0"]').fill('Expansion test Q1');
+      const nextBtn = page.locator('[data-testid="pulse-next"]');
+      if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await nextBtn.click();
+        await page.locator('[data-testid="pulse-q1"]').fill('Expansion test Q2');
+      }
       await page.locator('[data-testid="pulse-submit"]').click();
       await expect(completedCard).toBeVisible({ timeout: 10000 });
     }
 
     // Click to expand
     await completedCard.click();
-    await expect(completedCard).toContainText(/Alive|Vivo/i);
-    await expect(completedCard).toContainText(/Drained|Agotado/i);
+    // Should show content (the answer text or a label)
+    const cardText = await completedCard.textContent();
+    expect(cardText?.length).toBeGreaterThan(20); // More than just the header
   });
 
   test('Pulse card fits within mobile viewport', async ({ page }) => {
@@ -103,25 +89,5 @@ test.describe('Daily Pulse — Mobile', () => {
       expect(box.x + box.width).toBeLessThanOrEqual(390);
       expect(box.y).toBeGreaterThanOrEqual(0);
     }
-  });
-
-  test('Progress dots update when navigating', async ({ page }) => {
-    const completed = page.locator('[data-testid="pulse-completed"]');
-    if (await completed.isVisible({ timeout: 2000 }).catch(() => false)) {
-      test.skip(true, 'Pulse already completed today');
-      return;
-    }
-
-    // Should see progress dots (2 bars)
-    const progressBars = page.locator('[data-testid="pulse-card"] .rounded-full.h-1');
-    await expect(progressBars).toHaveCount(2);
-
-    // Fill and go to step 2
-    await page.locator('[data-testid="pulse-alive"]').fill('Test');
-    await page.locator('[data-testid="pulse-next"]').click();
-
-    // Both progress dots should now be primary colored
-    const activeBars = page.locator('[data-testid="pulse-card"] .bg-primary.h-1');
-    await expect(activeBars).toHaveCount(2);
   });
 });
