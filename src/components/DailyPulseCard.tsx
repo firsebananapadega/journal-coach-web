@@ -21,11 +21,12 @@ const QUESTIONS = [
 ];
 
 export default function DailyPulseCard({ entries }: Props) {
-  const createEntry = useJournalStore((s) => s.createEntry);
-  const [step, setStep] = useState(0); // 0 = alive, 1 = drained
+  const { createEntry, fetchEntries } = useJournalStore();
+  const [step, setStep] = useState(0);
   const [alive, setAlive] = useState('');
   const [drained, setDrained] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechSupported] = useState(
@@ -34,21 +35,30 @@ export default function DailyPulseCard({ entries }: Props) {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const accumulatedRef = useRef('');
-  const answerRef = useRef({ alive: '', drained: '' });
+  // Use refs for values accessed inside speech callbacks (avoids stale closures)
+  const stepRef = useRef(step);
+  const aliveRef = useRef(alive);
+  const drainedRef = useRef(drained);
 
-  // Keep refs in sync
-  useEffect(() => {
-    answerRef.current = { alive, drained };
-  }, [alive, drained]);
+  // Keep refs in sync with state
+  useEffect(() => { stepRef.current = step; }, [step]);
+  useEffect(() => { aliveRef.current = alive; }, [alive]);
+  useEffect(() => { drainedRef.current = drained; }, [drained]);
 
   const today = toLocalDateStr(new Date());
   const todayPulse = entries.find(
     (e) => e.entry_type === 'pulse' && entryDateStr(e.created_at) === today
   );
 
-  const currentQuestion = QUESTIONS[step];
   const currentValue = step === 0 ? alive : drained;
   const setCurrentValue = step === 0 ? setAlive : setDrained;
+
+  // Auto-scroll textarea as speech adds text
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+    }
+  }, [alive, drained, step]);
 
   // Focus textarea when step changes
   useEffect(() => {
@@ -64,10 +74,12 @@ export default function DailyPulseCard({ entries }: Props) {
 
   const toggleMic = useCallback(async () => {
     if (isListening) {
-      accumulatedRef.current = step === 0 ? answerRef.current.alive : answerRef.current.drained;
+      const s = stepRef.current;
+      accumulatedRef.current = s === 0 ? aliveRef.current : drainedRef.current;
       stopMic();
     } else {
-      accumulatedRef.current = step === 0 ? answerRef.current.alive : answerRef.current.drained;
+      const s = stepRef.current;
+      accumulatedRef.current = s === 0 ? aliveRef.current : drainedRef.current;
       setIsListening(true);
       startListening({
         continuous: true,
@@ -75,20 +87,23 @@ export default function DailyPulseCard({ entries }: Props) {
         onResult: (text) => {
           const prefix = accumulatedRef.current;
           const combined = prefix ? prefix + ' ' + text : text;
-          if (step === 0) setAlive(combined);
+          // Use ref to always get the current step
+          if (stepRef.current === 0) setAlive(combined);
           else setDrained(combined);
         },
         onEnd: () => {
-          accumulatedRef.current = step === 0 ? answerRef.current.alive : answerRef.current.drained;
+          const s = stepRef.current;
+          accumulatedRef.current = s === 0 ? aliveRef.current : drainedRef.current;
           setIsListening(false);
         },
         onError: () => {
-          accumulatedRef.current = step === 0 ? answerRef.current.alive : answerRef.current.drained;
+          const s = stepRef.current;
+          accumulatedRef.current = s === 0 ? aliveRef.current : drainedRef.current;
           setIsListening(false);
         },
       });
     }
-  }, [isListening, step, stopMic]);
+  }, [isListening, stopMic]);
 
   const goNext = () => {
     stopMic();
@@ -104,23 +119,29 @@ export default function DailyPulseCard({ entries }: Props) {
 
   const handleSubmit = async () => {
     stopMic();
-    if (!alive.trim() && !drained.trim()) return;
+    const a = aliveRef.current.trim();
+    const d = drainedRef.current.trim();
+    if (!a && !d) return;
+    setSaveError('');
     setSubmitting(true);
     try {
-      const contentText = `Alive: ${alive.trim()}\n\nDrained: ${drained.trim()}`;
+      const contentText = `Alive: ${a}\n\nDrained: ${d}`;
       const wordCount = contentText.split(/\s+/).filter(Boolean).length;
       await createEntry({
         entry_type: 'pulse',
         content_text: contentText,
         title: 'Daily Pulse',
-        metadata: { alive: alive.trim(), drained: drained.trim() },
+        metadata: { alive: a, drained: d },
         word_count: wordCount,
       });
+      // Force refresh entries from Supabase to ensure todayPulse is found
+      await fetchEntries();
       setAlive('');
       setDrained('');
       setStep(0);
     } catch (err) {
       console.error('Failed to save pulse:', err);
+      setSaveError(err instanceof Error ? err.message : 'Failed to save. Try again.');
     } finally {
       setSubmitting(false);
     }
@@ -185,7 +206,7 @@ export default function DailyPulseCard({ entries }: Props) {
 
       {/* Question */}
       <p className="text-lg text-text-primary font-medium leading-snug">
-        {t(currentQuestion.translationKey)}
+        {t(QUESTIONS[step].translationKey)}
       </p>
 
       {/* Textarea */}
@@ -223,6 +244,11 @@ export default function DailyPulseCard({ entries }: Props) {
         </button>
       )}
 
+      {/* Error message */}
+      {saveError && (
+        <p className="text-error text-sm text-center">{saveError}</p>
+      )}
+
       {/* Navigation buttons */}
       <div className="flex gap-3">
         {step > 0 && (
@@ -245,11 +271,11 @@ export default function DailyPulseCard({ entries }: Props) {
         ) : (
           <button
             onClick={handleSubmit}
-            disabled={(!alive.trim() && !drained.trim()) || submitting}
+            disabled={(!aliveRef.current.trim() && !drainedRef.current.trim()) || submitting}
             className="flex-1 py-3 bg-primary text-white rounded-xl text-sm font-semibold disabled:opacity-40 transition-opacity"
             data-testid="pulse-submit"
           >
-            {submitting ? '...' : t('pulse.save')}
+            {submitting ? t('common.saving') : t('pulse.save')}
           </button>
         )}
       </div>
