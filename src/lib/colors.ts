@@ -6,6 +6,7 @@ export interface ThemeColors {
   primaryDark: string;
   primaryLight: string;
   accent: string;
+  tertiary: string;
   success: string;
   warning: string;
   error: string;
@@ -21,14 +22,15 @@ export interface ThemeColors {
 }
 
 export const darkColors: ThemeColors = {
-  background: '#141517',
-  surface: '#1E2023',
-  surfaceElevated: '#282B30',
-  primary: '#6DB88F',
-  primaryDark: '#5A9E79',
-  primaryLight: '#8FCFAB',
+  background: '#18181B',
+  surface: '#222225',
+  surfaceElevated: '#2C2C30',
+  primary: '#F5A623',
+  primaryDark: '#D4891A',
+  primaryLight: '#FFB84D',
   accent: '#E88D67',
-  success: '#6DB88F',
+  tertiary: '#8B7355',
+  success: '#5A9E79',
   warning: '#E8C468',
   error: '#D4726A',
   textPrimary: '#F2F0ED',
@@ -43,20 +45,21 @@ export const darkColors: ThemeColors = {
 };
 
 export const lightColors: ThemeColors = {
-  background: '#FAF8F5',
+  background: '#FAFAF8',
   surface: '#FFFFFF',
   surfaceElevated: '#F5F2EE',
-  primary: '#5A9E79',
-  primaryDark: '#4A8A68',
-  primaryLight: '#7AB896',
+  primary: '#E59A1F',
+  primaryDark: '#D4891A',
+  primaryLight: '#FFB84D',
   accent: '#E07A52',
+  tertiary: '#8B7355',
   success: '#5A9E79',
   warning: '#D4A84B',
   error: '#C4615A',
-  textPrimary: '#1A1917',
-  textSecondary: '#6B6A67',
-  textTertiary: '#9B9A97',
-  border: '#E8E5E0',
+  textPrimary: '#1A1A1A',
+  textSecondary: '#6B7280',
+  textTertiary: '#9CA3AF',
+  border: '#E5E7EB',
   moodGreat: '#5A9E79',
   moodGood: '#7AB896',
   moodOkay: '#D4A84B',

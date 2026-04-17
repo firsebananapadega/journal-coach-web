@@ -68,8 +68,8 @@ export default function Icon() {
 
           {/* Pencil — angled across the book */}
           <g transform="rotate(-35, 78, 28)">
-            <rect x="72" y="16" width="8" height="52" rx="1.5" fill="#6DB88F" />
-            <rect x="72" y="58" width="8" height="5" rx="0.5" fill="#5A9E79" />
+            <rect x="72" y="16" width="8" height="52" rx="1.5" fill="#F5A623" />
+            <rect x="72" y="58" width="8" height="5" rx="0.5" fill="#D4891A" />
             <path d="M72 63 L76 74 L80 63 Z" fill="#E8C468" />
             <path d="M74.5 70 L76 74 L77.5 70 Z" fill="#3D3D3D" />
             <rect x="72" y="14" width="8" height="5" rx="1.5" fill="#E88D67" />

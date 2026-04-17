@@ -329,7 +329,7 @@ export default function DailyPulseCard({ entries }: Props) {
         {isLastStep ? (
           <button
             onClick={handleSubmit}
-            disabled={!answer1Ref.current.trim() || submitting}
+            disabled={!answer1.trim() || submitting}
             className="flex-1 py-3 bg-primary text-white rounded-xl text-sm font-semibold disabled:opacity-40 transition-opacity"
             data-testid="pulse-submit"
           >

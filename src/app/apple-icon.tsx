@@ -80,9 +80,9 @@ export default function AppleIcon() {
           {/* Pencil — angled across the book */}
           <g transform="rotate(-35, 78, 28)">
             {/* Pencil body */}
-            <rect x="72" y="16" width="8" height="52" rx="1.5" fill="#6DB88F" />
+            <rect x="72" y="16" width="8" height="52" rx="1.5" fill="#F5A623" />
             {/* Pencil band */}
-            <rect x="72" y="58" width="8" height="5" rx="0.5" fill="#5A9E79" />
+            <rect x="72" y="58" width="8" height="5" rx="0.5" fill="#D4891A" />
             {/* Pencil tip */}
             <path d="M72 63 L76 74 L80 63 Z" fill="#E8C468" />
             {/* Pencil point */}

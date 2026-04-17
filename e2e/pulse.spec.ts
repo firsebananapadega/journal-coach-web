@@ -40,7 +40,6 @@ test.describe('Daily Pulse — Mobile', () => {
 
     // Check if there's a next button (evening mode has 2 questions)
     const nextBtn = page.locator('[data-testid="pulse-next"]');
-    const submitBtn = page.locator('[data-testid="pulse-submit"]');
 
     if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       // Evening mode: go to Q2
@@ -48,8 +47,8 @@ test.describe('Daily Pulse — Mobile', () => {
       await page.locator('[data-testid="pulse-q1"]').fill('Test answer for second question');
     }
 
-    // Submit
-    await submitBtn.click();
+    // Re-locate submit after potential step change
+    await page.locator('[data-testid="pulse-submit"]').click();
 
     // Should transition to completed state
     const completedCard = page.locator('[data-testid="pulse-completed"]');
