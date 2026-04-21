@@ -1,21 +1,19 @@
 'use client';
 
 // GuideTour — mounted in the authenticated app shell. Auto-starts on
-// first paint for a user whose profile.tour_completed === false.
-// Orchestrates:
+// first paint for a user whose `tour_pending` localStorage flag is
+// set (that flag is written when onboarding completes, so legacy
+// users never see the tour). Orchestrates:
 //   - anchor measurement (getBoundingClientRect + MutationObserver
-//     for async-mounted anchors like the CapturePreviewSheet)
+//     for async mounts like WallNav swapping center-pill meaning
+//     after a wall flip)
 //   - step advancement via ambient events:
-//       'pathname-voice'   — pathname becomes /voice
-//       'preview-closed'   — capture-preview anchor unmounts
-//       'wall-changed'     — useWallState().activeWall switches
-//   - idle nudge timer on steps that declare idleNudgeMs
+//       'wall-changed' — useWallState().activeWall switches
 //   - wiggle on the wall-edge-tab during its step
 //   - persisting tour_completed on complete or skip
 
 import { useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { usePathname } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { useWallState } from '@/lib/wallState';
 import { getLocalizedTourLine, type GuideId } from '@/lib/guideConfigs';
@@ -29,7 +27,6 @@ import TourCard from './TourCard';
 export default function GuideTour() {
   const profile = useAuthStore((s) => s.profile);
   const updateProfile = useAuthStore((s) => s.updateProfile);
-  const pathname = usePathname();
   const activeWall = useWallState((s) => s.activeWall);
 
   const active = useTourStore((s) => s.active);
@@ -46,10 +43,9 @@ export default function GuideTour() {
   const step = TOUR_STEPS[stepIdx];
   const guide = (profile?.preferred_guide ?? 'ben') as GuideId;
 
-  // Auto-start when onboarding just completed AND tour_completed is
-  // falsy. Gated additionally by a localStorage flag set at onboarding
-  // completion — so legacy users (pre-migration) never see the tour
-  // even if their profile row lacks the tour_completed column.
+  // Auto-start: localStorage 'tour_pending' flag gated on profile
+  // being loaded + onboarding complete. Legacy users (no flag) never
+  // trigger.
   const startedRef = useRef(false);
   useEffect(() => {
     if (!profile) return;
@@ -58,7 +54,6 @@ export default function GuideTour() {
     if (startedRef.current) return;
     if (typeof window === 'undefined') return;
     if (localStorage.getItem('tour_pending') !== '1') return;
-    // Delay one tick so the home screen paints first.
     const id = window.setTimeout(() => {
       startedRef.current = true;
       start();
@@ -66,8 +61,7 @@ export default function GuideTour() {
     return () => window.clearTimeout(id);
   }, [profile, start]);
 
-  // Persist completion (and skip) to Supabase; also clear the
-  // localStorage flag so the tour doesn't re-arm on next login.
+  // Persist completion (skip or complete).
   const persistedRef = useRef(false);
   useEffect(() => {
     if (!finished || persistedRef.current) return;
@@ -77,12 +71,12 @@ export default function GuideTour() {
       localStorage.removeItem('tour_pending');
     }
     updateProfile({ tour_completed: true }).catch(() => {
-      // Swallow — UI has already advanced; localStorage clear is enough
-      // to prevent a re-fire even if the migration hasn't run yet.
+      // localStorage clear is enough to prevent re-fire even if
+      // Supabase write fails.
     });
   }, [finished, profile, updateProfile]);
 
-  // ── Anchor measurement ──
+  // Anchor measurement — re-measure on resize, scroll, and DOM mutations.
   useEffect(() => {
     if (!active || !step?.anchorSelector) {
       setAnchorRect(null);
@@ -101,8 +95,6 @@ export default function GuideTour() {
     };
 
     measure();
-    // Re-measure on resize + scroll + DOM mutations (catches async mounts
-    // like CapturePreviewSheet and layout shifts from wall flips).
     const onResize = () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(measure);
@@ -120,7 +112,8 @@ export default function GuideTour() {
     };
   }, [active, step, setAnchorRect]);
 
-  // ── Idle nudge ──
+  // Idle nudge — only steps that opt in (currently none, but retained
+  // so future steps can use `idleNudgeMs`).
   useEffect(() => {
     setNudge(false);
     if (!active || !step?.idleNudgeMs) return;
@@ -128,43 +121,7 @@ export default function GuideTour() {
     return () => window.clearTimeout(id);
   }, [active, step, setNudge]);
 
-  // ── Ambient event: pathname became /voice → capture step done ──
-  const pathnameRef = useRef(pathname);
-  useEffect(() => {
-    if (!active) return;
-    const prev = pathnameRef.current;
-    pathnameRef.current = pathname;
-    if (step?.autoAdvance === 'pathname-voice' && pathname === '/voice' && prev !== '/voice') {
-      advance();
-    }
-  }, [pathname, active, step, advance]);
-
-  // ── Ambient event: capture-preview anchor unmounted → preview step done ──
-  // We watch the anchor-rect: once it was measured (rect non-null) and
-  // then disappears (rect null with DOM no longer containing the
-  // selector), we advance. Deferred by a short timeout so a mid-measure
-  // flicker doesn't fire the transition.
-  const sawPreviewRef = useRef(false);
-  useEffect(() => {
-    if (!active || step?.autoAdvance !== 'preview-closed') {
-      sawPreviewRef.current = false;
-      return;
-    }
-    if (anchorRect) {
-      sawPreviewRef.current = true;
-      return;
-    }
-    if (!sawPreviewRef.current) return;
-    // Anchor was present, now gone — give a beat so we don't trip
-    // on a momentary re-render.
-    const id = window.setTimeout(() => {
-      const stillGone = !document.querySelector('[data-tour="capture-preview"]');
-      if (stillGone) advance();
-    }, 250);
-    return () => window.clearTimeout(id);
-  }, [active, step, anchorRect, advance]);
-
-  // ── Ambient event: wall changed ──
+  // Wall-changed auto-advance.
   const prevWallRef = useRef(activeWall);
   useEffect(() => {
     if (!active) return;
@@ -174,7 +131,7 @@ export default function GuideTour() {
     prevWallRef.current = activeWall;
   }, [activeWall, active, step, advance]);
 
-  // ── Wiggle the wall-edge-tab during its step ──
+  // Wiggle the anchor while the step that opts in is active.
   useEffect(() => {
     if (!active || !step?.wiggleAnchor) return;
     const el = document.querySelector<HTMLElement>(step.anchorSelector!);
@@ -187,14 +144,12 @@ export default function GuideTour() {
 
   if (!active || !profile || !step) return null;
 
-  // ── Copy ──
   const locale = getLocale();
   const copyKey = nudge && step.nudgeKey ? step.nudgeKey : step.copyKey;
   const text = getLocalizedTourLine(guide, copyKey, locale);
 
   return (
     <>
-      {/* Spotlight dim + hole */}
       <Spotlight rect={anchorRect} />
 
       <AnimatePresence mode="wait">
@@ -212,8 +167,6 @@ export default function GuideTour() {
         />
       </AnimatePresence>
 
-      {/* Global keyframes for the wiggle on the wall-edge-tab. Scoped
-          via a unique animation name so it doesn't collide with anything. */}
       <style>{`
         @keyframes tourWiggle {
           0%, 100% { transform: translateY(0); }

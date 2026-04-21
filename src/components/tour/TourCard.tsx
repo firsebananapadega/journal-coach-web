@@ -1,8 +1,12 @@
 'use client';
 
 // Tour card — the floating mascot + speech bubble + skip button.
-// Positions itself relative to the anchor rect when one is present;
-// centers on screen for modal steps (welcome, outro).
+//
+// Positioning and animation are split into two wrappers. The outer
+// wrapper handles layout (fixed-center for modal steps, absolute
+// pixel coords for anchored steps). The inner motion.div handles
+// opacity / y animation only — so Framer's transform doesn't clash
+// with a CSS translate(-50%, -50%).
 
 import { motion } from 'framer-motion';
 import Mascot from '@/components/mascot/Mascot';
@@ -29,36 +33,29 @@ interface TourCardProps {
   onSkip: () => void;
 }
 
-// Places the card above the anchor when there's room, below when
-// the anchor is near the top; centers for modal steps.
-function computeCardPosition(rect: Rect | null): React.CSSProperties {
-  if (!rect || typeof window === 'undefined') {
-    return {
-      left: '50%',
-      top: '50%',
-      transform: 'translate(-50%, -50%)',
-    };
-  }
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+// Pixel position for anchored steps. For modal (anchorRect null) we
+// return nothing — the outer wrapper centers via flex.
+function computeAnchoredPosition(rect: Rect): { left: number; top: number } {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 360;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 640;
+  const cardW = 300;
+  const cardH = 160;
   const gap = 14;
-  const anchorMidY = rect.y + rect.height / 2;
-  const placeBelow = anchorMidY < vh * 0.35;
-  const anchorLeftHalf = rect.x + rect.width / 2 < vw * 0.5;
 
-  if (placeBelow) {
-    return {
-      left: Math.max(16, Math.min(vw - 280, rect.x + rect.width / 2 - 140)),
-      top: Math.min(vh - 160, rect.y + rect.height + gap),
-    };
-  }
-  // default: above
-  return {
-    left: anchorLeftHalf
-      ? Math.max(16, rect.x)
-      : Math.max(16, Math.min(vw - 280, rect.x + rect.width - 260)),
-    top: Math.max(16, rect.y - gap - 140),
-  };
+  // Place below if the anchor is high on the screen; above otherwise.
+  const anchorMidY = rect.y + rect.height / 2;
+  const placeBelow = anchorMidY < vh * 0.45;
+
+  // Horizontal: try to hover the anchor's midX, but keep the card on
+  // screen with a safe margin.
+  const desiredLeft = rect.x + rect.width / 2 - cardW / 2;
+  const clampedLeft = Math.max(12, Math.min(vw - cardW - 12, desiredLeft));
+
+  const top = placeBelow
+    ? Math.min(vh - cardH - 12, rect.y + rect.height + gap)
+    : Math.max(12, rect.y - gap - cardH);
+
+  return { left: clampedLeft, top };
 }
 
 export default function TourCard({
@@ -72,46 +69,55 @@ export default function TourCard({
   onNext,
   onSkip,
 }: TourCardProps) {
-  const pos = computeCardPosition(anchorRect);
+  const isModal = !anchorRect;
+  const anchoredStyle = !isModal
+    ? computeAnchoredPosition(anchorRect!)
+    : undefined;
 
   return (
-    <motion.div
-      layoutId="tour-card"
-      className="fixed z-[80] pointer-events-auto"
-      style={pos}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+    <div
+      className={
+        isModal
+          ? 'fixed inset-0 z-[80] pointer-events-none flex items-center justify-center p-6'
+          : 'fixed z-[80] pointer-events-none'
+      }
+      style={anchoredStyle ? { left: anchoredStyle.left, top: anchoredStyle.top, width: 300 } : undefined}
     >
-      <div className="flex items-end gap-3">
-        <motion.div layoutId="tour-mascot" style={{ width: 72, height: 72 }} className="shrink-0">
-          <Mascot guide={guide} pose={pose} size="md" animate />
-        </motion.div>
-        <div className="flex-1 min-w-0 pb-2">
-          <SpeechBubble text={text} />
+      <motion.div
+        className="pointer-events-auto w-full max-w-[320px]"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+      >
+        <div className="flex items-end gap-3">
+          <div style={{ width: 72, height: 72 }} className="shrink-0">
+            <Mascot guide={guide} pose={pose} size="md" animate />
+          </div>
+          <div className="flex-1 min-w-0 pb-2">
+            <SpeechBubble text={text} />
+          </div>
         </div>
-      </div>
 
-      {/* Actions row */}
-      <div className="mt-2 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onSkip}
-          className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1"
-        >
-          {skipLabel}
-        </button>
-        {showNextButton && nextLabel && (
+        <div className="mt-2 flex justify-end gap-2">
           <button
             type="button"
-            onClick={onNext}
-            className="text-[11px] font-semibold text-white bg-primary hover:bg-primary-dark rounded-full px-3 py-1 shadow-warm-md"
+            onClick={onSkip}
+            className="text-xs text-text-tertiary hover:text-text-secondary px-3 py-1.5"
           >
-            {nextLabel}
+            {skipLabel}
           </button>
-        )}
-      </div>
-    </motion.div>
+          {showNextButton && nextLabel && (
+            <button
+              type="button"
+              onClick={onNext}
+              className="text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-full px-4 py-1.5 shadow-warm-md"
+            >
+              {nextLabel}
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </div>
   );
 }

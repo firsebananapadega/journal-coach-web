@@ -1,20 +1,23 @@
 // Guided tour — step definitions. Each step advances via either:
-//   (a) the user tapping "Next"/"Show me"/"Thanks" on the tour card
+//   (a) user tapping Show me / Next / Thanks on the tour card
 //       (when showNextButton === true), or
 //   (b) an ambient event watched by <GuideTour/>:
-//         'pathname-voice'   → pathname becomes /voice (user tapped capture)
-//         'preview-closed'   → CapturePreviewSheet unmounts (save or discard)
-//         'wall-changed'     → useWallState().activeWall switches
+//         'wall-changed' → useWallState().activeWall switches
 //
-// idleNudgeMs: after this many ms without the expected event/tap,
-// the mascot line swaps to a softer "no rush" variant.
+// Tour narrative (per user direction):
+//   1. Welcome modal (brief)
+//   2. Guided chat — journal-wall center pill (→ /guided)
+//   3. Pulse tab — "three questions a day" framing
+//   4. Wall switch — user taps the edge tab to flip to tasks
+//   5. Capture mic — tasks-wall center pill (→ /voice)
+//   6. Outro modal (brief)
 
 import type { BodhiPose } from '@/components/mascot/poses';
 import type { TourLineKey } from '@/lib/guideConfigs';
 
-export type TourStepId = 'welcome' | 'capture' | 'preview' | 'wallFlip' | 'outro';
+export type TourStepId = 'welcome' | 'guidedChat' | 'pulseTab' | 'wallSwitch' | 'captureMic' | 'outro';
 
-export type AutoAdvance = 'pathname-voice' | 'preview-closed' | 'wall-changed';
+export type AutoAdvance = 'wall-changed' | 'pathname-voice' | 'preview-closed';
 
 export interface TourStep {
   id: TourStepId;
@@ -40,34 +43,38 @@ export const TOUR_STEPS: TourStep[] = [
     nextLabelKey: 'tour.showMe',
   },
   {
-    id: 'capture',
+    id: 'guidedChat',
     anchorSelector: '[data-tour="capture-button"]',
     pose: 'think',
-    copyKey: 'capture',
-    nudgeKey: 'captureNudge',
-    idleNudgeMs: 8000,
-    autoAdvance: 'pathname-voice',
-    showNextButton: false,
+    copyKey: 'guidedChat',
+    showNextButton: true,
     nextLabelKey: 'tour.next',
   },
   {
-    id: 'preview',
-    anchorSelector: '[data-tour="capture-preview"]',
+    id: 'pulseTab',
+    anchorSelector: '[data-tour="tab-pulse"]',
     pose: 'listen',
-    copyKey: 'preview',
-    autoAdvance: 'preview-closed',
-    showNextButton: false,
+    copyKey: 'pulseTab',
+    showNextButton: true,
     nextLabelKey: 'tour.next',
   },
   {
-    id: 'wallFlip',
+    id: 'wallSwitch',
     anchorSelector: '[data-tour="wall-edge-tab"]',
     pose: 'peek',
-    copyKey: 'wallFlip',
+    copyKey: 'wallSwitch',
     autoAdvance: 'wall-changed',
-    showNextButton: false,
+    showNextButton: true,
     nextLabelKey: 'tour.next',
     wiggleAnchor: true,
+  },
+  {
+    id: 'captureMic',
+    anchorSelector: '[data-tour="capture-button"]',
+    pose: 'think',
+    copyKey: 'captureMic',
+    showNextButton: true,
+    nextLabelKey: 'tour.next',
   },
   {
     id: 'outro',

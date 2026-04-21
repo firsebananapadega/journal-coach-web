@@ -2,9 +2,12 @@
 
 // Onboarding step 0 — Welcome + Philosophy.
 // Stoic-style typography reveal: headline fades in word by word,
-// body fades in after, single CTA. Bodhi meditates in a corner.
+// body fades in after, single CTA. Bodhi meditates above.
 // Language toggle sits in the top-right so users can flip EN/ES
 // without leaving the step.
+//
+// Layout uses h-[100dvh] flex-column with content overflow-y-auto
+// and a bottom-pinned CTA so Safari chrome never hides the button.
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -21,10 +24,8 @@ export default function WelcomeStep({ onContinue }: WelcomeStepProps) {
   const [lang, setLangState] = useState<AppLanguage>('en-US');
   const [revealed, setRevealed] = useState(false);
 
-  // Resolve the stored language on mount (avoids SSR mismatch).
   useEffect(() => {
     const stored = getLanguage();
-    // If nothing stored yet, try to match the browser. Default to EN.
     const autoDetect = typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('es')
       ? 'es-MX'
       : 'en-US';
@@ -33,27 +34,24 @@ export default function WelcomeStep({ onContinue }: WelcomeStepProps) {
     setLanguage(resolved);
   }, []);
 
-  // Let the typography breathe before CTA becomes tappable.
   useEffect(() => {
-    const timer = window.setTimeout(() => setRevealed(true), prefersReducedMotion ? 0 : 1800);
+    const timer = window.setTimeout(() => setRevealed(true), prefersReducedMotion ? 0 : 1600);
     return () => window.clearTimeout(timer);
   }, []);
 
   const pickLang = (next: AppLanguage) => {
     setLangState(next);
     setLanguage(next);
-    // Force a re-render of translated strings by nudging state.
-    // The t() function reads fresh each call, so components re-render
-    // through normal React flow — no explicit refresh needed here.
   };
 
   const headlineWords = useMemo(
     () => t('onboarding.welcome.headline').split(' '),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [lang]
   );
 
   return (
-    <div className="relative flex flex-col min-h-screen px-6 pt-10 pb-10 bg-bg overflow-hidden">
+    <div className="relative flex flex-col h-[100dvh] overflow-hidden bg-bg">
       {/* Ambient warm glow */}
       <div
         aria-hidden
@@ -61,8 +59,11 @@ export default function WelcomeStep({ onContinue }: WelcomeStepProps) {
         style={{ background: 'var(--theme-primary-glow)' }}
       />
 
-      {/* Language toggle — top right */}
-      <div className="relative z-10 flex justify-end">
+      {/* Language toggle — pinned to top-right, respects safe area */}
+      <div
+        className="relative z-10 flex justify-end px-6 pt-3"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+      >
         <div className="flex gap-1 p-1 bg-surface/80 backdrop-blur border border-border rounded-full">
           {LANGUAGES.map((l) => {
             const active = lang === l.code;
@@ -85,24 +86,23 @@ export default function WelcomeStep({ onContinue }: WelcomeStepProps) {
         </div>
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center text-center max-w-md mx-auto">
-        {/* Bodhi meditating — anchors the tone visually */}
+      {/* Content — scrolls if too tall for tiny viewports */}
+      <div className="relative z-10 flex-1 overflow-y-auto px-6 flex flex-col items-center justify-center text-center">
         <motion.div
           initial={prefersReducedMotion ? undefined : { opacity: 0, scale: 0.85 }}
           animate={prefersReducedMotion ? undefined : { opacity: 1, scale: 1 }}
           transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-          className="mb-10"
+          className="mb-8"
         >
           <Mascot guide="bodhi" pose="meditate" size="lg" glow animate />
         </motion.div>
 
-        {/* Headline — word by word reveal */}
         <motion.h1
-          className="text-3xl font-semibold text-text-primary tracking-tight leading-tight mb-6"
+          className="text-3xl font-semibold text-text-primary tracking-tight leading-tight mb-5 max-w-[22ch]"
           initial={prefersReducedMotion ? undefined : 'initial'}
           animate={prefersReducedMotion ? undefined : 'animate'}
-          variants={{ animate: { transition: { staggerChildren: 0.14, delayChildren: 0.3 } } }}
-          key={lang /* restart reveal if language changes */}
+          variants={{ animate: { transition: { staggerChildren: 0.12, delayChildren: 0.25 } } }}
+          key={lang}
         >
           {headlineWords.map((word, i) => (
             <motion.span
@@ -119,30 +119,32 @@ export default function WelcomeStep({ onContinue }: WelcomeStepProps) {
           ))}
         </motion.h1>
 
-        {/* Body — fades in after headline */}
         <AnimatePresence mode="wait">
           <motion.p
             key={lang}
             initial={prefersReducedMotion ? undefined : { opacity: 0, y: 6 }}
             animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: prefersReducedMotion ? 0 : 1.1, ease: 'easeOut' }}
-            className="text-base text-text-secondary leading-relaxed max-w-sm mx-auto"
+            transition={{ duration: 0.7, delay: prefersReducedMotion ? 0 : 1.0, ease: 'easeOut' }}
+            className="text-base text-text-secondary leading-relaxed max-w-sm"
           >
             {t('onboarding.welcome.body')}
           </motion.p>
         </AnimatePresence>
       </div>
 
-      {/* CTA — slides up once reveal settles */}
-      <div className="relative z-10">
+      {/* CTA — pinned to bottom with safe area */}
+      <div
+        className="relative z-10 shrink-0 px-6 pt-2"
+        style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
+      >
         <AnimatePresence>
           {revealed && (
             <motion.button
               type="button"
-              initial={prefersReducedMotion ? undefined : { opacity: 0, y: 12 }}
+              initial={prefersReducedMotion ? undefined : { opacity: 0, y: 10 }}
               animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
               whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
               onClick={onContinue}
               className="w-full max-w-md mx-auto block py-3.5 bg-primary text-white font-semibold rounded-2xl shadow-warm-md hover:bg-primary-dark transition-colors"
