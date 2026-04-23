@@ -281,10 +281,17 @@ export default function HomePage() {
 
     // Guided session with the user's chosen guide — moved off the
     // Journal-wall center button (which is now the book / writing
-    // surface) into a Pulse bubble.
+    // surface) into a Pulse bubble. Icon is the guide's own avatar
+    // so the bubble feels like tapping the guide, not a generic
+    // chat glyph. Bodhi's avatar is still a JPG; others are PNGs.
+    const guideAvatarExt = guide.id === 'bodhi' ? 'jpg' : 'png';
     items.push({
       id: '__guided__',
-      icon: '💬', // 💬 speech balloon
+      icon: {
+        type: 'avatar',
+        src: `/avatars/${guide.name}.${guideAvatarExt}`,
+        alt: guide.name,
+      },
       label: t('home.guidedSession'),
       href: '/guided',
     });

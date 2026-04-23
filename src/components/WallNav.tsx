@@ -154,11 +154,12 @@ export function WallNav() {
         { href: '/groceries', key: 'groceries', labelKey: 'tab.groceries' },
       ]
     : [
-        // Journal wall (4 slots — /history replaced by /notebooks in
-        // Sprint 2; center is the dedicated Journal writing surface).
+        // Journal wall — 5 slots so the center Journal pill sits
+        // actually centered. Intentions is back per user request.
         { href: '/home', key: 'pulse', labelKey: 'tab.pulse' },
         { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks' },
         { href: '/journal', key: 'journal', labelKey: 'tab.journal', isCenter: true },
+        { href: '/intentions', key: 'intentions', labelKey: 'tab.intentions' },
         { href: '/patterns', key: 'patterns', labelKey: 'tab.patterns' },
       ];
 
@@ -219,6 +220,7 @@ export function WallNav() {
                   activeWall === 'journal' &&
                   (slot.key === 'pulse' ||
                     slot.key === 'notebooks' ||
+                    slot.key === 'intentions' ||
                     slot.key === 'patterns')
                 ) {
                   setJournalTab(slot.key);

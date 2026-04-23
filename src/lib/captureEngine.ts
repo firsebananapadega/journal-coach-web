@@ -534,7 +534,11 @@ export type Destination =
   | { kind: 'new-list'; newName: string };
 
 export function resolveDestination(
-  item: { list_hint?: string | null; due_date?: string | null },
+  item: {
+    list_hint?: string | null;
+    due_date?: string | null;
+    remind_at_iso?: string | null;
+  },
   lists: ListRecord[],
   todayStr?: string,
 ): Destination {
@@ -547,6 +551,11 @@ export function resolveDestination(
     if (match) return { kind: 'list', listId: match.id };
     return { kind: 'new-list', newName: item.list_hint!.trim() };
   }
+  // Reminder-carrying tasks ALWAYS land in the tasks table (via the
+  // 'upcoming' destination) so pg_cron can see remind_at. The legacy
+  // daily_priorities table has no reminder columns, so 'today' would
+  // silently drop the reminder.
+  if (item.remind_at_iso) return { kind: 'upcoming' };
   const today = todayStr ?? toLocalDateStr(new Date());
   if (item.due_date && item.due_date > today) {
     return { kind: 'upcoming' };
