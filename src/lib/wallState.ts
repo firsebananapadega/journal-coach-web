@@ -14,10 +14,10 @@ export type WallId = 'tasks' | 'journal';
 // Keeping URL = state of truth means deep links and the back button work
 // without extra plumbing.
 export type TasksTab = 'today' | 'lists' | 'upcoming' | 'groceries';
-// 'intentions' + 'habits' hidden from nav as of 2026-04-23 (kept in
-// wallForPath for deep-link resilience). 'journal' replaces the guided
-// center pill as a dedicated writing surface.
-export type JournalTab = 'pulse' | 'history' | 'journal' | 'patterns';
+// 'intentions' + 'habits' + 'history' hidden from nav as of 2026-04
+// (kept in wallForPath for deep-link resilience). 'journal' is the
+// center pill; 'notebooks' replaces history as slot 1.
+export type JournalTab = 'pulse' | 'notebooks' | 'journal' | 'patterns';
 
 const LS_KEY = 'wallState.v1';
 
@@ -47,7 +47,7 @@ export const FLIP_HALF_MS = 300;
 // 'plans') to the current set so a returning user doesn't land on a
 // dead route after an upgrade.
 const VALID_TASKS_TABS: TasksTab[] = ['today', 'lists', 'upcoming', 'groceries'];
-const VALID_JOURNAL_TABS: JournalTab[] = ['pulse', 'history', 'journal', 'patterns'];
+const VALID_JOURNAL_TABS: JournalTab[] = ['pulse', 'notebooks', 'journal', 'patterns'];
 
 function readPersisted(): Persisted {
   if (typeof window === 'undefined') return DEFAULT;
@@ -186,8 +186,10 @@ export function wallForPath(pathname: string): WallId | null {
   // Journal side
   if (
     pathname === '/pulse' ||
-    pathname === '/history' ||
-    pathname === '/journal' || // legacy: journal page = history
+    pathname === '/history' || // legacy: redirects via nav-less route
+    pathname === '/journal' ||
+    pathname === '/notebooks' ||
+    pathname.startsWith('/notebooks/') ||
     pathname === '/patterns' ||
     pathname === '/intentions' ||
     pathname.startsWith('/intentions/') ||
@@ -207,9 +209,10 @@ export function wallForPath(pathname: string): WallId | null {
 export function tabForPath(pathname: string): TasksTab | JournalTab | null {
   // Sub-routes like /lists/[id] still highlight the parent tab.
   if (pathname.startsWith('/lists/')) return 'lists';
-  // /intentions/* still reachable (from settings) but not a nav tab
-  // anymore — no highlight target.
+  // /intentions/* still reachable (from settings) but not a nav tab.
   if (pathname.startsWith('/intentions/')) return null;
+  // /notebooks/[slug] keeps the Notebooks tab highlighted.
+  if (pathname.startsWith('/notebooks/')) return 'notebooks';
   const map: Record<string, TasksTab | JournalTab> = {
     '/today': 'today',
     '/priorities': 'today', // legacy
@@ -219,11 +222,10 @@ export function tabForPath(pathname: string): TasksTab | JournalTab | null {
     '/groceries': 'groceries',
     '/pulse': 'pulse',
     '/home': 'pulse', // legacy
-    '/history': 'history',
+    '/notebooks': 'notebooks',
+    '/history': 'notebooks', // legacy — history fell into notebooks
     '/journal': 'journal',
     '/patterns': 'patterns',
-    // /intentions is still a reachable route via settings but is not a
-    // nav tab anymore — no mapping here so nothing highlights.
   };
   return map[pathname] ?? null;
 }

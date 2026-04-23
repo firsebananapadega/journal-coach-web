@@ -125,7 +125,8 @@ const translations: Record<string, Record<Locale, string>> = {
   'journal.justNow': { en: 'just now', es: 'ahora' },
   'journal.mAgo': { en: '{n}m ago', es: 'hace {n}m' },
   'journal.hAgo': { en: '{n}h ago', es: 'hace {n}h' },
-  'journal.yesterday': { en: 'yesterday', es: 'ayer' },
+  'journal.yesterday': { en: 'Yesterday', es: 'Ayer' },
+  'journal.today': { en: 'Today', es: 'Hoy' },
   'journal.dAgo': { en: '{n}d ago', es: 'hace {n}d' },
   'journal.draft': { en: 'Draft', es: 'Borrador' },
   'journal.tapToResume': { en: 'Tap to resume', es: 'Toca para continuar' },
@@ -205,6 +206,31 @@ const translations: Record<string, Record<Locale, string>> = {
   'tab.capture': { en: 'Capture', es: 'Capturar' },
   'tab.guide': { en: 'Guide', es: 'Guía' },
   'tab.journal': { en: 'Journal', es: 'Diario' },
+  'tab.notebooks': { en: 'Notebooks', es: 'Cuadernos' },
+
+  // ─── Notebooks tab ───
+  'notebooks.title': { en: 'Notebooks', es: 'Cuadernos' },
+  'notebooks.subtitle': {
+    en: 'Your collections. Tap one to read or add to it.',
+    es: 'Tus colecciones. Toca una para leer o escribir.',
+  },
+  'notebooks.entry': { en: 'entry', es: 'entrada' },
+  'notebooks.entries': { en: 'entries', es: 'entradas' },
+  'notebooks.systemTag': { en: 'System', es: 'Sistema' },
+  'notebooks.addNew': { en: 'New notebook', es: 'Nuevo cuaderno' },
+  'notebooks.namePlaceholder': { en: 'Notebook name…', es: 'Nombre del cuaderno…' },
+
+  // ─── Entry card ───
+  'entry.raw': { en: 'Raw', es: 'Crudo' },
+  'entry.structured': { en: 'Structured', es: 'Estructurado' },
+  'entry.structuring': { en: 'Structuring…', es: 'Estructurando…' },
+  'entry.empty': { en: 'No content.', es: 'Sin contenido.' },
+
+  // ─── Day headers / feed ───
+  'journal.daysAgo': { en: 'days ago', es: 'días' },
+
+  // ─── Preview sheet ───
+  'preview.notebookLabel': { en: 'Notebook', es: 'Cuaderno' },
 
   // ─── Journal writing surface (/journal) ───
   'journalWrite.placeholder': {

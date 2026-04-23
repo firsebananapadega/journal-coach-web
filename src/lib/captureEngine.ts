@@ -2,8 +2,10 @@
 // Takes raw speech, Gemini classifies and extracts structured data
 // Routes to: priorities (with date awareness), groceries, intentions, habits, journal
 
-import { callGemini, parseJsonResponse } from './geminiClient';
+import { callGemini, callGeminiDetailed, parseJsonResponse, type TraceFn } from './geminiClient';
 import { toLocalDateStr } from './dateUtils';
+import type { PriorityCategory } from '../stores/priorityStore';
+import type { ListRecord } from '../stores/listStore';
 
 export interface GroceryStore {
   store: string;
@@ -13,6 +15,26 @@ export interface GroceryStore {
 export interface PriorityTask {
   text: string;
   when: string; // "today", "tomorrow", "monday", or ISO date
+  category: PriorityCategory;
+  // Optional time-of-day hint, currently used only for medications
+  // (e.g. "morning" / "evening" / "08:00").
+  subgroup?: string | null;
+  // ─── Routing hints (added in Phase 5 — capture routing) ───
+  // The literal list name from speech, e.g. "trip planning" / "gym".
+  // The app matches this against the user's actual lists at preview
+  // time; if it doesn't match an existing list, the preview surfaces
+  // a "+ New list: <hint>" option.
+  list_hint?: string | null;
+  // ISO date when the model can resolve one explicitly. Distinct from
+  // `when` because `when` may stay as "today" while due_date carries
+  // a future date the model parsed (e.g. "June 15"). resolveWhen()
+  // still works as a fallback.
+  due_date?: string | null;
+  // "HH:MM" (24h) | "morning" | "afternoon" | "evening" | "night".
+  // Time-anchored items used to flow through the separate `plans`
+  // channel; we now route them as priorities with this field set so
+  // they land in the new tasks table with a time chip.
+  time?: string | null;
 }
 
 export interface PlanEventParsed {
@@ -21,6 +43,22 @@ export interface PlanEventParsed {
   location: string | null;
   subtasks: string[];
   when: string;
+}
+
+export type CompletionType = 'done' | 'bought' | 'taken' | 'skip';
+
+export interface CompletionIntent {
+  // The noun phrase the user said they finished, e.g. "milk", "morning meds".
+  // The CapturePreviewSheet runs this through fuzzyMatch to find the actual
+  // PriorityItem / GroceryItem in the current list.
+  phrase: string;
+  type: CompletionType;
+}
+
+export interface NotebookChoice {
+  slug: string;
+  name: string;
+  hint?: string; // optional one-liner helping Gemini pick (e.g., "gratitude and appreciation")
 }
 
 export interface CaptureResult {
@@ -32,6 +70,28 @@ export interface CaptureResult {
   ideas: string[];
   gratitude: string[];
   journal: string | null;
+  completions: CompletionIntent[];
+  // Sprint 2: which notebook the `journal` content (if any) belongs
+  // in. Gemini's best guess; user overrides in the preview sheet.
+  notebook_slug: string | null;
+  notebook_confidence: number;
+}
+
+const VALID_CATEGORIES: PriorityCategory[] = [
+  'medications',
+  'errands',
+  'work',
+  'home',
+  'bills',
+  'other',
+];
+
+function isCategory(v: unknown): v is PriorityCategory {
+  return typeof v === 'string' && (VALID_CATEGORIES as string[]).includes(v);
+}
+
+function isCompletionType(v: unknown): v is CompletionType {
+  return v === 'done' || v === 'bought' || v === 'taken' || v === 'skip';
 }
 
 const ROUTER_PROMPT = `You are a smart voice assistant that categorizes and extracts structured data from free-form speech. The user just spoke naturally about their day, tasks, shopping, goals, etc.
@@ -42,22 +102,82 @@ IMPORTANT: Today's date is {TODAY}.
 
 CATEGORIES:
 
-1. **priorities** — Actionable tasks/to-dos. Things they need to DO.
-   Each task MUST include a "when" field indicating WHICH DAY it's for:
+1. **priorities** — Actionable tasks/to-dos. Things they need to DO. INCLUDES time-anchored events (appointments, meals, meetups, travel) — these get \`time\` + \`due_date\` set.
+   Each task MUST include a "when" field AND a "category" field. Optional fields: subgroup, list_hint, due_date, time.
+
+   "when" — WHICH DAY the task is for (loose textual hint; the app resolves it):
    - "today" — if no date is mentioned, or they say "today"
    - "tomorrow" — if they say "tomorrow"
-   - A specific day name like "monday", "tuesday", etc. — if they mention a day of the week
-   - An ISO date like "2026-04-07" — if they mention a specific date
+   - A specific day name like "monday", "tuesday", etc.
+   - An ISO date like "2026-04-07"
+
+   "due_date" — OPTIONAL ISO date (YYYY-MM-DD). Fill this when the user names a specific future date or relative date that resolves to one (e.g. "June 15", "next Friday", "in two weeks", "this weekend"). Use {TODAY} as the anchor. Skip for vague dates like "soon" or "later". When set, this OVERRIDES "when" for routing.
+
+   "time" — OPTIONAL. ALWAYS in 24-hour format ("HH:MM") OR one of: "morning", "afternoon", "evening", "night". Set this when the user mentions a specific time or part-of-day for an appointment / meal / meetup / activity. Examples:
+   - "concert at 7pm" → time: "19:00"
+   - "breakfast Saturday morning" → time: "morning"
+   - "leave by 9 at night" → time: "21:00" (night context = PM)
+   - "flight at 11" with "Saturday night" context → time: "23:00"
+
+   "list_hint" — OPTIONAL. The literal list/project phrase the user said. Surface ONLY when the user's wording explicitly names a list, project, or context bucket. Accept ALL of these surface forms — with or without the word "for":
+   - "for the trip" → list_hint: "trip"
+   - "add to my gym list" → list_hint: "gym"
+   - "for project Apollo" → list_hint: "Apollo" (drop the literal word "project")
+   - "project Wellbloom, finish the spec and email Sam" → list_hint: "Wellbloom" (bare leading "project X" — NO "for" needed)
+   - "on project Wellbloom schedule kickoff" → list_hint: "Wellbloom"
+   - "Wellbloom project: review the spec" → list_hint: "Wellbloom" (suffix form, colon-separated)
+   - "project...Wellbloom...finish the design review" → list_hint: "Wellbloom" (dictation ellipses between "project" and the name)
+   - "work stuff" → list_hint: "work"
+   - "office supplies for the quarterly report" → list_hint: "office"
+   Do NOT invent list_hint from category alone. If the user just says "I need to call the dentist", do NOT emit list_hint:"errands". Only fill list_hint when there's a clear list/project word in the speech. Always strip the words "project" / "list" from the hint itself — the name is what goes in list_hint, not the label.
+
+   "category" — exactly one of these strings:
+   - "medications" — taking pills, doses, drug names, mg, "take my X" / "X in the morning". For this category, also fill optional "subgroup" with a time-of-day hint ("morning", "afternoon", "evening", "night") if mentioned, else null.
+   - "errands" — pickups, drop-offs, calls, appointments (doctor, dentist, haircut), "stop by", "swing by"
+   - "work" — meetings, deadlines, reports, emails, projects with a clear work/career framing
+   - "home" — chores, cleaning, repairs, laundry, dishes, plants
+   - "bills" — pay X, rent, utilities, taxes, subscriptions, insurance
+   - "other" — anything that doesn't clearly fit the above
 
    Examples:
-   - "I need to finish the report" → {"text": "Finish the report", "when": "today"}
-   - "tomorrow I need to call the dentist" → {"text": "Call the dentist", "when": "tomorrow"}
-   - "on Monday pick up dry cleaning" → {"text": "Pick up dry cleaning", "when": "monday"}
-   - "I need to submit taxes by April 15th" → {"text": "Submit taxes", "when": "2026-04-15"}
+   - "I need to finish the report" → {"text": "Finish the report", "when": "today", "category": "work"}
+   - "tomorrow I need to call the dentist" → {"text": "Call the dentist", "when": "tomorrow", "category": "errands"}
+   - "on Monday pick up dry cleaning" → {"text": "Pick up dry cleaning", "when": "monday", "category": "errands"}
+   - "I need to submit taxes by April 15th" → {"text": "Submit taxes", "when": "2026-04-15", "due_date": "2026-04-15", "category": "bills"}
+   - "take my vitamin D in the morning" → {"text": "Vitamin D", "when": "today", "category": "medications", "subgroup": "morning"}
+   - "do the laundry tonight" → {"text": "Do the laundry", "when": "today", "category": "home"}
+   - "for the trip do book hotel and check passport" → two priorities, both with list_hint:"trip"
+   - "concert at the Greek June 15 at 7pm" → {"text": "Concert at the Greek", "when": "2026-06-15", "due_date": "2026-06-15", "time": "19:00", "category": "other"}
+   - "Saturday night drop off her parents at the airport, flight at 11, leave by 9" → {"text": "Drop off parents at airport", "when": "saturday", "time": "21:00", "category": "errands"}
+   - "this weekend deliver more mail" → {"text": "Deliver more mail", "when": "saturday", "due_date": "<ISO of next Saturday>", "category": "errands"}
+   - "for project Apollo I need to write the spec and ping Sam" → two priorities, both with list_hint:"project Apollo"
 
 2. **groceries** — Items to buy, grouped by store. If no store is mentioned, use "General".
    Examples: "get milk from Costco", "spinach and mushrooms from the Indian store", "I need bananas"
    Group items by the store they mentioned. If they say "from Costco" then following items belong to Costco until they mention another store.
+   SPEECH QUIRK: "by" and "buy" often sound identical in transcription; treat both as the verb "buy" (e.g. "from Trader Joe's by kale and celery" is the same as "from Trader Joe's buy kale and celery").
+   CANONICAL GROCERY EXAMPLES:
+   - "from Trader Joe's buy kale and celery" → groceries: [{"store": "Trader Joe's", "items": ["kale", "celery"]}]
+   - "at Costco I need milk, eggs, bread" → groceries: [{"store": "Costco", "items": ["milk", "eggs", "bread"]}]
+
+   CRITICAL DISAMBIGUATION — GROCERY vs TASK:
+   Groceries are things to BUY from a store. Tasks (priorities) are things to DO. The phrase "I need" is ambiguous:
+   - "I need MILK" → grocery (noun object, buy-context)
+   - "I need TO call Sam" → priority (verb object, do-context)
+   - "I need to finish the report" → priority
+   - "I need tomatoes for dinner" → grocery (noun)
+   The rule: if the word after "need"/"needs"/"want" is the word "to" followed by a verb, it is a TASK. If it is a noun (food, product), it is a GROCERY.
+
+   CRITICAL DISAMBIGUATION — LIST / PROJECT TASKS vs GROCERIES:
+   When the user says "for <project/list name>" followed by things to DO (verbs), those are PRIORITIES with list_hint set — NOT groceries. Only treat "for <store>" as grocery when the activity is buying.
+   CONTRAST EXAMPLES:
+   - "for my work list, finish the Q3 report and email Sam" → priorities: [{"text":"Finish the Q3 report","list_hint":"work",...}, {"text":"Email Sam","list_hint":"work",...}]. groceries: []. (Verbs finish/email → tasks, not groceries.)
+   - "for project Apollo write the spec and ping Sam" → priorities: [{"text":"Write the spec","list_hint":"project Apollo",...}, {"text":"Ping Sam","list_hint":"project Apollo",...}]. groceries: [].
+   - "for the Mexico trip book hotel, check passport, and buy sunscreen" → priorities: [{"text":"Book hotel","list_hint":"Mexico trip",...}, {"text":"Check passport","list_hint":"Mexico trip",...}]. groceries: [{"store":"General","items":["sunscreen"]}]. (Book/check → tasks, buy → grocery.)
+   - "call dentist tomorrow, pay rent, meeting with Sam at 2pm" → priorities: 3 items, all verbs. groceries: [].
+   - "add to my gym list: running shoes and water bottle" → groceries: []; priorities: [{"text":"Running shoes","list_hint":"gym",...}, {"text":"Water bottle","list_hint":"gym",...}]. ("add to list" is a list intent, items listed are things to acquire for that list — treat as priorities under the named list, NOT as groceries.)
+
+   NEVER emit a grocery just because a store-like noun or the verb "need" appears. Require a BUY/GROCERY context (buy/bought/grab/pick up/shopping) AND the item to be a noun (not a verb).
 
 3. **intentions** — How they want to BE or SHOW UP (not achieve). Aspirational, about character/presence.
    Examples: "I want to be more patient", "I need to listen more before reacting", "be present with my family"
@@ -76,16 +196,28 @@ CATEGORIES:
 7. **gratitude** — Things the person is grateful for or appreciating.
    Examples: "I'm grateful for...", "I appreciate...", "thankful for..."
 
-8. **plans** — Timed events, appointments, meals, meetups, activities, travel. Things HAPPENING at a specific time or on a specific day.
-   Each plan has: _time_reasoning (your internal reasoning about times — FILL THIS FIRST), title, time (HH:MM in 24h format, "morning", "afternoon", "evening", or null), location (or null), subtasks (array of strings for prep/related items, or empty []), when (same date rules as priorities).
+9. **completions** — User saying they FINISHED, BOUGHT, TOOK, or want to CANCEL a task or grocery item.
+   Emit one entry per phrase. Each entry: {"phrase": "<the noun phrase>", "type": "done" | "bought" | "taken" | "skip"}.
+   - type "done"   — phrases: "I've done X", "I'm done with X", "completed X", "finished X", "X is done"
+   - type "bought" — phrases: "I bought X", "I got X", "I picked up X", "grabbed X", "got X from <store>"
+   - type "taken"  — phrases: "I took my X", "I've taken X", "took the X" (specifically for medications)
+   - type "skip"   — phrases: "scratch X", "remove X", "skip X", "cancel X", "I'm skipping X today"
+   The "phrase" field is JUST the noun (the thing they finished), not the verb, and not the store. Examples:
+   - "I bought the milk and eggs" → completions: [{"phrase":"milk","type":"bought"}, {"phrase":"eggs","type":"bought"}]
+   - "I bought celery and bread from Costco" → completions: [{"phrase":"celery","type":"bought"}, {"phrase":"bread","type":"bought"}] (NOT also a Costco grocery group)
+   - "scratch the dentist appointment" → completions: [{"phrase":"dentist appointment","type":"skip"}]
+   - "took my morning meds" → completions: [{"phrase":"morning meds","type":"taken"}]
+   - "I finished the Q3 report" → completions: [{"phrase":"Q3 report","type":"done"}]
+   CRITICAL: completions describe items that were ALREADY on the list. They are NOT new priorities AND NOT new groceries. When the user says "I bought / got / picked up" something, emit it ONLY in completions. Do NOT also add it to the "priorities" or "groceries" arrays. The app will check off the matching item. The only exception is if the user is EXPLICITLY adding a new shopping list ("I want to add to my list: …", "remind me to buy …"); past-tense "I bought" / "I got" is always a completion.
 
-   TEMPORAL REASONING — THINK BEFORE YOU ASSIGN TIMES:
-   For each plan, you MUST fill "_time_reasoning" FIRST. In it, write out your reasoning:
+8. **plans** — DEPRECATED CHANNEL. Always return [] here. Time-anchored events (appointments, meals, meetups, travel, flights) now flow through **priorities** with the \`time\` and \`due_date\` fields set. Apply the temporal-reasoning rules below when populating priority \`time\` for events.
+
+   TEMPORAL REASONING — THINK BEFORE YOU ASSIGN TIMES (applies to priority.time):
    1. What time-of-day context did the user provide? (morning/afternoon/evening/night/none)
-   2. What specific times were mentioned? List them all.
+   2. What specific times were mentioned? List them all internally.
    3. What is the logical relationship between the times? (e.g., "flight at 11, leave 2 hours before = leave at 9")
    4. Given the context, are these times AM or PM? (e.g., "night" context = PM, "flight at 11 at night" = 23:00, "leave at 9" in the same night context = 21:00)
-   5. How many distinct events are there? (Don't split one event into multiple plans)
+   5. How many distinct events are there? (Don't split one event into multiple priorities)
 
    TIME FORMAT RULES:
    - ALWAYS output time in 24-hour format: 21:00 (not 9:00 PM), 14:00 (not 2:00 PM)
@@ -93,14 +225,7 @@ CATEGORIES:
    - Inference chain: "flight at 11" + "night" context = 23:00. "leave 2 hours before" = 21:00. Both inherit PM from "night."
    - Common sense: "breakfast" = morning. "lunch" = afternoon. "dinner" = evening. "flight at night" = PM.
 
-   DEDUPLICATION: One described event = ONE plan. Don't split details into separate plans.
-
-   PLAN vs TASK: Plans are EVENTS (things happening at a time/place). Priorities are TASKS (to-do items to check off).
-
-   Examples:
-   - "breakfast at Luna Saturday morning" → {"_time_reasoning": "Saturday morning context. Breakfast = morning. Time: morning.", "title": "Breakfast at Luna", "time": "morning", "location": "Luna", "subtasks": [], "when": "saturday"}
-   - "2pm lunch with parents, pick up pizza and bring wine" → {"_time_reasoning": "Explicit 2pm = 14:00. One event with prep subtasks.", "title": "Lunch with parents", "time": "14:00", "location": null, "subtasks": ["Pick up pizza", "Bring wine"], "when": "today"}
-   - "Saturday night her parents are leaving, flight at 11, we need to head out by 9 from my place to the airport" → {"_time_reasoning": "Context: Saturday NIGHT. Flight at 11 = 23:00 (night context). Leave at 9 = 21:00 (same night context, 2 hours before flight). One event: airport drop-off.", "title": "Airport drop-off — flight at 11 PM", "time": "21:00", "location": "Airport", "subtasks": ["Leave from my place by 9 PM"], "when": "saturday"}
+   DEDUPLICATION: One described event = ONE priority. Don't split details into separate priorities.
 
 RULES:
 - Only include categories where you actually detect relevant content
@@ -111,8 +236,17 @@ RULES:
 - Return empty arrays/null for categories with no matching content
 - ALWAYS include the "when" field for every priority task. Default to "today" if no date is mentioned.
 
+10. **notebook_slug** — When "journal" is a non-empty string, classify which notebook this journal content belongs in.
+   Available notebooks (use the slug exactly):
+{NOTEBOOK_CHOICES}
+   - "journal" is the default / generic catch-all. Use it for general thoughts, reflections, daily stuff that doesn't clearly fit elsewhere.
+   - "gratitude" — use when the content is primarily thankfulness, appreciation, or naming things the user is grateful for. Phrases like "I'm grateful / thankful for…", "I appreciate…".
+   - "prompts" — use when the user is dictating a command block, prompt, instruction for an AI (Claude, Gemini, etc.), or something obviously meant to be copy-pasted verbatim. Phrases like "Prompt for Claude…", "tell Claude to…", "here's a prompt…", or enumerated step-by-step instructions meant for a machine.
+   - Project notebooks (if listed above): use when the user explicitly names the project or when the content is clearly about that project.
+   Also emit "notebook_confidence" as a number 0.0–1.0. Default to "journal" with confidence 0.5 when unsure. Omit ("journal" default) when "journal" itself is null.
+
 Respond with ONLY valid JSON:
-{"priorities": [{"text": "task", "when": "today"}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null}`;
+{"priorities": [{"text": "task", "when": "today", "category": "other", "subgroup": null, "list_hint": null, "due_date": null, "time": null}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null, "completions": [], "notebook_slug": "journal", "notebook_confidence": 0.8}`;
 
 export function resolveWhen(when: string, referenceDate?: string): string {
   const ref = referenceDate ? new Date(referenceDate + 'T12:00:00') : new Date();
@@ -149,30 +283,120 @@ export function resolveWhen(when: string, referenceDate?: string): string {
   return toLocalDateStr(ref);
 }
 
-export async function classifyCapture(speechText: string): Promise<CaptureResult> {
+export async function classifyCapture(
+  speechText: string,
+  opts?: {
+    onTrace?: TraceFn;
+    // Names of grocery items already on the user's list. Surfaced to the
+    // model so it can match phrases like "I bought celery" against an
+    // existing "Celery (1 bunch)" item and emit it as a completion
+    // rather than duplicating it as a new grocery.
+    existingGroceries?: string[];
+    // Texts of priority items already on today's list. Same reasoning
+    // for "I finished the Q3 report" matches against the existing item.
+    existingPriorities?: string[];
+    // Notebooks the user has. When provided, Gemini picks one to route
+    // the journal content into. Include all active notebooks (system
+    // + user project notebooks). When omitted, routing falls back to
+    // the default "journal" slug.
+    notebookChoices?: NotebookChoice[];
+  },
+): Promise<CaptureResult> {
+  const onTrace = opts?.onTrace;
   const todayStr = toLocalDateStr(new Date());
+  onTrace?.('classifyCapture: start', { chars: speechText.length });
   const { getLocale } = await import('./language');
   const langHint = getLocale() === 'es' ? '\nNote: The user is speaking in Mexican Spanish. Understand and classify accordingly, but return JSON keys in English as specified above.' : '';
-  const prompt = ROUTER_PROMPT.replace('{TODAY}', todayStr) + langHint + `\n\nUser said:\n"${speechText}"\n\nRespond with JSON only.`;
-  const text = await callGemini('gemini-2.5-flash', prompt, 25000);
+  const groceriesHint =
+    opts?.existingGroceries && opts.existingGroceries.length > 0
+      ? `\n\nCURRENT GROCERY LIST (these can be checked off via completions): ${opts.existingGroceries.join(', ')}`
+      : '';
+  const prioritiesHint =
+    opts?.existingPriorities && opts.existingPriorities.length > 0
+      ? `\n\nCURRENT TASK LIST (these can be checked off via completions): ${opts.existingPriorities.join(', ')}`
+      : '';
+  // Build the NOTEBOOK_CHOICES block for the prompt. Always includes
+  // the three system notebooks (journal/gratitude/prompts) if caller
+  // didn't provide them, so the model always has a valid menu.
+  const defaultChoices: NotebookChoice[] = [
+    { slug: 'journal', name: 'Journal', hint: 'default / general thoughts' },
+    { slug: 'gratitude', name: 'Gratitude', hint: 'thankfulness, appreciation' },
+    { slug: 'prompts', name: 'Prompts', hint: 'command blocks for AI, verbatim copy-paste' },
+  ];
+  const choices = opts?.notebookChoices && opts.notebookChoices.length > 0
+    ? opts.notebookChoices
+    : defaultChoices;
+  const notebookBlock = choices
+    .map((c) => `     - "${c.slug}" (${c.name})${c.hint ? ` — ${c.hint}` : ''}`)
+    .join('\n');
+  const prompt =
+    ROUTER_PROMPT
+      .replace('{TODAY}', todayStr)
+      .replace('{NOTEBOOK_CHOICES}', notebookBlock) +
+    langHint +
+    groceriesHint +
+    prioritiesHint +
+    `\n\nUser said:\n"${speechText}"\n\nRespond with JSON only.`;
+  onTrace?.('classifyCapture: prompt built', { chars: prompt.length });
+  // Route through callGeminiDetailed when we have a trace so the auth +
+  // fetch milestones inside geminiClient flow into the same timeline.
+  let text: string;
+  if (onTrace) {
+    const detailed = await callGeminiDetailed('gemini-2.5-flash', prompt, { timeoutMs: 25000, onTrace });
+    text = detailed.text;
+  } else {
+    text = await callGemini('gemini-2.5-flash', prompt, 25000);
+  }
+  onTrace?.('classifyCapture: response received', { chars: text.length });
   const parsed = parseJsonResponse<Record<string, unknown>>(text, {});
+  onTrace?.('classifyCapture: parsed json');
 
-  // Normalize priorities — handle both string[] and {text, when}[] formats
+  // Normalize priorities — handle string[], {text, when}[], and the new
+  // {text, when, category, subgroup, list_hint?, due_date?, time?}[] shapes.
+  // Default category to 'other' for older Gemini responses or malformed
+  // entries. Routing-hint fields are all optional.
   let priorities: PriorityTask[] = [];
   if (Array.isArray(parsed.priorities)) {
-    priorities = parsed.priorities.map((p: unknown) => {
+    priorities = parsed.priorities.map((p: unknown): PriorityTask => {
       if (typeof p === 'string') {
-        return { text: p, when: 'today' };
+        return { text: p, when: 'today', category: 'other', subgroup: null };
       }
       if (p && typeof p === 'object') {
         const obj = p as Record<string, unknown>;
+        const due =
+          typeof obj.due_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.due_date)
+            ? obj.due_date
+            : null;
         return {
           text: typeof obj.text === 'string' ? obj.text : String(obj.text || ''),
           when: typeof obj.when === 'string' ? obj.when : 'today',
+          category: isCategory(obj.category) ? obj.category : 'other',
+          subgroup: typeof obj.subgroup === 'string' ? obj.subgroup : null,
+          list_hint:
+            typeof obj.list_hint === 'string' && obj.list_hint.trim()
+              ? obj.list_hint.trim()
+              : null,
+          due_date: due,
+          time:
+            typeof obj.time === 'string' && obj.time.trim() ? obj.time.trim() : null,
         };
       }
-      return { text: String(p), when: 'today' };
+      return { text: String(p), when: 'today', category: 'other', subgroup: null };
     });
+  }
+
+  // Normalize completions — drop malformed entries (no phrase or bad type).
+  let completions: CompletionIntent[] = [];
+  if (Array.isArray(parsed.completions)) {
+    completions = parsed.completions
+      .map((c: unknown): CompletionIntent | null => {
+        if (!c || typeof c !== 'object') return null;
+        const obj = c as Record<string, unknown>;
+        if (typeof obj.phrase !== 'string' || !obj.phrase.trim()) return null;
+        if (!isCompletionType(obj.type)) return null;
+        return { phrase: obj.phrase.trim(), type: obj.type };
+      })
+      .filter((c): c is CompletionIntent => c !== null);
   }
 
   // Normalize groceries — Gemini may return various formats
@@ -210,6 +434,12 @@ export async function classifyCapture(speechText: string): Promise<CaptureResult
     });
   }
 
+  const rawSlug = typeof parsed.notebook_slug === 'string' ? parsed.notebook_slug.trim().toLowerCase() : null;
+  const validSlugs = new Set(choices.map((c) => c.slug));
+  const notebookSlug = rawSlug && validSlugs.has(rawSlug) ? rawSlug : (typeof parsed.journal === 'string' ? 'journal' : null);
+  const rawConf = typeof parsed.notebook_confidence === 'number' ? parsed.notebook_confidence : 0.5;
+  const notebookConfidence = Math.max(0, Math.min(1, rawConf));
+
   return {
     priorities,
     plans,
@@ -219,6 +449,9 @@ export async function classifyCapture(speechText: string): Promise<CaptureResult
     ideas: Array.isArray(parsed.ideas) ? parsed.ideas as string[] : [],
     gratitude: Array.isArray(parsed.gratitude) ? parsed.gratitude as string[] : [],
     journal: typeof parsed.journal === 'string' ? parsed.journal : null,
+    completions,
+    notebook_slug: notebookSlug,
+    notebook_confidence: notebookConfidence,
   };
 }
 
@@ -231,8 +464,255 @@ export function hasContent(result: CaptureResult): boolean {
     result.habits.length > 0 ||
     result.ideas.length > 0 ||
     result.gratitude.length > 0 ||
+    result.completions.length > 0 ||
     (result.journal !== null && result.journal.trim().length > 0)
   );
+}
+
+// ─── Destination resolver ─────────────────────────────────────────────
+//
+// Used by CapturePreviewSheet to decide where each priority should go
+// by default. The user can override in the dropdown before saving.
+//
+//   - 'today'    → write to legacy priorityStore.items (per-day row)
+//   - 'upcoming' → write to tasks table with list_id = null + due_date
+//                  set; surfaces only in the Upcoming tab. This is the
+//                  home for dated events ("Concert June 15") that don't
+//                  belong to a project list.
+//   - 'list'     → write to tasks table with list_id = listId
+//   - 'new-list' → create a list named newName, then write to tasks
+//
+// Defaulting rules:
+//   - If list_hint matches an existing list (case-insensitive substring
+//     in either direction), pick that list.
+//   - Else if list_hint is non-empty, propose 'new-list' with the hint
+//     as the proposed name.
+//   - Else if due_date is set and is strictly in the future, pick
+//     'upcoming' (the canonical home for dated events; Inbox stays a
+//     pure triage queue for undated stuff).
+//   - Else 'today'.
+
+export type Destination =
+  | { kind: 'today' }
+  | { kind: 'upcoming' }
+  | { kind: 'list'; listId: string }
+  | { kind: 'new-list'; newName: string };
+
+export function resolveDestination(
+  item: { list_hint?: string | null; due_date?: string | null },
+  lists: ListRecord[],
+  todayStr?: string,
+): Destination {
+  const hint = (item.list_hint ?? '').trim().toLowerCase();
+  if (hint) {
+    const match = lists.find((l) => {
+      const name = l.name.toLowerCase();
+      return name.includes(hint) || hint.includes(name);
+    });
+    if (match) return { kind: 'list', listId: match.id };
+    return { kind: 'new-list', newName: item.list_hint!.trim() };
+  }
+  const today = todayStr ?? toLocalDateStr(new Date());
+  if (item.due_date && item.due_date > today) {
+    return { kind: 'upcoming' };
+  }
+  return { kind: 'today' };
+}
+
+// ─── Intent-aware capture fallback ────────────────────────────────────
+//
+// Used when Gemini either throws or returns hasContent=false. Looks at
+// the raw transcript and decides whether the user was speaking
+// GROCERIES, TASKS, or neither, then produces a CaptureResult shaped
+// accordingly. The prior version of this helper always returned
+// groceries — which turned every failed classification into a phantom
+// "General" grocery item, even when the user was clearly dictating
+// tasks. This intent-aware version never silently routes the wrong
+// way; the worst case is a single Inbox-bound priority carrying the
+// raw transcript so the user can re-route it in the preview sheet.
+//
+// Signal vocabulary is intentionally conservative. False positives
+// are worse than false negatives because a mislabel here is what gets
+// shown to the user in the preview — better to over-use "priority"
+// than to over-use "grocery" (tasks are trivially re-routeable in the
+// preview; groceries have a store slot that's awkward to override).
+const FILLER_VERBS = /\b(?:buy|by|get|got|grab|grabbed|pick(?:\s+up)?|picked\s+up|need|needs|needed|want|wanted)\b/i;
+
+// "buy" / "grabbed" / "from <store>" / "at <store>" — clear grocery
+// cues. A raw "need X" alone is NOT enough because "I need to call
+// Sam" is not grocery.
+const GROCERY_CUES = /\b(?:buy|bought|by|grab|grabbed|pick(?:\s+up)?|picked\s+up|groceries|grocery|shopping\s+list)\b/i;
+const STORE_CUES = /\b(?:from|at)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9'&\s]{1,40}?)(?=[,:]|\s+(?:buy|by|get|got|grab|grabbed|pick|picked|need|needs|needed|want|wanted|I)\b|$)/i;
+
+// "need to / have to / gotta / call / email / finish / submit /
+// schedule / meeting with / pay" — task verbs. Matching any of these
+// anywhere in the transcript pushes the fallback toward priorities.
+const TASK_CUES =
+  /\b(?:need\s+to|needs\s+to|have\s+to|has\s+to|gotta|got\s+to|must|should|call|calling|email|emailing|text|texting|message|finish|finishing|submit|submitting|send|sending|write|writing|review|reviewing|meet(?:ing)?\s+with|schedule|pay(?:ing)?|book|booking|draft|drafting|prep(?:are)?|update|file|follow\s+up|ping)\b/i;
+
+// "for project X" / "for my X list" / "add to my X list" / bare
+// "project X" / "on project X" — hints that items should be grouped
+// under a named list / project. Stops as soon as a task verb appears
+// so "for the Mexico trip book hotel" captures "Mexico trip", not
+// "Mexico trip book hotel". Handles dictation ellipses between
+// "project" and the name ("project...Wellbloom" → "Wellbloom").
+const LIST_HINT_CUES =
+  /(?:\bfor\s+(?:my\s+)?(?:the\s+)?(?:project\s+|list\s+)?|\bon\s+(?:my\s+|project\s+|the\s+)|\bin\s+(?:my\s+|project\s+|the\s+)|\badd(?:ing)?\s+to\s+(?:my\s+)?|\bunder\s+(?:my\s+)?|(?:^|[,.;:!?\u2014\u2013\-]\s*|\s+)(?:project|list)[:\s.\u2026]+)([A-Za-z][A-Za-z0-9'&\s]{1,40}?)(?:\s+list|\s+project|(?=[,:.]|\s+I\s|\s+(?:need|needs|have|has|gotta|got|must|should|call|calling|email|emailing|text|texting|message|finish|finishing|submit|submitting|send|sending|write|writing|review|reviewing|meet|schedule|pay|book|booking|draft|drafting|prep|update|file|follow|ping|buy|by|get|got|grab|grabbed|pick|picked)\b|$))/i;
+
+// Hint-captured names that are common stop-words mean the regex
+// gobbled the wrong thing (e.g. "I have a project to finish" would
+// otherwise capture "to"). Drop them so we don't route to a phantom
+// "to" list.
+const HINT_STOP_WORDS = new Set([
+  'to', 'of', 'the', 'a', 'an', 'for', 'from', 'with',
+  'on', 'at', 'in', 'by', 'and', 'or', 'but', 'so',
+]);
+
+// Stripped off the front of split fragments (tasks + grocery items) so
+// a trailing conjunction in the split regex doesn't leave "and bread"
+// or "then go home" showing up in the UI.
+const LEADING_CONJUNCTION = /^(?:and|then|also|or|plus)\s+/i;
+
+// Extract items from the body when we know they're grocery-shaped.
+// Reused by the grocery branch; exported so tests can verify directly.
+export function parseGroceryFallback(text: string): GroceryStore[] {
+  const raw = text.trim();
+  if (!raw) return [];
+
+  const storeMatch = raw.match(STORE_CUES);
+  const store = storeMatch ? storeMatch[1].trim().replace(/\s+/g, ' ') : 'General';
+
+  let body = raw;
+  if (storeMatch) body = body.replace(storeMatch[0], ' ');
+  body = body
+    .replace(FILLER_VERBS, ' ')
+    .replace(/\b(?:i|please|also|too|some|a|an|the)\b/gi, ' ')
+    .replace(/[.!?;:]/g, ' ')
+    .trim();
+
+  const items = body
+    .split(/\s*,\s*|\s+and\s+|\s+then\s+/i)
+    .map((s) =>
+      s
+        .trim()
+        .replace(/^[-–—\s]+|[-–—\s]+$/g, '')
+        .replace(LEADING_CONJUNCTION, ''),
+    )
+    .filter((s) => s.length > 0 && /[a-z0-9]/i.test(s));
+
+  if (items.length === 0) {
+    return [{ store: 'General', items: [raw] }];
+  }
+  return [{ store, items }];
+}
+
+// Splits body text into multiple task fragments. Handles "and", "then",
+// commas, semicolons, and clause-starting "also". Each fragment becomes
+// one priority.
+function splitTasks(body: string): string[] {
+  return body
+    .split(/\s*(?:,|;|\s+and\s+|\s+then\s+|\s+also\s+)\s*/i)
+    .map((s) =>
+      s
+        .trim()
+        // Strip leading AND trailing punctuation (dots/dashes/ellipses)
+        // so dictation residue ("...finish the spec") renders clean.
+        .replace(/^[-–—.\s\u2026]+|[-–—\s.!?;:\u2026]+$/g, '')
+        .replace(LEADING_CONJUNCTION, ''),
+    )
+    .filter((s) => s.length > 1 && /[a-z0-9]/i.test(s));
+}
+
+// Main entry point. Returns a CaptureResult that represents our best
+// structural guess given only regex heuristics. Callers SHOULD prefer
+// the Gemini-classified result when available; this exists for the
+// failure path only.
+export function parseIntentFallback(text: string): CaptureResult {
+  const empty: CaptureResult = {
+    priorities: [],
+    plans: [],
+    groceries: [],
+    intentions: [],
+    habits: [],
+    ideas: [],
+    gratitude: [],
+    journal: null,
+    completions: [],
+    notebook_slug: null,
+    notebook_confidence: 0.5,
+  };
+  const raw = text.trim();
+  if (!raw) return empty;
+
+  const hasGroceryCue = GROCERY_CUES.test(raw) || STORE_CUES.test(raw);
+  const hasTaskCue = TASK_CUES.test(raw);
+  const listHintMatch = raw.match(LIST_HINT_CUES);
+  let listHint = listHintMatch ? listHintMatch[1].trim().replace(/\s+/g, ' ') : null;
+  // If the regex gobbled a stop-word (happens on "I have a project to
+  // finish" → captures "to"), drop the hint so we don't create a
+  // phantom list.
+  if (listHint && HINT_STOP_WORDS.has(listHint.toLowerCase())) {
+    listHint = null;
+  }
+
+  // TASK CUE WINS if both are present — "for the trip buy sunscreen
+  // and book hotel" is two tasks about the trip, not one grocery
+  // under a store. The preview sheet still surfaces the raw
+  // transcript so the user can re-route if we got it wrong, but we
+  // never silently drop tasks into groceries.
+  if (hasTaskCue) {
+    // Strip list-hint phrase from the body so the extracted tasks
+    // don't contain "for my work list" in their text.
+    let body = raw;
+    if (listHintMatch) body = body.replace(listHintMatch[0], ' ');
+    const fragments = splitTasks(body);
+    const priorities: PriorityTask[] =
+      fragments.length > 0
+        ? fragments.map((f) => ({
+            text: f,
+            when: 'today',
+            category: 'other',
+            subgroup: null,
+            list_hint: listHint,
+            due_date: null,
+            time: null,
+          }))
+        : [
+            {
+              text: raw,
+              when: 'today',
+              category: 'other',
+              subgroup: null,
+              list_hint: listHint,
+              due_date: null,
+              time: null,
+            },
+          ];
+    return { ...empty, priorities };
+  }
+
+  if (hasGroceryCue) {
+    return { ...empty, groceries: parseGroceryFallback(raw) };
+  }
+
+  // No strong signal. Drop the transcript as a SINGLE Inbox-bound
+  // priority so the user's words land somewhere actionable and they
+  // can re-route / split / delete in the preview. Explicitly NOT a
+  // grocery — this was the bug that prompted the rebuild.
+  return {
+    ...empty,
+    priorities: [
+      {
+        text: raw,
+        when: 'today',
+        category: 'other',
+        subgroup: null,
+        list_hint: listHint,
+        due_date: null,
+        time: null,
+      },
+    ],
+  };
 }
 
 export function summarizeCapture(result: CaptureResult): string {
