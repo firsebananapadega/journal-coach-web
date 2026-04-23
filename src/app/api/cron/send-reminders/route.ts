@@ -32,9 +32,9 @@ interface SubRow {
 const BATCH_LIMIT = 50;
 
 function configureWebPush() {
-  const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
-  const contact = process.env.VAPID_CONTACT || 'mailto:hello@example.com';
+  const pub = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '').trim();
+  const priv = (process.env.VAPID_PRIVATE_KEY ?? '').trim();
+  const contact = (process.env.VAPID_CONTACT || 'mailto:hello@example.com').trim();
   if (!pub || !priv) return false;
   webpush.setVapidDetails(contact, pub, priv);
   return true;
@@ -101,7 +101,10 @@ async function deliverForTask(
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.REMINDER_CRON_SECRET;
+  // `.trim()` defends against trailing newlines from env vars that
+  // were set with `echo "..." | vercel env add` (echo adds \n). The
+  // bearer off the wire is already trimmed by the replace+trim below.
+  const expected = (process.env.REMINDER_CRON_SECRET ?? '').trim();
   if (!expected) {
     return NextResponse.json({ error: 'server-misconfig' }, { status: 500 });
   }
@@ -111,7 +114,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const hmacSecret = process.env.REMINDER_ACTION_HMAC_SECRET;
+  const hmacSecret = (process.env.REMINDER_ACTION_HMAC_SECRET ?? '').trim();
   if (!hmacSecret) {
     return NextResponse.json({ error: 'no-hmac-secret' }, { status: 500 });
   }

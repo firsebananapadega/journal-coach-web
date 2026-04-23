@@ -16,7 +16,7 @@ interface Body {
 }
 
 export async function POST(req: Request) {
-  const secret = process.env.REMINDER_ACTION_HMAC_SECRET;
+  const secret = (process.env.REMINDER_ACTION_HMAC_SECRET ?? '').trim();
   if (!secret) {
     return NextResponse.json({ error: 'server-misconfig' }, { status: 500 });
   }
