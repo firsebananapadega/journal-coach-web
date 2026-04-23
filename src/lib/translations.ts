@@ -232,6 +232,21 @@ const translations: Record<string, Record<Locale, string>> = {
   // ─── Preview sheet ───
   'preview.notebookLabel': { en: 'Notebook', es: 'Cuaderno' },
 
+  // ─── Push reminders ───
+  'push.title': { en: 'Want reminders on your phone?', es: '¿Quieres recordatorios en tu teléfono?' },
+  'push.body': {
+    en: 'When you say "remind me tomorrow at 10," we can buzz you at 10. You can turn this off anytime in Settings.',
+    es: 'Cuando digas "recuérdame mañana a las 10", te avisamos a las 10. Puedes desactivar esto en Ajustes.',
+  },
+  'push.enable': { en: 'Turn on reminders', es: 'Activar recordatorios' },
+  'push.later': { en: 'Not now', es: 'Ahora no' },
+  'push.iosHint': {
+    en: 'Add me to your home screen first — iOS only sends push notifications from installed apps.',
+    es: 'Añádeme primero a tu pantalla de inicio — iOS solo envía notificaciones desde apps instaladas.',
+  },
+  'push.unsupported': { en: 'Push notifications aren\'t supported on this browser.', es: 'Este navegador no admite notificaciones push.' },
+  'push.denied': { en: 'Notifications are blocked. You can re-enable from your browser settings.', es: 'Las notificaciones están bloqueadas. Puedes reactivarlas desde los ajustes del navegador.' },
+
   // ─── Journal writing surface (/journal) ───
   'journalWrite.placeholder': {
     en: 'Start writing, or tap the mic…',

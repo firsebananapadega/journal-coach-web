@@ -35,6 +35,14 @@ export interface PriorityTask {
   // channel; we now route them as priorities with this field set so
   // they land in the new tasks table with a time chip.
   time?: string | null;
+  // Sprint 3: when the user explicitly asked to be reminded, this is
+  // the full UTC ISO timestamp of the reminder. Set only when the
+  // utterance contains an explicit "remind me" / "set a reminder" /
+  // "ping me" phrasing — NOT for generic time-anchored tasks.
+  remind_at_iso?: string | null;
+  // Raw phrase the user spoke, surfaced so chrono-node can fix up
+  // Gemini's ISO if it looks off. E.g. "remind me tomorrow at 10am".
+  reminder_phrase?: string | null;
 }
 
 export interface PlanEventParsed {
@@ -236,6 +244,15 @@ RULES:
 - Return empty arrays/null for categories with no matching content
 - ALWAYS include the "when" field for every priority task. Default to "today" if no date is mentioned.
 
+9B. **REMINDERS** — When the user explicitly asks to be reminded ("remind me", "set a reminder", "ping me", "don't let me forget", etc.), set two extra fields on the relevant priority:
+   - "remind_at_iso" — full ISO 8601 UTC timestamp the reminder should fire, using {TODAY} as the anchor. Convert FROM the user's timezone {USER_TZ} TO UTC. Example: user's TZ America/Los_Angeles, they say "remind me tomorrow at 10 am" and {TODAY} is 2026-04-23, emit "2026-04-24T17:00:00Z".
+   - "reminder_phrase" — the literal time expression the user spoke, e.g. "tomorrow at 10 am" or "in 2 hours". Used for display + chrono-node fallback.
+   If the user gave a time-anchored task WITHOUT "remind me" framing (e.g. "dinner at 7"), DO NOT set remind_at_iso — the time field alone handles that.
+   Examples:
+   - "remind me tomorrow at 10 to pick up the book" → priority with text:"Pick up the book", remind_at_iso:"2026-04-24T17:00:00Z" (PT → UTC), reminder_phrase:"tomorrow at 10"
+   - "remind me in 30 minutes to take the laundry out" → reminder_phrase:"in 30 minutes", remind_at_iso computed
+   - "dinner at 7" → time:"19:00", NO remind_at_iso
+
 10. **notebook_slug** — When "journal" is a non-empty string, classify which notebook this journal content belongs in.
    Available notebooks (use the slug exactly):
 {NOTEBOOK_CHOICES}
@@ -246,7 +263,7 @@ RULES:
    Also emit "notebook_confidence" as a number 0.0–1.0. Default to "journal" with confidence 0.5 when unsure. Omit ("journal" default) when "journal" itself is null.
 
 Respond with ONLY valid JSON:
-{"priorities": [{"text": "task", "when": "today", "category": "other", "subgroup": null, "list_hint": null, "due_date": null, "time": null}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null, "completions": [], "notebook_slug": "journal", "notebook_confidence": 0.8}`;
+{"priorities": [{"text": "task", "when": "today", "category": "other", "subgroup": null, "list_hint": null, "due_date": null, "time": null, "remind_at_iso": null, "reminder_phrase": null}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null, "completions": [], "notebook_slug": "journal", "notebook_confidence": 0.8}`;
 
 export function resolveWhen(when: string, referenceDate?: string): string {
   const ref = referenceDate ? new Date(referenceDate + 'T12:00:00') : new Date();
@@ -329,9 +346,14 @@ export async function classifyCapture(
   const notebookBlock = choices
     .map((c) => `     - "${c.slug}" (${c.name})${c.hint ? ` — ${c.hint}` : ''}`)
     .join('\n');
+  const userTz =
+    typeof Intl !== 'undefined'
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+      : 'UTC';
   const prompt =
     ROUTER_PROMPT
       .replace('{TODAY}', todayStr)
+      .replace('{USER_TZ}', userTz)
       .replace('{NOTEBOOK_CHOICES}', notebookBlock) +
     langHint +
     groceriesHint +
@@ -367,6 +389,14 @@ export async function classifyCapture(
           typeof obj.due_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.due_date)
             ? obj.due_date
             : null;
+        const rawRemind =
+          typeof obj.remind_at_iso === 'string' && obj.remind_at_iso.trim()
+            ? obj.remind_at_iso.trim()
+            : null;
+        // Quick sanity check: require a Date-parseable string. Anything
+        // malformed gets dropped — the caller / preview sheet can then
+        // fall back to chrono-node on reminder_phrase.
+        const remindAtIso = rawRemind && !isNaN(Date.parse(rawRemind)) ? rawRemind : null;
         return {
           text: typeof obj.text === 'string' ? obj.text : String(obj.text || ''),
           when: typeof obj.when === 'string' ? obj.when : 'today',
@@ -379,6 +409,11 @@ export async function classifyCapture(
           due_date: due,
           time:
             typeof obj.time === 'string' && obj.time.trim() ? obj.time.trim() : null,
+          remind_at_iso: remindAtIso,
+          reminder_phrase:
+            typeof obj.reminder_phrase === 'string' && obj.reminder_phrase.trim()
+              ? obj.reminder_phrase.trim()
+              : null,
         };
       }
       return { text: String(p), when: 'today', category: 'other', subgroup: null };

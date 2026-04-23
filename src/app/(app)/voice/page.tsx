@@ -19,6 +19,8 @@ import { toLocalDateStr } from '@/lib/dateUtils';
 import { getLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
 import { CapturePreviewSheet, type CompletionMatch, type PriorityDestinations } from '@/components/CapturePreviewSheet';
+import PushPermissionSheet from '@/components/PushPermissionSheet';
+import { shouldPromptForPermission } from '@/lib/push';
 
 export default function VoiceEntryPage() {
   const router = useRouter();
@@ -53,6 +55,7 @@ export default function VoiceEntryPage() {
   // the user has reviewed.
   const [pendingCapture, setPendingCapture] = useState<CaptureResult | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [pushPromptOpen, setPushPromptOpen] = useState(false);
   const [classifying, setClassifying] = useState(false);
   const [classifyingLong, setClassifyingLong] = useState(false);
   // Fallback / error surface — non-null when the preview is showing a
@@ -650,6 +653,18 @@ export default function VoiceEntryPage() {
               'commitEverything',
             );
             setPendingCapture(null);
+
+            // If any priority carried a remind_at, and we haven't yet
+            // asked for push permission (or haven't asked in 30+ days),
+            // surface the PushPermissionSheet. First capture of a
+            // reminder is the moment the ask is contextually honest.
+            const anyReminder = edited.priorities.some(
+              (p) => !!(p.remind_at_iso ?? p.reminder_phrase),
+            );
+            if (anyReminder) {
+              const shouldPrompt = await shouldPromptForPermission();
+              if (shouldPrompt) setPushPromptOpen(true);
+            }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.warn('commit failed:', err);
@@ -662,6 +677,11 @@ export default function VoiceEntryPage() {
             setPreviewBusy(false);
           }
         }}
+      />
+
+      <PushPermissionSheet
+        open={pushPromptOpen}
+        onClose={() => setPushPromptOpen(false)}
       />
     </div>
   );
