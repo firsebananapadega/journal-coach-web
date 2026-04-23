@@ -1,0 +1,252 @@
+'use client';
+
+// Bottom nav, wall-aware. Center slot (index 2 or 3 depending on wall
+// size) is a raised primary-action button — 🎤 on the Tasks wall,
+// 📖 on the Journal wall (opens the writing surface). Wall-flip is
+// handled by the Wall Edge Tab (right edge); this component is only
+// in-wall navigation.
+
+import { usePathname } from 'next/navigation';
+import Link from 'next/link';
+import { motion } from 'framer-motion';
+import { useWallState, tabForPath } from '@/lib/wallState';
+import { t } from '@/lib/translations';
+import { prefersReducedMotion } from '@/lib/motionVariants';
+
+interface NavSlot {
+  href?: string;
+  key: string;
+  labelKey: string;
+  // Center slot uses a raised pill style + custom icon.
+  isCenter?: boolean;
+}
+
+// SVG icons inline so we don't depend on the existing NavIcon's icon
+// set (which doesn't include mic or chat). Stroke-based, 24px.
+function MicIcon({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" x2="12" y1="19" y2="22" />
+    </svg>
+  );
+}
+
+// Open-book glyph for the Journal center pill. Symmetrical spine with
+// two pages; bottom stroke doubles as the "lines of text" hint.
+function BookIcon({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H12v17H6.5A2.5 2.5 0 0 1 4 16.5v-12Z" />
+      <path d="M20 4.5A2.5 2.5 0 0 0 17.5 2H12v17h5.5A2.5 2.5 0 0 0 20 16.5v-12Z" />
+      <line x1="7" y1="7" x2="9.5" y2="7" opacity="0.7" />
+      <line x1="7" y1="10" x2="9.5" y2="10" opacity="0.7" />
+      <line x1="14.5" y1="7" x2="17" y2="7" opacity="0.7" />
+      <line x1="14.5" y1="10" x2="17" y2="10" opacity="0.7" />
+    </svg>
+  );
+}
+
+// Simple line icons for tab pills. Tracking style with the existing
+// NavIcon set so it doesn't feel jarring next to the rest of the app.
+function TabIcon({ name, size = 20 }: { name: string; size?: number }) {
+  switch (name) {
+    case 'today':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+          <circle cx="12" cy="15" r="1.5" fill="currentColor" />
+        </svg>
+      );
+    case 'lists':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none" />
+          <circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none" />
+          <circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case 'upcoming':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+          <circle cx="8" cy="14" r="1" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="14" r="1" fill="currentColor" stroke="none" />
+          <circle cx="16" cy="14" r="1" fill="currentColor" stroke="none" />
+          <circle cx="8" cy="18" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case 'groceries':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="9" cy="21" r="1" />
+          <circle cx="20" cy="21" r="1" />
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+        </svg>
+      );
+    case 'pulse':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+      );
+    case 'history':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+          <path d="M3 3v5h5" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+      );
+    case 'intentions':
+      // Compass-like glyph: a focus point inside a circle, hinting at
+      // direction-of-being. Distinct from the patterns bar-chart.
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="3" />
+          <line x1="12" y1="3" x2="12" y2="6" />
+          <line x1="12" y1="18" x2="12" y2="21" />
+          <line x1="3" y1="12" x2="6" y2="12" />
+          <line x1="18" y1="12" x2="21" y2="12" />
+        </svg>
+      );
+    case 'patterns':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+export function WallNav() {
+  const pathname = usePathname();
+  const activeWall = useWallState((s) => s.activeWall);
+  const setTab = useWallState((s) => s.setTab);
+  const setJournalTab = useWallState((s) => s.setJournalTab);
+
+  const currentTab = tabForPath(pathname);
+
+  // Build the slot layout for the active wall. Index 2 is always the
+  // raised center action button. The wall-flip mechanism lives on the
+  // Wall Edge Tab (right edge), so all five slots are in-wall pages.
+  const slots: NavSlot[] = activeWall === 'tasks'
+    ? [
+        { href: '/today', key: 'today', labelKey: 'tab.today' },
+        { href: '/lists', key: 'lists', labelKey: 'tab.lists' },
+        { href: '/voice', key: 'capture', labelKey: 'tab.capture', isCenter: true },
+        { href: '/upcoming', key: 'upcoming', labelKey: 'tab.upcoming' },
+        { href: '/groceries', key: 'groceries', labelKey: 'tab.groceries' },
+      ]
+    : [
+        // Journal wall (4 slots as of Apr 2026 — Intentions hidden,
+        // Guided moved to Pulse bubble, center slot is now the
+        // dedicated Journal writing surface).
+        { href: '/home', key: 'pulse', labelKey: 'tab.pulse' },
+        { href: '/history', key: 'history', labelKey: 'tab.history' },
+        { href: '/journal', key: 'journal', labelKey: 'tab.journal', isCenter: true },
+        { href: '/patterns', key: 'patterns', labelKey: 'tab.patterns' },
+      ];
+
+  return (
+    <nav className="fixed bottom-0 inset-x-0 glass-card z-50">
+      <div className="max-w-lg mx-auto flex items-end px-2 pt-2 pb-[max(2.25rem,env(safe-area-inset-bottom))]">
+        {slots.map((slot) => {
+          // The center slot is a raised primary action — bigger, sits
+          // proud of the nav. On the Tasks wall it's the mic icon. On
+          // the Journal wall it's the user's chosen guide avatar + name
+          // (so the user sees who they're about to talk to before they
+          // tap, not a generic chat bubble).
+          if (slot.isCenter) {
+            // Both walls render the center slot as a raised primary
+            // action. Tasks wall → mic. Journal wall → book (opens the
+            // writing surface at /journal). The old guide-avatar-as-
+            // button was moved to a Pulse bubble.
+            const CenterIcon = activeWall === 'journal' ? BookIcon : MicIcon;
+            return (
+              <Link
+                key={slot.key}
+                href={slot.href ?? '#'}
+                className="relative flex-1 flex flex-col items-center -mt-5"
+                aria-label={t(slot.labelKey)}
+              >
+                <motion.div
+                  data-tour="capture-button"
+                  whileTap={!prefersReducedMotion ? { scale: 0.92 } : undefined}
+                  className="w-14 h-14 rounded-full bg-primary text-white flex items-center justify-center shadow-warm-md ring-4 ring-bg"
+                >
+                  <CenterIcon />
+                </motion.div>
+                <span className="text-[10px] font-medium text-text-tertiary mt-1">
+                  {t(slot.labelKey)}
+                </span>
+              </Link>
+            );
+          }
+
+          // Normal tab pill. On click, also persist the new last-tab
+          // for this wall so the edge-tab flip returns here.
+          const isActive = currentTab === slot.key;
+          return (
+            <Link
+              key={slot.key}
+              href={slot.href ?? '#'}
+              data-tour={`tab-${slot.key}`}
+              onClick={() => {
+                if (
+                  activeWall === 'tasks' &&
+                  (slot.key === 'today' ||
+                    slot.key === 'lists' ||
+                    slot.key === 'upcoming' ||
+                    slot.key === 'groceries')
+                ) {
+                  setTab('tasks', slot.key);
+                } else if (
+                  activeWall === 'journal' &&
+                  (slot.key === 'pulse' ||
+                    slot.key === 'history' ||
+                    slot.key === 'patterns')
+                ) {
+                  setJournalTab(slot.key);
+                }
+              }}
+              className="relative flex-1 flex flex-col items-center gap-1 py-1"
+            >
+              <motion.div
+                whileTap={!prefersReducedMotion ? { scale: 0.85 } : undefined}
+                className={isActive ? 'text-primary' : 'text-text-tertiary'}
+              >
+                <TabIcon name={slot.key} />
+              </motion.div>
+              <span className={`text-[10px] font-medium ${isActive ? 'text-primary' : 'text-text-tertiary'}`}>
+                {t(slot.labelKey)}
+              </span>
+              {isActive && (
+                <motion.div
+                  layoutId="navIndicator"
+                  className="absolute -top-0.5 w-5 h-0.5 bg-primary rounded-full"
+                  transition={prefersReducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}

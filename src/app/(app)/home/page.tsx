@@ -19,8 +19,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
 import { getTimeOfDay } from '@/lib/guidanceEngine';
-import { getGuideOrDefault, type GuideId } from '@/lib/guideConfigs';
-import { getGuideAvatar } from '@/lib/guideAvatars';
+import { getGuideOrDefault } from '@/lib/guideConfigs';
 import { toLocalDateStr, entryDateStr } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabase';
 import { t } from '@/lib/translations';
@@ -34,6 +33,9 @@ import {
 import WeeklyReflectionCard from '@/components/WeeklyReflectionCard';
 import DailyPulseCard from '@/components/DailyPulseCard';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
+import GuideMascot from '@/components/mascot/GuideMascot';
+import { fadeUp, prefersReducedMotion } from '@/lib/motionVariants';
 
 interface TemplateInfo {
   id: string;
@@ -197,7 +199,19 @@ export default function HomePage() {
     } catch {}
     return [];
   });
-  const [showGuidedBubble, setShowGuidedBubble] = useState(true);
+  // Free-thought bubble is the only optional bubble now. The guide
+  // bubble was removed entirely once the Journal-wall center button
+  // started showing the user's chosen guide directly. This default
+  // is true so existing users still see Free Thought; opt-out lives
+  // in /settings.
+  const [showFreeThoughtBubble, setShowFreeThoughtBubble] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return localStorage.getItem('show_free_thought_bubble') !== 'false';
+    } catch {
+      return true;
+    }
+  });
   const [editMode, setEditMode] = useState(false);
   const [dataReady, setDataReady] = useState(() => {
     // If we have cached templates, data is ready immediately
@@ -260,25 +274,39 @@ export default function HomePage() {
     return completed;
   }, [entries, today]);
 
-  // Build bubble items
+  // Build bubble items. No guide bubble — the Journal Wall center
+  // button shows the user's chosen guide. Free Thought is toggleable.
   const allItems = useMemo<BubbleItem[]>(() => {
     const items: BubbleItem[] = [];
 
-    if (showGuidedBubble) {
+    // Guided session with the user's chosen guide — moved off the
+    // Journal-wall center button (which is now the book / writing
+    // surface) into a Pulse bubble.
+    items.push({
+      id: '__guided__',
+      icon: '💬', // 💬 speech balloon
+      label: t('home.guidedSession'),
+      href: '/guided',
+    });
+
+    // Ask Jane — bare Gemini Q&A, no persona. Ephemeral chat surface.
+    items.push({
+      id: '__askjane__',
+      icon: '✨', // ✨ sparkles
+      label: t('home.askJane'),
+      href: '/ask',
+    });
+
+    if (showFreeThoughtBubble) {
       items.push({
-        id: '__guided__',
-        icon: { type: 'avatar', src: getGuideAvatar(guide.id as GuideId), alt: guide.name },
-        label: guide.name,
-        href: '/guided',
+        id: '__voice__',
+        // Open book — replaces the old microphone emoji per user
+        // feedback ("more like a beautiful book").
+        icon: '\uD83D\uDCD6',
+        label: t('home.freeThought'),
+        href: '/voice',
       });
     }
-
-    items.push({
-      id: '__voice__',
-      icon: '\uD83C\uDFA4\uFE0F',
-      label: t('home.freeThought'),
-      href: '/voice',
-    });
 
     const locale = getLocale();
     for (const tmpl of templates.filter((tp) => enabledIds.includes(tp.id))) {
@@ -292,7 +320,7 @@ export default function HomePage() {
     }
 
     return items;
-  }, [showGuidedBubble, guide, templates, enabledIds, templateCompletedToday]);
+  }, [showFreeThoughtBubble, templates, enabledIds, templateCompletedToday]);
 
   // Build a map from item ID to BubbleItem for quick lookup
   const itemMap = useMemo(() => new Map(allItems.map((item) => [item.id, item])), [allItems]);
@@ -382,8 +410,8 @@ export default function HomePage() {
     fetchCompletions(today, today);
     fetchEntries();
 
-    const guidedPref = typeof window !== 'undefined' ? localStorage.getItem('show_guided_bubble') : null;
-    setShowGuidedBubble(guidedPref !== 'false');
+    const ftPref = typeof window !== 'undefined' ? localStorage.getItem('show_free_thought_bubble') : null;
+    setShowFreeThoughtBubble(ftPref !== 'false');
 
     const stored = typeof window !== 'undefined' ? localStorage.getItem('enabled_template_ids') : null;
     const ids = stored ? (JSON.parse(stored) as string[]) : [];
@@ -447,14 +475,25 @@ export default function HomePage() {
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
       {/* Greeting */}
-      <div>
-        <p className="text-sm text-text-secondary">
-          {new Date().toLocaleDateString(getLanguage(), { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
-        <h1 className="text-2xl font-bold text-text-primary mt-1">{greeting}</h1>
-      </div>
+      <motion.div
+        {...(prefersReducedMotion ? {} : fadeUp)}
+        className="flex items-start gap-3"
+      >
+        <div className="flex-1">
+          <p className="text-sm text-text-secondary">
+            {new Date().toLocaleDateString(getLanguage(), { weekday: 'long', month: 'long', day: 'numeric' })}
+          </p>
+          <h1 className="text-2xl font-bold text-text-primary mt-1 leading-tight">{greeting}</h1>
+        </div>
+        <div className="shrink-0 -mt-1">
+          <GuideMascot pose="idle" size="md" animate />
+        </div>
+      </motion.div>
 
-      {/* Daily Pulse — always first after greeting */}
+      {/* Daily Pulse — morning/evening reflection prompts. The body
+          & mind check-in is now the final two steps of the same flow
+          (one question per screen) so users get a single contained
+          ritual instead of a separate always-visible card. */}
       <DailyPulseCard entries={entries} />
 
       {/* Patterns link — after 7+ pulses */}
@@ -468,14 +507,26 @@ export default function HomePage() {
         </Link>
       )}
 
-      {/* Drag-and-drop bubble grid */}
+      {/* Drag-and-drop bubble grid — trims trailing empty rows unless editing */}
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
         <div className="grid grid-cols-3 gap-2">
-          {gridSlots.map((itemId, slotIndex) => {
+          {(() => {
+            if (editMode) return gridSlots;
+            // Round the last-filled index up to the end of its row (3 cols)
+            // so each visible row is complete and doesn't leave a ragged edge.
+            let lastFilled = -1;
+            for (let i = gridSlots.length - 1; i >= 0; i--) {
+              if (gridSlots[i] !== null) { lastFilled = i; break; }
+            }
+            if (lastFilled === -1) return [];
+            const cols = 3;
+            const end = Math.ceil((lastFilled + 1) / cols) * cols;
+            return gridSlots.slice(0, end);
+          })().map((itemId, slotIndex) => {
             const item = itemId ? itemMap.get(itemId) ?? null : null;
             return (
               <DroppableSlot

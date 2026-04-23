@@ -49,11 +49,15 @@ const translations: Record<string, Record<Locale, string>> = {
   'settings.homeScreen': { en: 'Home Screen', es: 'Pantalla de inicio' },
   'settings.guidedJournal': { en: 'Guided Journal', es: 'Diario guiado' },
   'settings.yourGuide': { en: 'Your Guide', es: 'Tu guía' },
+  'settings.guideChanged': { en: 'Your guide is now {name}', es: 'Tu guía ahora es {name}' },
+  'common.error': { en: 'Something went wrong', es: 'Algo salió mal' },
   'settings.templates': { en: 'Templates', es: 'Plantillas' },
   'settings.manageTemplates': { en: 'Manage Templates', es: 'Administrar plantillas' },
   'settings.activeOnHome': { en: '{count} active on home screen', es: '{count} activas en la pantalla de inicio' },
   'settings.appearance': { en: 'Appearance', es: 'Apariencia' },
   'settings.theme': { en: 'Theme', es: 'Tema' },
+  'settings.guideTheme': { en: 'Match theme to my guide', es: 'Tema según mi guía' },
+  'settings.guideThemeDesc': { en: 'App accent color follows your selected guide.', es: 'El color principal sigue al guía elegido.' },
   'settings.dark': { en: 'Dark', es: 'Oscuro' },
   'settings.light': { en: 'Light', es: 'Claro' },
   'settings.language': { en: 'Language', es: 'Idioma' },
@@ -89,6 +93,14 @@ const translations: Record<string, Record<Locale, string>> = {
   'guided.typePlaceholder': { en: 'Type or tap mic to speak...', es: 'Escribe o toca el micrófono para hablar...' },
   'guided.listeningPlaceholder': { en: 'Listening...', es: 'Escuchando...' },
   'guided.leaveConfirm': { en: 'Leave session? Your progress is saved.', es: '¿Salir de la sesión? Tu progreso está guardado.' },
+  // Debug timeline (shown after 10s if guide hasn't responded)
+  'guided.debugCopy': { en: 'Copy', es: 'Copiar' },
+  'guided.debugCopied': { en: 'Copied', es: 'Copiado' },
+  'guided.debugHeader': { en: 'debug — tap copy and share with support', es: 'depuración — copia y comparte con soporte' },
+  // Rate limit (both engines exhausted)
+  'guided.rateLimitTitle': { en: 'Daily limit reached', es: 'Límite diario alcanzado' },
+  'guided.rateLimitResetNote': { en: 'Resets at midnight Pacific. Your draft is saved.', es: 'Se reinicia a la medianoche del Pacífico. Tu borrador está guardado.' },
+  'guided.rateLimitGoHome': { en: 'Go home', es: 'Ir al inicio' },
 
   // ─── Journal ───
   'journal.title': { en: 'Journal', es: 'Diario' },
@@ -115,6 +127,193 @@ const translations: Record<string, Record<Locale, string>> = {
   'journal.hAgo': { en: '{n}h ago', es: 'hace {n}h' },
   'journal.yesterday': { en: 'yesterday', es: 'ayer' },
   'journal.dAgo': { en: '{n}d ago', es: 'hace {n}d' },
+  'journal.draft': { en: 'Draft', es: 'Borrador' },
+  'journal.tapToResume': { en: 'Tap to resume', es: 'Toca para continuar' },
+
+  // ─── Categories ───
+  'category.groceries': { en: 'Groceries', es: 'Despensa' },
+  'category.medications': { en: 'Medications', es: 'Medicamentos' },
+  'category.errands': { en: 'Errands', es: 'Recados' },
+  'category.work': { en: 'Work', es: 'Trabajo' },
+  'category.home': { en: 'Home', es: 'Hogar' },
+  'category.bills': { en: 'Bills', es: 'Cuentas' },
+  'category.other': { en: 'Other', es: 'Otros' },
+
+  // ─── Capture preview sheet ───
+  'preview.title': { en: 'Review and save', es: 'Revisar y guardar' },
+  'preview.confirm': { en: 'Save these', es: 'Guardar' },
+  'preview.cancel': { en: 'Cancel', es: 'Cancelar' },
+  'preview.markDone': { en: 'Mark as done', es: 'Marcar como hecho' },
+  'preview.matched': { en: 'matched', es: 'coincide con' },
+  'preview.noMatch': { en: 'no match — will be ignored', es: 'sin coincidencia — se ignorará' },
+  'preview.willSkip': { en: 'will be removed', es: 'se eliminará' },
+  'preview.tasks': { en: 'Tasks', es: 'Tareas' },
+  'preview.plans': { en: 'Plans', es: 'Eventos' },
+  'preview.intentions': { en: 'Intentions', es: 'Intenciones' },
+  'preview.habits': { en: 'Habits', es: 'Hábitos' },
+  'preview.ideas': { en: 'Ideas', es: 'Ideas' },
+  'preview.gratitude': { en: 'Gratitude', es: 'Gratitud' },
+  'preview.journal': { en: 'Journal entry', es: 'Entrada del diario' },
+  'preview.empty': { en: 'Nothing detected — write a bit more.', es: 'Nada detectado — escribe un poco más.' },
+  'preview.saving': { en: 'Saving...', es: 'Guardando...' },
+  'preview.addItemToStore': {
+    en: 'Add to {store}',
+    es: 'Agregar a {store}',
+  },
+  'preview.fallbackBanner': {
+    en: "Couldn't fully parse your capture — here's our best guess.",
+    es: 'No pudimos interpretar por completo tu captura — esta es nuestra mejor suposición.',
+  },
+  'preview.fallbackHint': {
+    en: 'Review and edit below before saving, or tap Retry to run the classifier again.',
+    es: 'Revisa y edita abajo antes de guardar, o toca Reintentar para volver a clasificar.',
+  },
+  'preview.retryClassify': {
+    en: 'Retry classification',
+    es: 'Reintentar clasificación',
+  },
+  'preview.routingSummary': {
+    en: 'Where it\u2019ll go',
+    es: 'A dónde irá',
+  },
+  'preview.saveTimeout': {
+    en: 'Save took too long — try again.',
+    es: 'Guardar tardó demasiado — intenta de nuevo.',
+  },
+  'preview.saveFailed': {
+    en: 'Couldn\u2019t save. Try again.',
+    es: 'No se pudo guardar. Intenta de nuevo.',
+  },
+
+  // ─── Voice check-off ───
+  'checkoff.marked': { en: 'Marked done: {item}', es: 'Marcado: {item}' },
+  'checkoff.removed': { en: 'Removed: {item}', es: 'Eliminado: {item}' },
+
+  // ─── Two-wall navigation ───
+  'wall.tasks': { en: 'Tasks', es: 'Tareas' },
+  'wall.journal': { en: 'Journal', es: 'Diario' },
+  'wall.flipTo': { en: '{wall}', es: '{wall}' },
+  'tab.today': { en: 'Today', es: 'Hoy' },
+  'tab.plans': { en: 'Plans', es: 'Eventos' },
+  'tab.lists': { en: 'Lists', es: 'Listas' },
+  'tab.upcoming': { en: 'Upcoming', es: 'Próximo' },
+  'tab.intentions': { en: 'Intentions', es: 'Intenciones' },
+  'tab.groceries': { en: 'Groceries', es: 'Despensa' },
+  'tab.pulse': { en: 'Pulse', es: 'Pulso' },
+  'tab.history': { en: 'History', es: 'Historial' },
+  'tab.patterns': { en: 'Patterns', es: 'Patrones' },
+  'tab.capture': { en: 'Capture', es: 'Capturar' },
+  'tab.guide': { en: 'Guide', es: 'Guía' },
+  'tab.journal': { en: 'Journal', es: 'Diario' },
+
+  // ─── Journal writing surface (/journal) ───
+  'journalWrite.placeholder': {
+    en: 'Start writing, or tap the mic…',
+    es: 'Empieza a escribir, o toca el mic…',
+  },
+  'journalWrite.micStart': { en: 'Tap to speak', es: 'Toca para hablar' },
+  'journalWrite.micStop': { en: 'Stop recording', es: 'Detener grabación' },
+  'journalWrite.save': { en: 'Save entry', es: 'Guardar entrada' },
+
+  // ─── Ask Jane (/ask) ───
+  'ask.title': { en: 'Ask Jane', es: 'Pregúntale a Jane' },
+  'ask.placeholder': {
+    en: 'Ask anything — quick answers, no persona.',
+    es: 'Pregunta lo que quieras — respuestas rápidas, sin personaje.',
+  },
+  'ask.prompt': { en: 'Message Jane…', es: 'Escríbele a Jane…' },
+
+  // ─── Pulse-tab bubbles ───
+  'home.guidedSession': { en: 'Guided session', es: 'Sesión guiada' },
+  'home.askJane': { en: 'Ask Jane', es: 'Pregúntale a Jane' },
+  'view.list': { en: 'List', es: 'Lista' },
+  'view.matrix': { en: 'Matrix', es: 'Matriz' },
+  'view.week': { en: 'Week', es: 'Semana' },
+  'view.month': { en: 'Month', es: 'Mes' },
+
+  // ─── Eisenhower matrix quadrants ───
+  'matrix.q1.title': { en: 'Do', es: 'Hacer' },
+  'matrix.q1.subtitle': { en: 'Urgent + Important', es: 'Urgente + Importante' },
+  'matrix.q2.title': { en: 'Schedule', es: 'Programar' },
+  'matrix.q2.subtitle': { en: 'Important, not urgent', es: 'Importante, no urgente' },
+  'matrix.q3.title': { en: 'Delegate', es: 'Delegar' },
+  'matrix.q3.subtitle': { en: 'Urgent, not important', es: 'Urgente, no importante' },
+  'matrix.q4.title': { en: 'Drop', es: 'Eliminar' },
+  'matrix.q4.subtitle': { en: 'Neither urgent nor important', es: 'Ni urgente ni importante' },
+  'matrix.unsorted': { en: 'Unsorted', es: 'Sin clasificar' },
+  'matrix.unsortedHint': {
+    en: 'Tap a task to set urgency and importance.',
+    es: 'Toca una tarea para asignar urgencia e importancia.',
+  },
+  'matrix.urgent': { en: 'Urgent', es: 'Urgente' },
+  'matrix.important': { en: 'Important', es: 'Importante' },
+  'matrix.tooMany': {
+    en: 'Heavy quadrant — consider trimming.',
+    es: 'Cuadrante cargado — considera reducirlo.',
+  },
+  'matrix.empty': {
+    en: "Today's list is empty. Capture a task to get started.",
+    es: 'La lista de hoy está vacía. Captura una tarea para empezar.',
+  },
+
+  // ─── Lists / Inbox / Upcoming (stubs in Phase 1) ───
+  'lists.comingSoon': {
+    en: 'Project lists are coming soon. Voice captures will route here when you mention a project name.',
+    es: 'Las listas de proyectos llegarán pronto. Las capturas por voz se dirigirán aquí cuando menciones un proyecto.',
+  },
+  'upcoming.comingSoon': {
+    en: 'Your weekly + monthly calendar is coming soon. Add events with a future date and they will appear here.',
+    es: 'Tu calendario semanal y mensual llegará pronto. Agrega eventos con una fecha futura y aparecerán aquí.',
+  },
+  'inbox.empty': { en: 'Nothing to triage. ✨', es: 'Nada por triar. ✨' },
+  'inbox.label': { en: 'Inbox', es: 'Bandeja' },
+  // Voice / capture page
+  // ─── Body & Mind daily check-in ───
+  'checkin.title': { en: 'Body & Mind', es: 'Cuerpo y mente' },
+  'checkin.body': { en: 'Body', es: 'Cuerpo' },
+  'checkin.mind': { en: 'Mind', es: 'Mente' },
+  'checkin.saved': { en: 'Saved', es: 'Guardado' },
+  'checkin.savedAgo': { en: 'Saved {n}m ago', es: 'Guardado hace {n}m' },
+  'checkin.body.heavy': { en: 'Heavy', es: 'Pesado' },
+  'checkin.body.tired': { en: 'Tired', es: 'Cansado' },
+  'checkin.body.steady': { en: 'Steady', es: 'Estable' },
+  'checkin.body.strong': { en: 'Strong', es: 'Fuerte' },
+  'checkin.body.vibrant': { en: 'Vibrant', es: 'Encendido' },
+  // Pulse-step prompts shown as the question above each emoji row
+  'pulse.bodyPrompt': { en: 'How does your body feel?', es: '¿Cómo se siente tu cuerpo?' },
+  'pulse.mindPrompt': { en: 'How is your mind?', es: '¿Cómo está tu mente?' },
+  'pulse.skip': { en: 'Skip', es: 'Saltar' },
+  'checkin.mind.foggy': { en: 'Foggy', es: 'Confuso' },
+  'checkin.mind.hazy': { en: 'Hazy', es: 'Disperso' },
+  'checkin.mind.steady': { en: 'Steady', es: 'Presente' },
+  'checkin.mind.clear': { en: 'Clear', es: 'Claro' },
+  'checkin.mind.sharp': { en: 'Sharp', es: 'Agudo' },
+
+  'voice.capturePlaceholder': {
+    en: 'Talk freely — priorities, plans, groceries, ideas…',
+    es: 'Habla libremente — tareas, eventos, despensa, ideas…',
+  },
+  'groceries.placeholder': { en: 'Add a grocery item…', es: 'Agregar artículo…' },
+  'groceries.empty': {
+    en: 'Your grocery list is empty. Add an item below or tap the mic to speak.',
+    es: 'Tu lista de compras está vacía. Agrega un artículo abajo o toca el micrófono para hablar.',
+  },
+  'groceries.addToStore': {
+    en: 'Add to {store}',
+    es: 'Agregar a {store}',
+  },
+
+  // ─── Intention practices (Patterns play button)
+  'practice.skip': { en: 'Skip step', es: 'Saltar paso' },
+  'practice.end': { en: 'End', es: 'Terminar' },
+  'practice.comingSoon': {
+    en: "Practice coming soon for this intention.",
+    es: 'Práctica próximamente para esta intención.',
+  },
+  'practice.complete': { en: 'Well done.', es: 'Bien hecho.' },
+  'practice.pause': { en: 'Pause', es: 'Pausa' },
+  'practice.resume': { en: 'Resume', es: 'Continuar' },
+  'practice.timeLeft': { en: 'left', es: 'restante' },
 
   // ─── Pulse ───
   'pulse.save': { en: 'Save', es: 'Guardar' },
@@ -123,9 +322,15 @@ const translations: Record<string, Record<Locale, string>> = {
   'pulse.patternsTitle': { en: 'Pulse Patterns', es: 'Patrones del pulso' },
   'pulse.analyzing': { en: 'Analyzing your patterns...', es: 'Analizando tus patrones...' },
   'pulse.entries': { en: '{count} entries', es: '{count} entradas' },
+  'guided.liteMode': { en: 'lite mode today', es: 'modo ligero hoy' },
+  'guided.takingAMoment': { en: 'Taking a moment — composing a thoughtful reply.', es: 'Un momento — redactando una respuesta cuidadosa.' },
+  'pulse.emptyTitle': { en: 'No patterns yet', es: 'Aún no hay patrones' },
+  'pulse.emptyMessage': { en: 'Check in daily and patterns will appear here.', es: 'Regístrate a diario y los patrones aparecerán aquí.' },
   // Morning pulse
   'pulse.morning.q1': { en: "What's the one thing that would make today feel like a win?", es: '¿Cuál es la cosa que haría que hoy se sienta como un logro?' },
   'pulse.morningDone': { en: 'Morning Pulse', es: 'Pulso matutino' },
+  'pulse.morningSaved': { en: 'Morning intention saved', es: 'Intención matutina guardada' },
+  'pulse.eveningSaved': { en: 'Evening reflection saved', es: 'Reflexión nocturna guardada' },
   'pulse.intentionLabel': { en: 'Intention', es: 'Intención' },
   // Evening pulse
   'pulse.evening.q1': { en: 'What went right today?', es: '¿Qué salió bien hoy?' },
@@ -146,18 +351,21 @@ const translations: Record<string, Record<Locale, string>> = {
   'write.title': { en: 'Free Write', es: 'Escritura libre' },
   'write.save': { en: 'Save Entry', es: 'Guardar entrada' },
   'write.saving': { en: 'Saving...', es: 'Guardando...' },
+  'write.saved': { en: 'Entry saved', es: 'Entrada guardada' },
   'write.placeholder': { en: "What's on your mind?", es: '¿Qué tienes en mente?' },
 
   // ─── Priorities / Tasks ───
-  'priorities.title': { en: 'Tasks & Groceries', es: 'Tareas y compras' },
+  'priorities.title': { en: 'Tasks', es: 'Tareas' },
   'priorities.today': { en: 'Today', es: 'Hoy' },
   'priorities.priorities': { en: 'Priorities', es: 'Prioridades' },
   'priorities.habits': { en: 'Habits', es: 'Hábitos' },
+  'priorities.scheduledToday': { en: 'Scheduled today', es: 'Programadas hoy' },
   'priorities.groceries': { en: 'Groceries', es: 'Compras' },
   'priorities.addTasks': { en: 'Add Tasks', es: 'Agregar tareas' },
   'priorities.processing': { en: 'Processing...', es: 'Procesando...' },
   'priorities.placeholder': { en: 'Add a priority...', es: 'Agrega una prioridad...' },
   'priorities.empty': { en: 'No tasks for today yet.', es: 'Aún no hay tareas para hoy.' },
+  'priorities.allDone': { en: 'All done — nice work!', es: '¡Todo listo, buen trabajo!' },
   'priorities.activityLog': { en: 'Activity Log', es: 'Registro de actividad' },
 
   // ─── Plans ───
@@ -292,6 +500,52 @@ const translations: Record<string, Record<Locale, string>> = {
   'onboarding.templateSubtitle': { en: 'These show on your home screen. Tap to toggle.', es: 'Estas aparecen en tu pantalla de inicio. Toca para activar.' },
   'onboarding.settingUp': { en: 'Setting up...', es: 'Configurando...' },
   'onboarding.startJournaling': { en: 'Start Journaling', es: 'Comenzar a escribir' },
+
+  // ─── Onboarding v3: welcome / install / tour ───
+  'onboarding.welcome.headline': { en: 'Welcome to your practice.', es: 'Bienvenido a tu práctica.' },
+  'onboarding.welcome.body': {
+    en: 'Journaling is a quiet art. The page is yours — nobody reads it. That’s what makes it honest.',
+    es: 'El diario es un arte silencioso. La página es tuya — nadie la lee. Por eso puede ser honesta.',
+  },
+  'onboarding.welcome.cta': { en: 'Continue', es: 'Continuar' },
+  'onboarding.guide.title': { en: 'Choose your guide', es: 'Elige tu guía' },
+  'onboarding.guide.subtitle': {
+    en: 'Each has their own voice. You can switch anytime.',
+    es: 'Cada uno tiene su voz. Puedes cambiar cuando quieras.',
+  },
+  'onboarding.guide.awake': { en: 'Hey. I’m {name}.', es: 'Hey. Soy {name}.' },
+  'onboarding.install.teaser': {
+    en: 'Let’s make this a home-screen habit, not a browser tab.',
+    es: 'Hagamos esto un hábito en tu pantalla de inicio, no una pestaña del navegador.',
+  },
+  'onboarding.install.iosTitle': { en: 'Add me to your home screen', es: 'Agrégame a tu pantalla de inicio' },
+  'onboarding.install.iosBody': {
+    en: 'Tap the Share icon, then "Add to Home Screen." Open it from there and we’re set.',
+    es: 'Toca el ícono de Compartir y luego "Añadir a pantalla de inicio". Ábrelo desde ahí y listo.',
+  },
+  'onboarding.install.iosStep1': { en: 'Tap the Share icon', es: 'Toca Compartir' },
+  'onboarding.install.iosStep2': { en: '"Add to Home Screen"', es: '"Añadir a pantalla de inicio"' },
+  'onboarding.install.iosStep3': { en: 'Tap Add', es: 'Toca Añadir' },
+  'onboarding.install.androidTitle': { en: 'Install as an app', es: 'Instala como app' },
+  'onboarding.install.androidBody': {
+    en: 'Your phone will ask permission — say yes.',
+    es: 'Tu teléfono te pedirá permiso — di que sí.',
+  },
+  'onboarding.install.androidCta': { en: 'Install', es: 'Instalar' },
+  'onboarding.install.androidStep1': { en: 'Open the Chrome menu', es: 'Abre el menú de Chrome' },
+  'onboarding.install.androidStep2': { en: 'Tap "Install app"', es: 'Toca "Instalar app"' },
+  'onboarding.install.added': { en: 'I added it', es: 'Ya lo agregué' },
+  'onboarding.install.skip': { en: 'Skip for now', es: 'Saltar por ahora' },
+  'onboarding.install.installed': { en: 'Already installed — nice.', es: 'Ya está instalado — qué bien.' },
+  'onboarding.name.title': { en: 'And you are?', es: '¿Y tú eres?' },
+  'onboarding.name.subtitle': {
+    en: 'Just a first name. You can change it later.',
+    es: 'Solo tu nombre. Puedes cambiarlo después.',
+  },
+  'tour.showMe': { en: 'Show me', es: 'Muéstrame' },
+  'tour.skip': { en: 'Skip', es: 'Saltar' },
+  'tour.next': { en: 'Next', es: 'Siguiente' },
+  'tour.done': { en: 'Thanks', es: 'Gracias' },
 };
 
 export function t(key: string, params?: Record<string, string | number>): string {
