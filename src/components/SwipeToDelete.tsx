@@ -303,7 +303,11 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
 
   return (
     <div ref={containerRef} className="relative overflow-hidden rounded-xl">
-      {/* Copy panel — revealed by LEFT-TO-RIGHT swipe. */}
+      {/* Copy panel — revealed by LEFT-TO-RIGHT swipe. Hidden while
+          the row is at rest so the primary-color fill can't peek
+          through the card's rounded corners. `visibility` (not
+          `display`) keeps layout stable so the transform reveal
+          doesn't reflow on first swipe. */}
       {onCopy && (
         <div
           aria-hidden={revealed !== 'left'}
@@ -311,6 +315,7 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
           style={{
             width: ACTION_WIDTH,
             pointerEvents: revealed === 'left' ? 'auto' : 'none',
+            visibility: offsetX > 0 ? 'visible' : 'hidden',
           }}
         >
           <button
@@ -337,13 +342,15 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
         </div>
       )}
 
-      {/* Delete panel — revealed by RIGHT-TO-LEFT swipe. */}
+      {/* Delete panel — revealed by RIGHT-TO-LEFT swipe. Same
+          at-rest visibility gate as the Copy panel above. */}
       <div
         aria-hidden={revealed !== 'right'}
         className="absolute inset-y-0 right-0 flex items-center justify-center bg-error"
         style={{
           width: ACTION_WIDTH,
           pointerEvents: revealed === 'right' ? 'auto' : 'none',
+          visibility: offsetX < 0 ? 'visible' : 'hidden',
         }}
       >
         <button
