@@ -1,11 +1,14 @@
-// Sprint 2: Raw → Structured polish pass.
+// Raw → Structured polish pass.
 //
-// On first view of the "Structured" tab for a journal entry, we call
-// Gemini to add paragraph breaks, numbering, and light spelling fixes
-// to the raw transcript. Result is cached to `content_structured`
-// column so subsequent toggles are instant. Cache invalidates
-// automatically in journalStore.updateEntry when `content_text`
-// changes.
+// Runs in the background the moment a new entry is saved (see
+// journalStore.createEntry). The result lands in `content_structured`
+// and is rendered as Markdown on entry cards + the single-entry
+// editor. Not re-run on view.
+//
+// Output is Markdown — bullets, numbered lists, **bold**, *italic*,
+// `---` separators, paragraph breaks. The renderer uses react-markdown
+// + remark-gfm, so GFM-flavored syntax (task lists, strikethrough) is
+// supported too.
 //
 // Strict rules (baked into the prompt):
 //   - Do NOT summarize or omit content.
@@ -26,21 +29,41 @@ function buildPrompt(raw: string, dictionary: string[]): string {
     dictionary.length > 0
       ? `\n\nDICTIONARY (preserve these spellings exactly; correct the transcript to match when it's obviously the same word mis-transcribed):\n${dictionary.map((w) => `- ${w}`).join('\n')}`
       : '';
-  return `You are polishing a voice-dictated journal entry for readability.
+  return `You are polishing a voice-dictated journal entry for readability. Output is Markdown and will be rendered with react-markdown + remark-gfm.
 
-STRICT RULES:
-- Do NOT summarize, condense, or omit ANY content. Every idea in the raw must be present in the output.
-- Preserve the author's voice and word choice. This is not a rewrite — it's light formatting.
-- Add paragraph breaks where the author shifts topic. Short entries may stay as a single paragraph.
-- If the author clearly enumerates ("first… second… third…" or "one thing is… another…"), render as a numbered list. Otherwise keep prose.
-- Fix only obvious spelling/punctuation/capitalization from dictation errors. Do not "improve" phrasing.
-- Do not add greetings, salutations, or closing lines.
-- Plain text output. No markdown headers, no bold, no italics.${dictBlock}
+CONTENT RULES (non-negotiable):
+- Do NOT summarize, condense, or omit ANY content. Every idea in the raw must appear in the output.
+- Preserve the author's voice and word choice. This is light formatting, not a rewrite.
+- Fix only obvious spelling / punctuation / capitalization errors from dictation. Do NOT "improve" phrasing.
+- Do not add greetings, salutations, sign-offs, or meta commentary ("Here's a polished version...").
+- Do not add headings (no \`#\`, \`##\`, etc). Structure comes from paragraphs and lists, not section titles.
+
+FORMATTING RULES (Markdown):
+- Paragraph break (blank line) on every clear topic shift. Short entries may remain a single paragraph.
+- When the author enumerates ("first… second… third…", "one thing is… another…", step-by-step), render as a numbered list using \`1.\`, \`2.\`, \`3.\`. Indent sub-points with two spaces.
+- When the author rattles off unordered items (a to-do-style list, a list of people, a jot list), render as a bullet list using \`- \`.
+- Use \`**bold**\` sparingly — at most one phrase per paragraph, only to mark the single most important moment ("I realized **I haven't been honest about this**"). Never bold a whole sentence.
+- Use \`*italic*\` for quoted self-talk, the user's own reported speech, or titles of books/songs the author mentions ("she said *I'm done*"). Do not italicize for generic emphasis.
+- Use \`---\` on its own line as a separator between clearly distinct topics that each span 2+ paragraphs. Don't use it for every paragraph break.
+- Prefer ordinary prose when in doubt. Lists and bolding should feel earned, not decorative.
+
+EXAMPLES (illustrative only — do not copy phrasing):
+Raw: "today was rough i had three things to get through first the dentist then a call with mom then groceries"
+Polished:
+Today was rough. I had three things to get through:
+
+1. The dentist
+2. A call with mom
+3. Groceries
+
+Raw: "i keep thinking about what dad said i just cant shake it"
+Polished:
+I keep thinking about what Dad said. *I just can't shake it.*${dictBlock}
 
 RAW ENTRY:
 ${raw.trim()}
 
-Respond with only the polished text — no preamble, no quote marks, no "Here's the polished version:"`;
+Respond with ONLY the polished Markdown — no preamble, no quote marks, no "Here's the polished version:".`;
 }
 
 export async function loadVoiceDictionary(): Promise<string[]> {
@@ -87,21 +110,32 @@ export async function getStructured(entry: {
   const prompt = buildPrompt(raw, dict);
   const text = (await callGemini(STRUCTURE_MODEL, prompt, TIMEOUT_MS)).trim();
 
-  // Persist in the background so the next view is instant. Don't
-  // block the UI on this — if the write fails, we just regenerate
-  // next time.
-  withTimeout(
-    supabase
-      .from('journal_entries')
-      .update({
-        content_structured: text,
-        structured_generated_at: new Date().toISOString(),
-        structured_gemini_model: STRUCTURE_MODEL,
-      })
-      .eq('id', entry.id),
-    15_000,
-    'persist-structured',
-  ).catch(() => {});
+  // Persist synchronously so the next view is instant. Earlier this
+  // was fire-and-forget with `.catch(() => {})`, which silently ate
+  // RLS / timeout errors — entries ended up still showing raw on
+  // reload because the `content_structured` column never actually
+  // landed in the DB. Awaiting here exposes those errors to the
+  // caller, who can retry or fall back to the text we already have
+  // in hand.
+  try {
+    const { error } = await withTimeout(
+      supabase
+        .from('journal_entries')
+        .update({
+          content_structured: text,
+          structured_generated_at: new Date().toISOString(),
+          structured_gemini_model: STRUCTURE_MODEL,
+        })
+        .eq('id', entry.id),
+      15_000,
+      'persist-structured',
+    );
+    if (error) {
+      console.warn('[structureEntry] persist failed', error);
+    }
+  } catch (err) {
+    console.warn('[structureEntry] persist threw', err);
+  }
 
   return { text, cached: false };
 }

@@ -61,6 +61,7 @@ export default function SaveEntrySheet({
       const choices = notebooks.map((n) => ({
         slug: n.slug,
         name: n.name,
+        kind: n.kind,
         hint:
           n.system_key === 'journal'
             ? 'default / general thoughts'

@@ -39,15 +39,30 @@ export interface JournalEntry {
 export type NewEntryInput = Pick<JournalEntry, 'entry_type' | 'content_text'> &
   Partial<Omit<JournalEntry, 'id' | 'created_at' | 'updated_at' | 'entry_type' | 'content_text'>>;
 
+interface PendingDelete {
+  entry: JournalEntry;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 interface JournalState {
   entries: JournalEntry[];
   loading: boolean;
   hasFetched: boolean;
   error: string | null;
+  // Entries the user has swipe-deleted but not yet committed. Kept in
+  // memory so Undo can restore them before the timer elapses. Not
+  // persisted across reloads (if the user refreshes, the delete
+  // commits immediately — same as iOS Mail).
+  pendingDeletes: Record<string, PendingDelete>;
   fetchEntries: () => Promise<void>;
   createEntry: (entry: NewEntryInput) => Promise<JournalEntry>;
   updateEntry: (id: string, updates: Partial<JournalEntry>) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
+  // Optimistically remove from the visible list and schedule the
+  // real DB delete after `delayMs`. Returns an undo function the
+  // caller wires up to a toast. If `undo` is never called, the
+  // delete commits when the timer fires.
+  softDeleteEntry: (id: string, delayMs?: number) => { undo: () => void } | null;
   toggleFavorite: (id: string) => Promise<void>;
   fetchEntryById: (id: string) => Promise<JournalEntry | null>;
   // Local-only patch to an entry in the store. Used by Raw/Structured
@@ -62,6 +77,7 @@ export const useJournalStore = create<JournalState>((set, get) => ({
   loading: false,
   hasFetched: false,
   error: null,
+  pendingDeletes: {},
 
   fetchEntries: async () => {
     try {
@@ -148,8 +164,14 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       // Pre-generate the structured view in the background so the
       // next notebook-feed render is instant. Don't await — the
       // user sees their entry immediately; the polished version
-      // lands in content_structured a beat later.
-      if (created.content_text && created.content_text.trim().length > 10) {
+      // lands in content_structured a beat later. Pulse entries
+      // are rendered by PulseEntryCard (structured prompts already)
+      // so we don't need the polish pass for them.
+      const shouldStructure =
+        created.entry_type !== 'pulse' &&
+        !!created.content_text &&
+        created.content_text.trim().length > 5;
+      if (shouldStructure) {
         (async () => {
           try {
             const { getStructured } = await import('../lib/structureEntry');
@@ -171,9 +193,8 @@ export const useJournalStore = create<JournalState>((set, get) => ({
                   : e,
               ),
             }));
-          } catch {
-            // Swallow — EntryCard falls back to generating lazily
-            // on first view.
+          } catch (err) {
+            console.warn('[journalStore] background structure failed', err);
           }
         })();
       }
@@ -237,6 +258,69 @@ export const useJournalStore = create<JournalState>((set, get) => ({
     }
   },
 
+  softDeleteEntry: (id: string, delayMs = 5000) => {
+    const entry = get().entries.find((e) => e.id === id);
+    if (!entry) return null;
+
+    // Stash the row + remove from the visible list immediately so the
+    // UI feels responsive. The real DB delete fires after `delayMs`
+    // unless undone.
+    const commit = () => {
+      set((s) => {
+        const rest = { ...s.pendingDeletes };
+        delete rest[id];
+        return { pendingDeletes: rest };
+      });
+      // Fire-and-forget; errors surface via store.error.
+      (async () => {
+        try {
+          const { error } = await withTimeout(
+            supabase.from('journal_entries').delete().eq('id', id),
+            WRITE_MS,
+            'softDeleteEntry.commit',
+          );
+          if (error) throw error;
+        } catch (err) {
+          // Restore the entry if the DB delete failed so the user's
+          // data isn't silently lost. Keeps ordering by re-sorting on
+          // created_at so it lands back where it was.
+          const restored = entry;
+          set((s) => ({
+            entries: [...s.entries, restored].sort((a, b) =>
+              a.created_at < b.created_at ? 1 : -1,
+            ),
+            error: err instanceof Error ? err.message : 'Failed to delete entry',
+          }));
+        }
+      })();
+    };
+
+    const timer = setTimeout(commit, delayMs);
+
+    set((s) => ({
+      entries: s.entries.filter((e) => e.id !== id),
+      pendingDeletes: { ...s.pendingDeletes, [id]: { entry, timer } },
+    }));
+
+    return {
+      undo: () => {
+        const pending = get().pendingDeletes[id];
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        set((s) => {
+          const rest = { ...s.pendingDeletes };
+          delete rest[id];
+          return {
+            entries: [...s.entries, pending.entry].sort((a, b) =>
+              a.created_at < b.created_at ? 1 : -1,
+            ),
+            pendingDeletes: rest,
+          };
+        });
+      },
+    };
+  },
+
   toggleFavorite: async (id: string) => {
     try {
       const entry = get().entries.find((e) => e.id === id);
@@ -285,5 +369,13 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       entries: s.entries.map((e) => (e.id === id ? { ...e, ...patch } : e)),
     })),
 
-  reset: () => set({ entries: [], loading: false, hasFetched: false, error: null }),
+  reset: () => {
+    // Cancel every outstanding undo timer before clearing — otherwise
+    // a pending delete could fire against a freshly signed-in user's
+    // RLS context once the timer elapses.
+    for (const p of Object.values(get().pendingDeletes)) {
+      clearTimeout(p.timer);
+    }
+    set({ entries: [], loading: false, hasFetched: false, error: null, pendingDeletes: {} });
+  },
 }));

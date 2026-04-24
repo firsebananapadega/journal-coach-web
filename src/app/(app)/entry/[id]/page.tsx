@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useJournalStore, type JournalEntry } from '@/stores/journalStore';
 import { MoodSelector } from '@/components/MoodSelector';
-import { getStructured } from '@/lib/structureEntry';
 import { t } from '@/lib/translations';
 import { getLanguage } from '@/lib/language';
+import { getStructured } from '@/lib/structureEntry';
 
 const ENTRY_TYPE_LABEL: Record<string, string> = {
   voice: 'entry.typeVoice',
@@ -57,11 +59,15 @@ export default function EntryDetailPage() {
   const [saving, setSaving] = useState(false);
 
   // Raw / Structured view toggle (freeform/voice entries only).
-  // Default to 'structured' per user preference — they see the
-  // polished version first, toggle to raw to edit.
+  // Default is Structured. Structuring normally happens in the
+  // background the moment the entry is created (journalStore.createEntry)
+  // and lands in `content_structured`. We also lazily backfill here if
+  // the column is still null — covers entries that pre-date the
+  // feature, or background calls that failed or were cut short by
+  // navigation before they could persist.
   const [viewMode, setViewMode] = useState<'raw' | 'structured'>('structured');
-  const [structuredText, setStructuredText] = useState<string | null>(null);
   const [structuring, setStructuring] = useState(false);
+  const structuredText = (entry?.content_structured ?? '').trim() || null;
 
   useEffect(() => {
     if (id) {
@@ -72,17 +78,14 @@ export default function EntryDetailPage() {
     }
   }, [id, fetchEntryById]);
 
-  // Lazy-load structured text on first switch to the Structured tab.
-  // Uses the cache column directly if already populated.
+  // Lazy backfill: if we have raw text but no structured version yet,
+  // generate one now so the Structured tab isn't silently empty.
   useEffect(() => {
     if (!entry) return;
-    if (viewMode !== 'structured') return;
-    if (structuredText) return;
-    if (entry.content_structured && entry.content_structured.trim()) {
-      setStructuredText(entry.content_structured);
-      return;
-    }
-    if (!entry.content_text || !entry.content_text.trim()) return;
+    if (entry.entry_type === 'pulse' || entry.entry_type === 'guided' || entry.entry_type === 'template') return;
+    const hasRaw = !!entry.content_text && entry.content_text.trim().length > 5;
+    const hasStructured = !!entry.content_structured && entry.content_structured.trim().length > 0;
+    if (!hasRaw || hasStructured) return;
     let cancelled = false;
     setStructuring(true);
     (async () => {
@@ -92,9 +95,12 @@ export default function EntryDetailPage() {
           content_text: entry.content_text,
           content_structured: entry.content_structured,
         });
-        if (!cancelled) setStructuredText(res.text);
+        if (cancelled) return;
+        setEntry((prev) =>
+          prev ? { ...prev, content_structured: res.text, structured_generated_at: new Date().toISOString() } : prev,
+        );
       } catch {
-        // Leave structuredText null; UI falls back to raw display.
+        // Fall through — user can still read raw text.
       } finally {
         if (!cancelled) setStructuring(false);
       }
@@ -102,7 +108,7 @@ export default function EntryDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [entry, viewMode, structuredText]);
+  }, [entry]);
 
   const startEditing = () => {
     if (!entry) return;
@@ -191,7 +197,13 @@ export default function EntryDetailPage() {
   const isTemplate = entry.entry_type === 'template' && !isGuided;
 
   return (
-    <div className="max-w-lg mx-auto px-5 pt-8 pb-24 space-y-6">
+    // Parent (app) layout locks `/entry/*` to h-[100dvh] + overflow-hidden
+    // (see app/(app)/layout.tsx — prevents iOS from panning the document
+    // when an input is focused). We give this page its own scroll
+    // container so long entries can still pan up, and leave extra
+    // bottom padding so the user can scroll past the last line.
+    <div className="flex flex-col h-full overflow-y-auto">
+      <div className="max-w-lg w-full mx-auto px-5 pt-8 pb-[60vh] space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <button onClick={() => router.back()} className="text-text-secondary hover:text-text-primary text-sm">
@@ -366,17 +378,25 @@ export default function EntryDetailPage() {
                 </button>
               </div>
 
-              <div className="prose prose-invert max-w-none">
-                {viewMode === 'structured' ? (
-                  structuring && !structuredText ? (
-                    <p className="text-[14px] text-text-tertiary italic">
-                      {t('entry.structuring')}
-                    </p>
-                  ) : (
-                    <p className="text-[15px] text-text-primary leading-relaxed whitespace-pre-wrap">
-                      {(structuredText || entry.content_text || t('common.noContent'))}
-                    </p>
-                  )
+              <div className="max-w-none">
+                {viewMode === 'structured' && structuredText ? (
+                  <div className="text-[15px] text-text-primary leading-relaxed space-y-3
+                                  [&_p]:leading-relaxed
+                                  [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1
+                                  [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1
+                                  [&_li]:leading-relaxed
+                                  [&_strong]:font-semibold [&_strong]:text-text-primary
+                                  [&_em]:italic [&_em]:text-text-secondary
+                                  [&_hr]:my-5 [&_hr]:border-border
+                                  [&_a]:text-primary [&_a]:underline
+                                  [&_code]:text-sm [&_code]:bg-surface [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded
+                                  [&_blockquote]:pl-3 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:text-text-secondary [&_blockquote]:italic">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {structuredText}
+                    </ReactMarkdown>
+                  </div>
+                ) : viewMode === 'structured' && structuring ? (
+                  <p className="text-[13px] text-text-tertiary italic">Polishing…</p>
                 ) : (
                   <p className="text-[15px] text-text-primary leading-relaxed whitespace-pre-wrap">
                     {entry.content_text || t('common.noContent')}
@@ -387,6 +407,7 @@ export default function EntryDetailPage() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

@@ -20,6 +20,62 @@ import { getLocale } from '@/lib/language';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import EntryCard from './EntryCard';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
+import NotebookSettingsSheet from '@/components/notebooks/NotebookSettingsSheet';
+
+// Build the plain-text view of any entry (pulse + freeform + guided)
+// that the user will paste after swiping to copy. Prefers the polished
+// `content_structured` Markdown, falls back to the raw transcript, and
+// assembles labeled blocks for pulse entries whose data lives in
+// metadata rather than a single text column.
+function textForClipboard(entry: JournalEntry): string {
+  const structured = (entry.content_structured ?? '').trim();
+  if (structured) return structured;
+  if (entry.entry_type === 'pulse') {
+    const meta = (entry.metadata ?? {}) as Record<string, unknown>;
+    const mode = meta.pulseMode === 'morning' || meta.pulseMode === 'evening' ? (meta.pulseMode as string) : '';
+    const lines: string[] = [];
+    if (mode) lines.push(mode === 'morning' ? 'Morning pulse' : 'Evening pulse');
+    const bodyLabel = typeof meta.body_label === 'string' ? meta.body_label : '';
+    const mindLabel = typeof meta.mind_label === 'string' ? meta.mind_label : '';
+    if (bodyLabel) lines.push(`Body: ${bodyLabel}`);
+    if (mindLabel) lines.push(`Mind: ${mindLabel}`);
+    const intention = typeof meta.intention === 'string' ? meta.intention.trim() : '';
+    const wentRight = typeof meta.wentRight === 'string' ? meta.wentRight.trim() : '';
+    const doneBetter = typeof meta.doneBetter === 'string' ? meta.doneBetter.trim() : '';
+    if (intention) lines.push(`Intention: ${intention}`);
+    if (wentRight) lines.push(`Went right: ${wentRight}`);
+    if (doneBetter) lines.push(`Done better: ${doneBetter}`);
+    if (lines.length > 0) return lines.join('\n');
+  }
+  return (entry.content_text ?? '').trim();
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the legacy path.
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 interface Props {
   // When set, the notebook picker is hidden and the feed is locked
@@ -61,7 +117,7 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
   const entries = useJournalStore((s) => s.entries);
   const fetchEntries = useJournalStore((s) => s.fetchEntries);
   const createEntry = useJournalStore((s) => s.createEntry);
-  const deleteEntry = useJournalStore((s) => s.deleteEntry);
+  const softDeleteEntry = useJournalStore((s) => s.softDeleteEntry);
   const hasFetchedEntries = useJournalStore((s) => s.hasFetched);
 
   const notebooks = useNotebookStore((s) => s.notebooks);
@@ -74,6 +130,7 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
   const [saving, setSaving] = useState(false);
   const [activeSlug, setActiveSlug] = useState<string | null>(lockedSlug ?? 'journal');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerStartRef = useRef<number>(Date.now());
 
@@ -234,7 +291,28 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
           </div>
         )}
 
-        <span className="w-10" />
+        {/* Right slot: context-aware gear. On a locked-notebook route
+            this opens *this notebook's* settings (rename / color /
+            icon). The global app-settings gear is suppressed in the
+            (app) layout for these routes, so this replaces — rather
+            than duplicates — it. On the un-locked /journal view the
+            gear has nothing context-specific to do, so we fall back
+            to a spacer to keep the top-bar balanced. */}
+        {lockedSlug && activeNotebook ? (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Notebook settings"
+            className="w-9 h-9 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-text-secondary hover:text-text-primary"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        ) : (
+          <span className="w-10" />
+        )}
       </div>
 
       {/* Feed (scrollable) */}
@@ -243,52 +321,56 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}
       >
         <div className="max-w-md mx-auto px-5 pt-2 pb-10 space-y-5">
-          {/* Composer — today's editable top card */}
-          <section className="relative bg-surface-elevated/70 border border-border rounded-2xl p-4 shadow-warm-md backdrop-blur">
-            <p className="text-[10px] uppercase tracking-widest text-text-tertiary mb-2">
-              {t('journal.today')}
-            </p>
-            <textarea
-              ref={textareaRef}
-              value={composer}
-              onChange={(e) => setComposer(e.target.value)}
-              placeholder={t('journalWrite.placeholder')}
-              className="w-full min-h-[88px] bg-transparent text-[15px] text-text-primary placeholder:text-text-tertiary/60 border-0 outline-none focus:outline-none focus:ring-0 resize-none"
-              style={{ lineHeight: 1.6 }}
-            />
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <motion.button
-                type="button"
-                {...micButtonProps}
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
-                className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-warm-sm
-                  ${isListening ? 'bg-error text-white' : 'bg-surface border border-border text-primary'}
-                  transition-colors`}
-                aria-pressed={isListening}
-                aria-label={isListening ? t('journalWrite.micStop') : t('journalWrite.micStart')}
-              >
-                {isListening ? (
-                  <span className="block w-2.5 h-2.5 rounded-sm bg-white" aria-hidden />
-                ) : (
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </svg>
-                )}
-              </motion.button>
+          {/* Composer — today's editable top card. Suppressed on the
+              Pulse notebook: pulse entries are created from the
+              morning/evening prompt card on /home, never typed here. */}
+          {activeNotebook?.system_key !== 'pulse' && (
+            <section className="relative bg-surface-elevated/70 border border-border rounded-2xl p-4 shadow-warm-md backdrop-blur">
+              <p className="text-[10px] uppercase tracking-widest text-text-tertiary mb-2">
+                {t('journal.today')}
+              </p>
+              <textarea
+                ref={textareaRef}
+                value={composer}
+                onChange={(e) => setComposer(e.target.value)}
+                placeholder={t('journalWrite.placeholder')}
+                className="w-full min-h-[88px] bg-transparent text-[15px] text-text-primary placeholder:text-text-tertiary/60 border-0 outline-none focus:outline-none focus:ring-0 resize-none"
+                style={{ lineHeight: 1.6 }}
+              />
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <motion.button
+                  type="button"
+                  {...micButtonProps}
+                  whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
+                  className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-warm-sm
+                    ${isListening ? 'bg-error text-white' : 'bg-surface border border-border text-primary'}
+                    transition-colors`}
+                  aria-pressed={isListening}
+                  aria-label={isListening ? t('journalWrite.micStop') : t('journalWrite.micStart')}
+                >
+                  {isListening ? (
+                    <span className="block w-2.5 h-2.5 rounded-sm bg-white" aria-hidden />
+                  ) : (
+                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" x2="12" y1="19" y2="22" />
+                    </svg>
+                  )}
+                </motion.button>
 
-              <motion.button
-                type="button"
-                whileTap={prefersReducedMotion || !canSave ? undefined : { scale: 0.97 }}
-                onClick={handleSave}
-                disabled={!canSave}
-                className="flex-1 py-2.5 rounded-xl font-semibold text-white text-sm bg-primary hover:bg-primary-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {saving ? t('common.saving') : t('journalWrite.save')}
-              </motion.button>
-            </div>
-          </section>
+                <motion.button
+                  type="button"
+                  whileTap={prefersReducedMotion || !canSave ? undefined : { scale: 0.97 }}
+                  onClick={handleSave}
+                  disabled={!canSave}
+                  className="flex-1 py-2.5 rounded-xl font-semibold text-white text-sm bg-primary hover:bg-primary-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {saving ? t('common.saving') : t('journalWrite.save')}
+                </motion.button>
+              </div>
+            </section>
+          )}
 
           {/* Day groups */}
           <AnimatePresence mode="popLayout">
@@ -319,9 +401,19 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
                     <SwipeToDelete
                       key={e.id}
                       onDelete={() => {
-                        deleteEntry(e.id).catch(() => {
-                          showToast('Could not delete entry', 'error');
+                        const pending = softDeleteEntry(e.id);
+                        if (!pending) return;
+                        showToast('Entry deleted', 'info', {
+                          durationMs: 5000,
+                          action: {
+                            label: 'Undo',
+                            onClick: () => pending.undo(),
+                          },
                         });
+                      }}
+                      onCopy={async () => {
+                        const ok = await copyToClipboard(textForClipboard(e));
+                        showToast(ok ? 'Copied to clipboard' : 'Could not copy', ok ? 'success' : 'error');
                       }}
                       onTap={() => router.push(`/entry/${e.id}`)}
                     >
@@ -334,6 +426,12 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
           </AnimatePresence>
         </div>
       </div>
+
+      <NotebookSettingsSheet
+        open={settingsOpen}
+        notebook={activeNotebook}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   );
 }

@@ -7,7 +7,6 @@ import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { useJournalStore } from '@/stores/journalStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
 import { classifyCapture, hasContent, parseIntentFallback, type CaptureResult } from '@/lib/captureEngine';
@@ -24,8 +23,12 @@ import { usePushPromptStore } from '@/stores/pushPromptStore';
 
 export default function VoiceEntryPage() {
   const router = useRouter();
-  const createEntry = useJournalStore((s) => s.createEntry);
-  const updateEntry = useJournalStore((s) => s.updateEntry);
+  // Journal store imports were used for the raw-transcript echo on
+  // every capture. That echo is gone (capture is tasks-wall only —
+  // see `saveRawTranscript` below) so the store isn't referenced
+  // here anymore.
+  const _updateEntry = useJournalStore((s) => s.updateEntry);
+  void _updateEntry;
   const showToast = useUiStore((s) => s.showToast);
   const [transcript, setTranscript] = useState('');
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
@@ -87,24 +90,15 @@ export default function VoiceEntryPage() {
 
   useEffect(() => {
     startTime.current = Date.now();
-    // No textarea auto-focus: this is the voice surface. The mic auto-
-    // starts (see effect below); popping the keyboard on top of that is
-    // hostile. The user can tap the textarea explicitly to type.
-  }, []);
-
-  // Auto-start the mic once on mount. Defer one tick so the textarea
-  // is mounted and any permission prompt happens after the page paints.
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (autoStartedRef.current) return;
-    if (!speechSupported) return;
-    autoStartedRef.current = true;
+    // Opt-in capture: page opens in a calm state with the textarea
+    // focused and the mic idle. Users who want to dictate tap "Tap to
+    // speak"; users who want to type just type. No surprise permission
+    // prompts, no accidental recording.
     const id = window.setTimeout(() => {
-      void toggleMic();
+      textareaRef.current?.focus();
     }, 80);
     return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speechSupported]);
+  }, []);
 
   useEffect(() => {
     transcriptRef.current = transcript;
@@ -126,34 +120,21 @@ export default function VoiceEntryPage() {
     setSnapshotGroceries(usePriorityStore.getState().groceries);
   };
 
-  // Saves the raw transcript as a voice journal entry. Called as a
-  // safety net — capture is for tasks/groceries/priorities, but the
-  // user's words shouldn't be lost. Runs in the background and is
-  // safe to call even if the user later confirms a structured save.
-  const savedRawRef = useRef(false);
+  // /voice is the **tasks-wall** capture surface (the Journal wall's
+  // center button goes to /journal, which is a dedicated writing
+  // surface). Per user: "anything I add on the tasks wall should not
+  // show up on the journal wall, and vice versa." So we no longer
+  // echo the raw transcript into journal_entries. If the user wants
+  // a journal entry for the same thought, they'll flip to the
+  // Journal wall and write it there.
+  //
+  // `savedRawEntryIdRef` + `saveRawTranscript` are kept as no-ops so
+  // call sites downstream (commitEverything notebook-move logic,
+  // error paths) continue to compile without having to be rewritten.
   const savedRawEntryIdRef = useRef<string | null>(null);
   const saveRawTranscript = useCallback(async () => {
-    if (savedRawRef.current) return;
-    savedRawRef.current = true;
-    const text = transcriptRef.current.trim();
-    if (!text) return;
-    const duration = Math.round((Date.now() - startTime.current) / 1000);
-    const wordCount = text.split(/\s+/).filter(Boolean).length;
-    try {
-      const entry = await createEntry({
-        entry_type: 'voice',
-        content_text: text,
-        title: `Capture — ${new Date().toLocaleDateString()}`,
-        mood_score: null,
-        mood_label: null,
-        duration_seconds: duration,
-        word_count: wordCount,
-      });
-      savedRawEntryIdRef.current = entry.id;
-    } catch {
-      // Silent — capture preview is the user-visible feedback.
-    }
-  }, [createEntry]);
+    // Intentional no-op. See header comment.
+  }, []);
 
   // Trace recorder — appends an event with the elapsed time since
   // triggerCapturePreview kicked off. Capped at 30 events so the panel
@@ -347,22 +328,9 @@ export default function VoiceEntryPage() {
       lists,
     });
 
-    // Route the raw transcript to the notebook Gemini classified (or
-    // the user's override). Raw was saved with the default Journal
-    // notebook by journalStore.createEntry; move it if Gemini picked
-    // something else.
-    if (savedRawEntryIdRef.current && edited.notebook_slug) {
-      try {
-        const nb = useNotebookStore
-          .getState()
-          .notebooks.find((n) => n.slug === edited.notebook_slug);
-        if (nb) {
-          await updateEntry(savedRawEntryIdRef.current, { notebook_id: nb.id });
-        }
-      } catch {
-        // Silent — entry is still saved in its default notebook.
-      }
-    }
+    // Raw-transcript echo into journal_entries has been removed for
+    // /voice (tasks-wall surface). If a future code path re-enables
+    // it, this is where the notebook-move logic used to live.
 
     // Ideas, gratitude → localStorage (unchanged)
     if (edited.ideas.length > 0) {
@@ -458,21 +426,10 @@ export default function VoiceEntryPage() {
     router.push('/today');
   };
 
-  // Auto-trigger the capture preview the moment the mic stops with
-  // content. We watch isListening transitioning false and only fire
-  // once per stop. The wasListeningRef guard prevents the effect from
-  // firing on the initial mount (before the user has spoken).
-  const wasListeningRef = useRef(false);
-  useEffect(() => {
-    if (isListening) {
-      wasListeningRef.current = true;
-      return;
-    }
-    if (wasListeningRef.current && transcriptRef.current.trim() && !pendingCapture) {
-      wasListeningRef.current = false;
-      void triggerCapturePreview();
-    }
-  }, [isListening, pendingCapture, triggerCapturePreview]);
+  // Mic-stop returns control to the user — it does NOT auto-submit.
+  // The user chooses when to hit Capture, so a typed edit, a second
+  // dictation, or iOS auto-ending the mic at ~60s never accidentally
+  // fires off a classification run.
 
   return (
     <div className="flex flex-col h-screen bg-bg">
@@ -562,32 +519,50 @@ export default function VoiceEntryPage() {
           </div>
         )}
 
-        {speechSupported && isListening && (
+        {/* Two-button action row: left is the round mic (tap-to-speak /
+            tap-again-to-stop), right is the primary Capture button that
+            submits whatever's in the textarea — typed, dictated, or
+            mixed. Capture is enabled the moment there's non-empty text. */}
+        <div className="w-full flex items-center gap-3">
+          {speechSupported && (
+            <button
+              {...micButtonProps}
+              disabled={classifying}
+              className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-colors shadow-lg flex-shrink-0 disabled:opacity-60 ${
+                isListening
+                  ? 'bg-error mic-pulse shadow-error/30'
+                  : 'bg-primary shadow-primary/30 hover:bg-primary-dark'
+              }`}
+              aria-label={isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
+            >
+              {isListening ? (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="white" aria-hidden>
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              ) : (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </svg>
+              )}
+            </button>
+          )}
           <button
-            {...micButtonProps}
-            disabled={classifying}
-            className="relative w-16 h-16 rounded-full flex items-center justify-center transition-colors shadow-lg bg-error mic-pulse shadow-error/30 disabled:opacity-60"
-            aria-label={t('template.stopRecording')}
+            onClick={() => {
+              // If the mic is still live, stop it first so the final
+              // transcript lands in the textarea before we classify.
+              if (isListening) {
+                void toggleMic();
+              }
+              void triggerCapturePreview();
+            }}
+            disabled={classifying || !transcript.trim()}
+            className="flex-1 h-14 rounded-full bg-primary text-white text-base font-semibold transition-colors hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="white" aria-hidden>
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
+            {classifying ? t('preview.saving') : t('voice.capture')}
           </button>
-        )}
-
-        {speechSupported && !isListening && !classifying && (
-          <button
-            {...micButtonProps}
-            className="relative w-16 h-16 rounded-full flex items-center justify-center transition-colors shadow-lg bg-primary shadow-primary/30 hover:bg-primary-dark"
-            aria-label={t('template.tapToSpeak')}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" x2="12" y1="19" y2="22" />
-            </svg>
-          </button>
-        )}
+        </div>
 
         {/* "Listening" label with three pulsing dots — confirms the mic
             is alive even while the textarea hasn't filled yet. Same
