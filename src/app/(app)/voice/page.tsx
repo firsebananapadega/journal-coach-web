@@ -654,14 +654,33 @@ export default function VoiceEntryPage() {
             );
             setPendingCapture(null);
 
-            // If any priority carried a remind_at, and we haven't yet
-            // asked for push permission (or haven't asked in 30+ days),
-            // surface the PushPermissionSheet. First capture of a
-            // reminder is the moment the ask is contextually honest.
-            const anyReminder = edited.priorities.some(
-              (p) => !!(p.remind_at_iso ?? p.reminder_phrase),
-            );
-            if (anyReminder) {
+            // If any priority carried a remind_at, surface a toast
+            // showing when it'll fire — immediate visual confirmation
+            // that the reminder was captured. Also trigger the push-
+            // permission sheet if we haven't asked yet (or haven't in
+            // 30+ days).
+            const remindersSet = edited.priorities
+              .map((p) => p.remind_at_iso)
+              .filter((x): x is string => !!x);
+            if (remindersSet.length > 0) {
+              const firstIso = remindersSet[0];
+              const when = new Date(firstIso);
+              const diffMs = when.getTime() - Date.now();
+              const diffMin = Math.max(0, Math.round(diffMs / 60000));
+              const label =
+                diffMin < 60
+                  ? `in ${diffMin} min`
+                  : when.toLocaleString(undefined, {
+                      weekday: 'short',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    });
+              const suffix =
+                remindersSet.length > 1
+                  ? ` (+${remindersSet.length - 1} more)`
+                  : '';
+              showToast(`🔔 Reminder set ${label}${suffix}`, 'success');
+
               const shouldPrompt = await shouldPromptForPermission();
               if (shouldPrompt) setPushPromptOpen(true);
             }

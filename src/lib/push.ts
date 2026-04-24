@@ -173,12 +173,14 @@ export function markPromptDismissed() {
 }
 
 /**
- * "Should we prompt?" — yes if supported + not yet granted + not
+ * "Should we prompt?" — yes if subscribe is reachable (or if iOS is
+ * blocking us behind the install-to-home-screen gate — in that case
+ * the sheet surfaces a "Install first" hint) AND we haven't been
  * dismissed in the last 30 days.
  */
 export async function shouldPromptForPermission(): Promise<boolean> {
   const support = await getPushSupport();
-  if (support !== 'not-subscribed') return false;
+  if (support !== 'not-subscribed' && support !== 'standalone-required') return false;
   if (typeof window === 'undefined') return false;
   try {
     const stamp = localStorage.getItem(LS_DISMISS_KEY);

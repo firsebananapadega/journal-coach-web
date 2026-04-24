@@ -475,6 +475,41 @@ export async function classifyCapture(
   const rawConf = typeof parsed.notebook_confidence === 'number' ? parsed.notebook_confidence : 0.5;
   const notebookConfidence = Math.max(0, Math.min(1, rawConf));
 
+  // ── Reminder time sanity check ──
+  // Gemini's TZ math is unreliable — it regularly emits remind_at_iso
+  // 7-9 hours off because it confuses UTC with the user's local tz.
+  // When we have a reminder_phrase, run chrono-node ON THE CLIENT
+  // (uses the browser's local timezone) and let its result override
+  // Gemini's ISO. chrono handles "in 5 minutes" / "tomorrow at 10"
+  // / "next Friday at 3pm" correctly relative to the client's wall
+  // clock. Fall back to Gemini's ISO only if chrono fails AND Gemini's
+  // value looks sane (not >1h in the past).
+  try {
+    const { parseTimePhrase } = await import('./reminderParse');
+    const nowMs = Date.now();
+    for (const p of priorities) {
+      const phrase = p.reminder_phrase ?? null;
+      const geminiIso = p.remind_at_iso ?? null;
+      if (phrase) {
+        const parsed = parseTimePhrase(phrase);
+        if (parsed) {
+          p.remind_at_iso = parsed.iso;
+          continue;
+        }
+      }
+      if (geminiIso) {
+        const t = Date.parse(geminiIso);
+        // If it's >1h in the past relative to now, assume Gemini's
+        // TZ math was wrong; drop so cron doesn't fire immediately.
+        if (!isNaN(t) && t < nowMs - 60 * 60 * 1000) {
+          p.remind_at_iso = null;
+        }
+      }
+    }
+  } catch {
+    // chrono load failed — leave Gemini's values as-is.
+  }
+
   return {
     priorities,
     plans,
@@ -667,6 +702,29 @@ function splitTasks(body: string): string[] {
     .filter((s) => s.length > 1 && /[a-z0-9]/i.test(s));
 }
 
+// Detect "remind me" / "set a reminder" framing in raw transcript.
+// Used both by parseIntentFallback (Gemini-failed path) and by the
+// UI as a safety net.
+const REMINDER_CUES = /\b(?:remind(?:\s+me)?|set\s+(?:a\s+)?reminder|don'?t\s+(?:let\s+me\s+)?forget|ping\s+me)\b/i;
+
+function extractReminderFromText(text: string): { iso: string; phrase: string } | null {
+  // Lazy-load chrono so this module stays sync-safe where it was
+  // before. `require` is available here since the file is consumed in
+  // Next's Node/Edge runtime + client bundles via webpack.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const chrono = require('chrono-node') as typeof import('chrono-node');
+    const results = chrono.parse(text, new Date(), { forwardDate: true });
+    if (results.length === 0) return null;
+    const r = results[0];
+    const d = r.start.date();
+    if (!d || isNaN(d.getTime())) return null;
+    return { iso: d.toISOString(), phrase: r.text };
+  } catch {
+    return null;
+  }
+}
+
 // Main entry point. Returns a CaptureResult that represents our best
 // structural guess given only regex heuristics. Callers SHOULD prefer
 // the Gemini-classified result when available; this exists for the
@@ -687,6 +745,44 @@ export function parseIntentFallback(text: string): CaptureResult {
   };
   const raw = text.trim();
   if (!raw) return empty;
+
+  // Gemini-failed reminder path: if the user said "remind me / set
+  // a reminder / don't forget" AND chrono can extract a time,
+  // emit a single reminder-carrying priority so the task still
+  // lands in the tasks table with remind_at populated. Preserves
+  // the user's intent even when the main classifier is down.
+  const hasReminderCue = REMINDER_CUES.test(raw);
+  const reminder = hasReminderCue ? extractReminderFromText(raw) : null;
+  if (reminder) {
+    // Strip the reminder framing + the time phrase from the task
+    // text so we don't end up with "Set a reminder at 5pm to wash
+    // clothes" as the task name. Keep the remaining imperative.
+    let body = raw
+      .replace(REMINDER_CUES, ' ')
+      .replace(reminder.phrase, ' ')
+      .replace(/\b(?:to|that|i|please|at|in|on)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!body) body = 'Reminder';
+    // Capitalize first letter for display
+    body = body.charAt(0).toUpperCase() + body.slice(1);
+    return {
+      ...empty,
+      priorities: [
+        {
+          text: body,
+          when: 'today',
+          category: 'other',
+          subgroup: null,
+          list_hint: null,
+          due_date: null,
+          time: null,
+          remind_at_iso: reminder.iso,
+          reminder_phrase: reminder.phrase,
+        },
+      ],
+    };
+  }
 
   const hasGroceryCue = GROCERY_CUES.test(raw) || STORE_CUES.test(raw);
   const hasTaskCue = TASK_CUES.test(raw);

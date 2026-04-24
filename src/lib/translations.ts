@@ -246,6 +246,15 @@ const translations: Record<string, Record<Locale, string>> = {
   },
   'push.unsupported': { en: 'Push notifications aren\'t supported on this browser.', es: 'Este navegador no admite notificaciones push.' },
   'push.denied': { en: 'Notifications are blocked. You can re-enable from your browser settings.', es: 'Las notificaciones están bloqueadas. Puedes reactivarlas desde los ajustes del navegador.' },
+  'push.installGateTitle': {
+    en: 'Add JournalCoach to your home screen',
+    es: 'Añade JournalCoach a tu pantalla de inicio',
+  },
+  'push.installGateBody': {
+    en: 'iOS only sends reminder notifications to installed apps. Tap the Share button in Safari, then "Add to Home Screen." Open the app from there and we\'ll re-ask.',
+    es: 'iOS solo envía notificaciones a apps instaladas. Toca Compartir en Safari y "Añadir a pantalla de inicio". Abre la app desde ahí y te lo preguntamos de nuevo.',
+  },
+  'push.installGateCta': { en: 'Got it', es: 'Entendido' },
 
   // ─── Journal writing surface (/journal) ───
   'journalWrite.placeholder': {
