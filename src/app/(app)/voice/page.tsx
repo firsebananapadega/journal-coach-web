@@ -681,29 +681,18 @@ export default function VoiceEntryPage() {
                   : '';
               showToast(`🔔 Reminder set ${label}${suffix}`, 'success');
 
-              // Self-healing subscription sync. ensureSubscribed:
-              //   - re-POSTs existing browser subs that never reached
-              //     the server (the bug we were hitting)
-              //   - subscribes silently if permission is already granted
-              //   - returns 'needs-prompt' for default permission →
-              //     we open the sheet (the only path requiring a gesture)
-              //   - returns 'needs-install' on iOS Safari → show sheet
-              //     with install-gate copy
+              // Self-healing subscription sync. Anything other than
+              // 'ok' opens the permission sheet — it renders different
+              // copy per state so the user always sees SOMETHING and
+              // never silently fails.
               const push = await ensureSubscribed();
-              if (push === 'needs-prompt' || push === 'needs-install') {
-                setPushPromptOpen(true);
-              } else if (push === 'ok') {
+              if (push === 'ok') {
                 showToast('Reminders ready on this device ✓', 'success');
-              } else if (push === 'blocked') {
-                showToast(
-                  'Reminders are blocked. Re-enable in iOS Settings → Notifications.',
-                  'error',
-                );
-              } else if (push === 'error') {
-                showToast(
-                  'Couldn’t set up reminders on this device — try again.',
-                  'error',
-                );
+              } else {
+                // needs-prompt / needs-install / blocked / unsupported /
+                // error — all get the sheet, which knows how to render
+                // appropriate copy for each.
+                setPushPromptOpen(true);
               }
             }
           } catch (err) {

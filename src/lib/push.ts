@@ -12,7 +12,8 @@ export type PushSupport =
   | 'standalone-required' // iOS: only works in installed PWA
   | 'not-subscribed'   // supported, permission not yet asked
   | 'granted'          // supported, permission granted, may or may not be subscribed
-  | 'subscribed';      // fully wired up
+  | 'subscribed'       // fully wired up
+  ;
 
 export function isIos(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -185,6 +186,13 @@ export type EnsureSubscribedResult =
   | 'unsupported'    // browser lacks PushManager / SW
   | 'error';         // network/server failure; try again later
 
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 export async function ensureSubscribed(): Promise<EnsureSubscribedResult> {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return 'unsupported';
@@ -199,17 +207,37 @@ export async function ensureSubscribed(): Promise<EnsureSubscribedResult> {
   if (perm === 'default') return 'needs-prompt';
 
   // perm === 'granted' past here. Make sure we have a browser sub
-  // AND the server has a row for it.
+  // AND the server has a row for it. Timeouts wrap every async step
+  // so a hung service worker can't make us silently hang.
   try {
-    const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
+    const reg = await withTimeout(
+      navigator.serviceWorker.ready,
+      4000,
+      'serviceWorker.ready',
+    );
+    let sub = await withTimeout(
+      reg.pushManager.getSubscription(),
+      4000,
+      'getSubscription',
+    );
     if (!sub) {
-      sub = await subscribeInBrowser();
+      sub = await withTimeout(
+        subscribeInBrowser(),
+        6000,
+        'subscribeInBrowser',
+      ) as PushSubscription | null;
       if (!sub) return 'error';
     }
-    const sent = await sendSubscription(sub);
+    const sent = await withTimeout(sendSubscription(sub), 6000, 'sendSubscription');
     return sent ? 'ok' : 'error';
-  } catch {
+  } catch (err) {
+    // Surface the specific failure on the window object so the
+    // caller can render a debug toast if it wants. Safe to inspect
+    // with `window.__lastPushError` in Safari's Web Inspector.
+    try {
+      (window as unknown as { __lastPushError?: string }).__lastPushError =
+        err instanceof Error ? err.message : String(err);
+    } catch {}
     return 'error';
   }
 }

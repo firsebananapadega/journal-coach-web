@@ -256,6 +256,29 @@ const translations: Record<string, Record<Locale, string>> = {
   },
   'push.installGateCta': { en: 'Got it', es: 'Entendido' },
   'push.retry': { en: 'Couldn’t set up — try again soon.', es: 'No se pudo configurar — intenta de nuevo.' },
+  'push.blockedTitle': { en: 'Reminders are blocked', es: 'Los recordatorios están bloqueados' },
+  'push.blockedBody': {
+    en: 'iOS has notifications turned off for JournalCoach. Open iOS Settings → JournalCoach → Notifications and turn Allow Notifications on, then come back and capture a reminder.',
+    es: 'iOS tiene las notificaciones desactivadas para JournalCoach. Abre Ajustes de iOS → JournalCoach → Notificaciones y activa Permitir notificaciones; luego vuelve y captura un recordatorio.',
+  },
+  'push.blockedCta': { en: 'Got it', es: 'Entendido' },
+  'push.unsupportedTitle': { en: 'This browser can’t do push', es: 'Este navegador no admite push' },
+  'push.unsupportedBody': {
+    en: 'Reminders need iOS 16.4+ (installed PWA) or modern Chrome / Edge / Safari. Try re-opening from your home-screen icon, or update iOS.',
+    es: 'Los recordatorios requieren iOS 16.4+ (PWA instalada) o Chrome/Edge/Safari modernos. Intenta reabrir desde el ícono de la pantalla de inicio o actualiza iOS.',
+  },
+  'push.retryTitle': { en: 'Finish setting up reminders', es: 'Termina de configurar los recordatorios' },
+  'push.retryBody': {
+    en: 'Permission is granted but your device hasn’t finished registering. Tap below to sync — should take a second.',
+    es: 'El permiso está concedido pero tu dispositivo no terminó de registrarse. Toca abajo para sincronizar — tarda un segundo.',
+  },
+  'push.retryCta': { en: 'Finish setup', es: 'Terminar configuración' },
+  'push.resyncTitle': { en: 'Re-sync reminders', es: 'Volver a sincronizar recordatorios' },
+  'push.resyncBody': {
+    en: 'Push is active on this device but the server hasn’t seen it yet. Tap to sync — your next reminder should land.',
+    es: 'Push está activo en este dispositivo pero el servidor aún no lo ha visto. Toca para sincronizar — tu próximo recordatorio debería llegar.',
+  },
+  'push.resyncCta': { en: 'Sync now', es: 'Sincronizar ahora' },
 
   // ─── Journal writing surface (/journal) ───
   'journalWrite.placeholder': {
