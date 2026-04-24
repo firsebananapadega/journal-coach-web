@@ -517,11 +517,12 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
 
             {/* Action bar — position: fixed so the iOS keyboard can't
                 push it offscreen (Visual Viewport tracks fixed-bottom
-                elements on iOS 16+). Identical shape to /journal so
-                the muscle memory carries over. */}
+                elements on iOS 16+). Bottom-padding formula matches
+                /guided so the Save button has breathing room above
+                the iOS home indicator instead of crowding it. */}
             <div
               className="fixed bottom-0 inset-x-0 z-20 px-6 pt-3 bg-gradient-to-t from-bg via-bg/95 to-transparent"
-              style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+              style={{ paddingBottom: 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))' }}
             >
               <div className="max-w-md mx-auto flex items-center justify-between gap-3">
                 <motion.button

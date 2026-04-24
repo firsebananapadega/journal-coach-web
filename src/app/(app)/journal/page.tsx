@@ -125,7 +125,7 @@ export default function JournalWritingPage() {
           tracks fixed-bottom elements to that. */}
       <div
         className="fixed bottom-0 inset-x-0 z-20 px-6 pt-3 bg-gradient-to-t from-bg via-bg/95 to-transparent"
-        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))' }}
       >
         <div className="max-w-md mx-auto flex items-center justify-between gap-3">
           <motion.button
