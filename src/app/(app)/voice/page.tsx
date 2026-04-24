@@ -19,8 +19,8 @@ import { toLocalDateStr } from '@/lib/dateUtils';
 import { getLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
 import { CapturePreviewSheet, type CompletionMatch, type PriorityDestinations } from '@/components/CapturePreviewSheet';
-import PushPermissionSheet from '@/components/PushPermissionSheet';
 import { ensureSubscribed } from '@/lib/push';
+import { usePushPromptStore } from '@/stores/pushPromptStore';
 
 export default function VoiceEntryPage() {
   const router = useRouter();
@@ -55,7 +55,7 @@ export default function VoiceEntryPage() {
   // the user has reviewed.
   const [pendingCapture, setPendingCapture] = useState<CaptureResult | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [pushPromptOpen, setPushPromptOpen] = useState(false);
+  const showPushPrompt = usePushPromptStore((s) => s.show);
   const [classifying, setClassifying] = useState(false);
   const [classifyingLong, setClassifyingLong] = useState(false);
   // Fallback / error surface — non-null when the preview is showing a
@@ -690,9 +690,10 @@ export default function VoiceEntryPage() {
                 showToast('Reminders ready on this device ✓', 'success');
               } else {
                 // needs-prompt / needs-install / blocked / unsupported /
-                // error — all get the sheet, which knows how to render
-                // appropriate copy for each.
-                setPushPromptOpen(true);
+                // error — all get the sheet, rendered globally in
+                // UIOverlayRoot so it survives the navigation to
+                // /today that commitEverything triggers.
+                showPushPrompt();
               }
             }
           } catch (err) {
@@ -707,11 +708,6 @@ export default function VoiceEntryPage() {
             setPreviewBusy(false);
           }
         }}
-      />
-
-      <PushPermissionSheet
-        open={pushPromptOpen}
-        onClose={() => setPushPromptOpen(false)}
       />
     </div>
   );
