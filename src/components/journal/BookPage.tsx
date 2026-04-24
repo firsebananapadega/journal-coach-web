@@ -239,19 +239,19 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         style={{ background: 'var(--theme-primary-glow)' }}
       />
 
-      {/* Top bar.
-          Layout: [Back + Notebook Pill] ← left-grouped ... [Gear] — right.
-          The center slot is intentionally empty because WallShell
-          renders a `fixed top-center` WallEdgeTab ("JOURNAL"/"TASKS"
-          switcher) above this bar. Before, the notebook pill was
-          centered here and got covered by the wall tab — so project
-          notebook names were invisible. Left-grouping the pill
-          removes the collision without adding any z-index hacks. */}
+      {/* Top bar — two rows.
+          Row 1 (same vertical as WallEdgeTab "JOURNAL/TASKS" pill):
+            [Back] … [gear]. Center is intentionally empty so the
+            fixed-top-center wall switcher has its own lane.
+          Row 2: the notebook-name pill, centered, directly below the
+            wall switcher. This is the only layout that keeps both
+            elements visible on narrow screens — no matter how long
+            the notebook name is, nothing gets clipped. */}
       <div
-        className="relative z-10 shrink-0 flex items-center justify-between px-4 pt-3 pb-2 gap-2"
+        className="relative z-10 shrink-0 flex flex-col"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center justify-between px-4 gap-2 h-8">
           <button
             type="button"
             onClick={() => (backHref ? router.push(backHref) : router.back())}
@@ -261,75 +261,80 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
             ← {t('common.back')}
           </button>
 
-          {/* Notebook indicator: tap to open picker (unless locked) */}
-          {activeNotebook && (
-            <div className="relative min-w-0">
-              <button
-                type="button"
-                onClick={() => !lockedSlug && setPickerOpen((o) => !o)}
-                disabled={!!lockedSlug}
-                className="flex items-center gap-2 text-sm font-semibold text-text-primary disabled:cursor-default max-w-full"
-              >
-                <span
-                  className="inline-block w-2 h-2 rounded-full shrink-0"
-                  style={{ background: activeNotebook.color }}
-                  aria-hidden
-                />
-                <span className="truncate">{activeNotebook.name}</span>
-                {!lockedSlug && <span className="text-text-tertiary shrink-0">▾</span>}
-              </button>
-              {pickerOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setPickerOpen(false)}
-                  />
-                  <div className="absolute z-50 top-full mt-1.5 left-0 min-w-[200px] bg-surface-elevated border border-border rounded-2xl shadow-warm-lg py-1">
-                    {notebooks.map((n) => (
-                      <button
-                        key={n.id}
-                        onClick={() => {
-                          setActiveSlug(n.slug);
-                          setPickerOpen(false);
-                        }}
-                        className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm ${
-                          n.slug === activeSlug
-                            ? 'text-primary font-semibold'
-                            : 'text-text-secondary hover:bg-surface'
-                        }`}
-                      >
-                        <span
-                          className="inline-block w-2 h-2 rounded-full"
-                          style={{ background: n.color }}
-                          aria-hidden
-                        />
-                        {n.name}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+          {/* Reserved lane for the WallEdgeTab (112px wide, centered
+              by its own fixed positioning — we just hold the row
+              height stable). */}
+          <span className="w-[112px] shrink-0" aria-hidden />
+
+          {/* Right slot: context-aware gear (notebook settings) for
+              a locked-notebook route. The global app-settings gear is
+              suppressed in the (app) layout for these routes. */}
+          {lockedSlug && activeNotebook ? (
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Notebook settings"
+              className="w-9 h-9 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-text-secondary hover:text-text-primary shrink-0"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+          ) : (
+            <span className="w-9 shrink-0" aria-hidden />
           )}
         </div>
 
-        {/* Right slot: context-aware gear (notebook settings) for a
-            locked-notebook route. The global app-settings gear is
-            suppressed in the (app) layout for these routes. */}
-        {lockedSlug && activeNotebook ? (
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            aria-label="Notebook settings"
-            className="w-9 h-9 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-text-secondary hover:text-text-primary shrink-0"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </button>
-        ) : (
-          <span className="w-10" />
+        {/* Row 2 — notebook name pill, centered below the wall tab. */}
+        {activeNotebook && (
+          <div className="relative flex items-center justify-center px-5 pt-3 pb-2">
+            <button
+              type="button"
+              onClick={() => !lockedSlug && setPickerOpen((o) => !o)}
+              disabled={!!lockedSlug}
+              className="flex items-center gap-2 max-w-full text-base font-semibold text-text-primary disabled:cursor-default"
+            >
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ background: activeNotebook.color }}
+                aria-hidden
+              />
+              <span className="truncate">{activeNotebook.name}</span>
+              {!lockedSlug && <span className="text-text-tertiary shrink-0">▾</span>}
+            </button>
+            {pickerOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setPickerOpen(false)}
+                />
+                <div className="absolute z-50 top-full mt-1.5 left-1/2 -translate-x-1/2 min-w-[200px] bg-surface-elevated border border-border rounded-2xl shadow-warm-lg py-1">
+                  {notebooks.map((n) => (
+                    <button
+                      key={n.id}
+                      onClick={() => {
+                        setActiveSlug(n.slug);
+                        setPickerOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm ${
+                        n.slug === activeSlug
+                          ? 'text-primary font-semibold'
+                          : 'text-text-secondary hover:bg-surface'
+                      }`}
+                    >
+                      <span
+                        className="inline-block w-2 h-2 rounded-full"
+                        style={{ background: n.color }}
+                        aria-hidden
+                      />
+                      {n.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 
