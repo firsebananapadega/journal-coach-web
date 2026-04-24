@@ -131,6 +131,11 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
   const [activeSlug, setActiveSlug] = useState<string | null>(lockedSlug ?? 'journal');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Composer is hidden by default — a floating + button (bottom-right,
+  // above the Patterns tab) opens it. Pulse notebook still suppresses
+  // it entirely, since pulse entries come from the morning/evening
+  // card on /home, not typed here.
+  const [composerOpen, setComposerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerStartRef = useRef<number>(Date.now());
 
@@ -166,6 +171,14 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
     ta.style.height = 'auto';
     ta.style.height = `${Math.max(ta.scrollHeight, ta.clientHeight)}px`;
   }, [composer]);
+
+  // Focus the textarea the moment the composer opens so the keyboard
+  // comes up without a second tap.
+  useEffect(() => {
+    if (!composerOpen) return;
+    const id = window.setTimeout(() => textareaRef.current?.focus(), 60);
+    return () => window.clearTimeout(id);
+  }, [composerOpen]);
 
   const filteredEntries = useMemo(() => {
     if (!activeNotebook) return entries;
@@ -208,6 +221,9 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         notebook_id: activeNotebook.id,
       });
       setComposer('');
+      // Close the composer after save — the user came here to see
+      // their entries, and the new one now shows in the feed below.
+      setComposerOpen(false);
       showToast('Entry saved', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : t('common.error'), 'error');
@@ -226,84 +242,89 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         style={{ background: 'var(--theme-primary-glow)' }}
       />
 
-      {/* Top bar */}
+      {/* Top bar.
+          Layout: [Back + Notebook Pill] ← left-grouped ... [Gear] — right.
+          The center slot is intentionally empty because WallShell
+          renders a `fixed top-center` WallEdgeTab ("JOURNAL"/"TASKS"
+          switcher) above this bar. Before, the notebook pill was
+          centered here and got covered by the wall tab — so project
+          notebook names were invisible. Left-grouping the pill
+          removes the collision without adding any z-index hacks. */}
       <div
-        className="relative z-10 shrink-0 flex items-center justify-between px-4 pt-3 pb-2"
+        className="relative z-10 shrink-0 flex items-center justify-between px-4 pt-3 pb-2 gap-2"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
-        <button
-          type="button"
-          onClick={() => (backHref ? router.push(backHref) : router.back())}
-          className="text-sm text-text-tertiary hover:text-text-secondary px-2"
-          aria-label={t('common.back')}
-        >
-          ← {t('common.back')}
-        </button>
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onClick={() => (backHref ? router.push(backHref) : router.back())}
+            className="text-sm text-text-tertiary hover:text-text-secondary px-2 shrink-0"
+            aria-label={t('common.back')}
+          >
+            ← {t('common.back')}
+          </button>
 
-        {/* Notebook indicator: tap to open picker (unless locked) */}
-        {activeNotebook && (
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => !lockedSlug && setPickerOpen((o) => !o)}
-              disabled={!!lockedSlug}
-              className="flex items-center gap-2 text-sm font-semibold text-text-primary disabled:cursor-default"
-            >
-              <span
-                className="inline-block w-2 h-2 rounded-full"
-                style={{ background: activeNotebook.color }}
-                aria-hidden
-              />
-              {activeNotebook.name}
-              {!lockedSlug && <span className="text-text-tertiary">▾</span>}
-            </button>
-            {pickerOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setPickerOpen(false)}
+          {/* Notebook indicator: tap to open picker (unless locked) */}
+          {activeNotebook && (
+            <div className="relative min-w-0">
+              <button
+                type="button"
+                onClick={() => !lockedSlug && setPickerOpen((o) => !o)}
+                disabled={!!lockedSlug}
+                className="flex items-center gap-2 text-sm font-semibold text-text-primary disabled:cursor-default max-w-full"
+              >
+                <span
+                  className="inline-block w-2 h-2 rounded-full shrink-0"
+                  style={{ background: activeNotebook.color }}
+                  aria-hidden
                 />
-                <div className="absolute z-50 top-full mt-1.5 left-1/2 -translate-x-1/2 min-w-[200px] bg-surface-elevated border border-border rounded-2xl shadow-warm-lg py-1">
-                  {notebooks.map((n) => (
-                    <button
-                      key={n.id}
-                      onClick={() => {
-                        setActiveSlug(n.slug);
-                        setPickerOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm ${
-                        n.slug === activeSlug
-                          ? 'text-primary font-semibold'
-                          : 'text-text-secondary hover:bg-surface'
-                      }`}
-                    >
-                      <span
-                        className="inline-block w-2 h-2 rounded-full"
-                        style={{ background: n.color }}
-                        aria-hidden
-                      />
-                      {n.name}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
+                <span className="truncate">{activeNotebook.name}</span>
+                {!lockedSlug && <span className="text-text-tertiary shrink-0">▾</span>}
+              </button>
+              {pickerOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setPickerOpen(false)}
+                  />
+                  <div className="absolute z-50 top-full mt-1.5 left-0 min-w-[200px] bg-surface-elevated border border-border rounded-2xl shadow-warm-lg py-1">
+                    {notebooks.map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => {
+                          setActiveSlug(n.slug);
+                          setPickerOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm ${
+                          n.slug === activeSlug
+                            ? 'text-primary font-semibold'
+                            : 'text-text-secondary hover:bg-surface'
+                        }`}
+                      >
+                        <span
+                          className="inline-block w-2 h-2 rounded-full"
+                          style={{ background: n.color }}
+                          aria-hidden
+                        />
+                        {n.name}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
-        {/* Right slot: context-aware gear. On a locked-notebook route
-            this opens *this notebook's* settings (rename / color /
-            icon). The global app-settings gear is suppressed in the
-            (app) layout for these routes, so this replaces — rather
-            than duplicates — it. On the un-locked /journal view the
-            gear has nothing context-specific to do, so we fall back
-            to a spacer to keep the top-bar balanced. */}
+        {/* Right slot: context-aware gear (notebook settings) for a
+            locked-notebook route. The global app-settings gear is
+            suppressed in the (app) layout for these routes. */}
         {lockedSlug && activeNotebook ? (
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
             aria-label="Notebook settings"
-            className="w-9 h-9 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-text-secondary hover:text-text-primary"
+            className="w-9 h-9 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-text-secondary hover:text-text-primary shrink-0"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <circle cx="12" cy="12" r="3" />
@@ -320,12 +341,27 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         className="relative z-10 flex-1 overflow-y-auto"
         style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}
       >
-        <div className="max-w-md mx-auto px-5 pt-2 pb-10 space-y-5">
-          {/* Composer — today's editable top card. Suppressed on the
-              Pulse notebook: pulse entries are created from the
-              morning/evening prompt card on /home, never typed here. */}
-          {activeNotebook?.system_key !== 'pulse' && (
+        <div className="max-w-md mx-auto px-5 pt-2 pb-28 space-y-5">
+          {/* Composer — only visible after the user taps the FAB. The
+              notebook view is read-first; writing is opt-in. Pulse
+              never shows it (pulse entries come from the morning /
+              evening card on /home). */}
+          {activeNotebook?.system_key !== 'pulse' && composerOpen && (
             <section className="relative bg-surface-elevated/70 border border-border rounded-2xl p-4 shadow-warm-md backdrop-blur">
+              <button
+                type="button"
+                onClick={() => {
+                  setComposerOpen(false);
+                  setComposer('');
+                }}
+                aria-label="Close composer"
+                className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-text-tertiary hover:text-text-primary hover:bg-surface"
+              >
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
               <p className="text-[10px] uppercase tracking-widest text-text-tertiary mb-2">
                 {t('journal.today')}
               </p>
@@ -397,35 +433,73 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
                   {formatDayHeader(g.key)}
                 </h3>
                 <div className="space-y-3">
-                  {g.entries.map((e) => (
-                    <SwipeToDelete
-                      key={e.id}
-                      onDelete={() => {
-                        const pending = softDeleteEntry(e.id);
-                        if (!pending) return;
-                        showToast('Entry deleted', 'info', {
-                          durationMs: 5000,
-                          action: {
-                            label: 'Undo',
-                            onClick: () => pending.undo(),
-                          },
-                        });
-                      }}
-                      onCopy={async () => {
-                        const ok = await copyToClipboard(textForClipboard(e));
-                        showToast(ok ? 'Copied to clipboard' : 'Could not copy', ok ? 'success' : 'error');
-                      }}
-                      onTap={() => router.push(`/entry/${e.id}`)}
-                    >
-                      <EntryCard entry={e} />
-                    </SwipeToDelete>
-                  ))}
+                  {g.entries.map((e) => {
+                    // Pulse entries don't expose copy/delete from
+                    // the list — they're a record of a daily check-in
+                    // and should be edited inline, not thrown away
+                    // or pasted elsewhere. Tap to open in edit view.
+                    if (activeNotebook?.system_key === 'pulse') {
+                      return (
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => router.push(`/entry/${e.id}`)}
+                          className="block w-full text-left"
+                        >
+                          <EntryCard entry={e} />
+                        </button>
+                      );
+                    }
+                    return (
+                      <SwipeToDelete
+                        key={e.id}
+                        onDelete={() => {
+                          const pending = softDeleteEntry(e.id);
+                          if (!pending) return;
+                          showToast('Entry deleted', 'info', {
+                            durationMs: 5000,
+                            action: {
+                              label: 'Undo',
+                              onClick: () => pending.undo(),
+                            },
+                          });
+                        }}
+                        onCopy={async () => {
+                          const ok = await copyToClipboard(textForClipboard(e));
+                          showToast(ok ? 'Copied to clipboard' : 'Could not copy', ok ? 'success' : 'error');
+                        }}
+                        onTap={() => router.push(`/entry/${e.id}`)}
+                      >
+                        <EntryCard entry={e} />
+                      </SwipeToDelete>
+                    );
+                  })}
                 </div>
               </motion.section>
             ))}
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Floating + button — bottom-right, above the WallNav's
+          Patterns tab. Opens the composer inline. Hidden on Pulse
+          (entries there come from the /home morning/evening card)
+          and while the composer is already open. */}
+      {activeNotebook?.system_key !== 'pulse' && !composerOpen && (
+        <motion.button
+          type="button"
+          onClick={() => setComposerOpen(true)}
+          whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
+          aria-label={t('journalWrite.save') ? 'New entry' : 'New entry'}
+          className="fixed right-5 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-warm-lg flex items-center justify-center hover:bg-primary-dark transition-colors"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 6rem)' }}
+        >
+          <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </motion.button>
+      )}
 
       <NotebookSettingsSheet
         open={settingsOpen}

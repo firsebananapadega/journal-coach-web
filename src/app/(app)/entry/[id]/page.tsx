@@ -56,6 +56,15 @@ export default function EntryDetailPage() {
   const [editMoodLabel, setEditMoodLabel] = useState<string | null>(null);
   const [editExchanges, setEditExchanges] = useState<Exchange[]>([]);
   const [editQAPairs, setEditQAPairs] = useState<{ question: string; answer: string }[]>([]);
+  // Pulse entry fields — the three prompt answers live in metadata
+  // (intention is morning; wentRight + doneBetter are evening). We
+  // edit them directly instead of going through the Raw/Structured
+  // markdown toggle so typo fixes don't turn into a full rewrite.
+  const [editPulse, setEditPulse] = useState<{ intention: string; wentRight: string; doneBetter: string }>({
+    intention: '',
+    wentRight: '',
+    doneBetter: '',
+  });
   const [saving, setSaving] = useState(false);
 
   // Raw / Structured view toggle (freeform/voice entries only).
@@ -124,6 +133,13 @@ export default function EntryDetailPage() {
     } else if (entry.entry_type === 'template' && entry.content_text) {
       // Parse Q&A from content_text for template entries
       setEditQAPairs(parseQAPairs(entry.content_text));
+    } else if (entry.entry_type === 'pulse') {
+      const meta = (entry.metadata ?? {}) as Record<string, unknown>;
+      setEditPulse({
+        intention: typeof meta.intention === 'string' ? meta.intention : '',
+        wentRight: typeof meta.wentRight === 'string' ? meta.wentRight : '',
+        doneBetter: typeof meta.doneBetter === 'string' ? meta.doneBetter : '',
+      });
     }
 
     setEditing(true);
@@ -158,6 +174,26 @@ export default function EntryDetailPage() {
       // Template entry — rebuild content_text from edited Q&A pairs
       updates.content_text = rebuildContentText(editQAPairs);
       updates.word_count = editQAPairs.map((p) => p.answer).join(' ').split(/\s+/).filter(Boolean).length;
+    } else if (entry.entry_type === 'pulse') {
+      // Pulse entry — the three prompt answers live in metadata. We
+      // merge the edited values in so body/mind scores + pulseMode
+      // stay intact. word_count is recomputed from whichever prompts
+      // apply to this pulse's mode.
+      const prevMeta = (entry.metadata ?? {}) as Record<string, unknown>;
+      const trimmed = {
+        intention: editPulse.intention.trim(),
+        wentRight: editPulse.wentRight.trim(),
+        doneBetter: editPulse.doneBetter.trim(),
+      };
+      updates.metadata = { ...prevMeta, ...trimmed };
+      updates.word_count = [trimmed.intention, trimmed.wentRight, trimmed.doneBetter]
+        .filter(Boolean)
+        .join(' ')
+        .split(/\s+/)
+        .filter(Boolean).length;
+      // Keep content_text null for pulses — the meta fields are the
+      // source of truth. If something leaked earlier, don't resurface it.
+      updates.content_text = null;
     } else {
       // Voice / freeform — direct text edit
       updates.content_text = editText;
@@ -195,6 +231,12 @@ export default function EntryDetailPage() {
   const exchanges = (entry.metadata as Record<string, unknown>)?.exchanges as Exchange[] | undefined;
   const isGuided = exchanges && exchanges.length > 0;
   const isTemplate = entry.entry_type === 'template' && !isGuided;
+  const isPulse = entry.entry_type === 'pulse';
+  const pulseMeta = (entry.metadata ?? {}) as Record<string, unknown>;
+  const pulseMode: 'morning' | 'evening' | null =
+    pulseMeta.pulseMode === 'morning' || pulseMeta.pulseMode === 'evening'
+      ? (pulseMeta.pulseMode as 'morning' | 'evening')
+      : null;
 
   return (
     // Parent (app) layout locks `/entry/*` to h-[100dvh] + overflow-hidden
@@ -285,7 +327,15 @@ export default function EntryDetailPage() {
       {/* Content — view or edit */}
       {editing ? (
         <div className="space-y-4">
-          {isGuided ? (
+          {isPulse ? (
+            <PulseEditor
+              mode={pulseMode}
+              value={editPulse}
+              onChange={setEditPulse}
+              bodyLabel={typeof pulseMeta.body_label === 'string' ? pulseMeta.body_label : null}
+              mindLabel={typeof pulseMeta.mind_label === 'string' ? pulseMeta.mind_label : null}
+            />
+          ) : isGuided ? (
             // Guided: edit each answer
             <div className="space-y-4">
               {editExchanges.map((ex, i) => (
@@ -333,16 +383,28 @@ export default function EntryDetailPage() {
             />
           )}
 
-          {/* Editable mood */}
-          <MoodSelector
-            value={editMoodScore}
-            onChange={(score, label) => { setEditMoodScore(score); setEditMoodLabel(label); }}
-          />
+          {/* Editable mood — pulse has its own body/mind system, so
+              the generic mood selector is suppressed there. */}
+          {!isPulse && (
+            <MoodSelector
+              value={editMoodScore}
+              onChange={(score, label) => { setEditMoodScore(score); setEditMoodLabel(label); }}
+            />
+          )}
         </div>
       ) : (
         // View mode
         <>
-          {isGuided ? (
+          {isPulse ? (
+            <PulseView
+              mode={pulseMode}
+              intention={typeof pulseMeta.intention === 'string' ? pulseMeta.intention : ''}
+              wentRight={typeof pulseMeta.wentRight === 'string' ? pulseMeta.wentRight : ''}
+              doneBetter={typeof pulseMeta.doneBetter === 'string' ? pulseMeta.doneBetter : ''}
+              bodyLabel={typeof pulseMeta.body_label === 'string' ? pulseMeta.body_label : null}
+              mindLabel={typeof pulseMeta.mind_label === 'string' ? pulseMeta.mind_label : null}
+            />
+          ) : isGuided ? (
             <div className="space-y-4">
               {exchanges!.map((ex, i) => (
                 <div key={i} className="space-y-2">
@@ -408,6 +470,175 @@ export default function EntryDetailPage() {
         </>
       )}
       </div>
+    </div>
+  );
+}
+
+// ── Pulse helpers ─────────────────────────────────────────────────
+// Inline to keep all the edit-state plumbing in one file. Pulse
+// entries carry their content in `metadata` (intention / wentRight /
+// doneBetter + body/mind labels) rather than `content_text`, so they
+// don't fit the Raw/Structured toggle — they need their own renderer.
+
+const BODY_EMOJI: Record<string, string> = {
+  heavy: '😴', tired: '🥱', steady: '🙂', strong: '💪', vibrant: '🔥',
+};
+const MIND_EMOJI: Record<string, string> = {
+  foggy: '🌫️', hazy: '😶‍🌫️', steady: '🧐', clear: '💡', sharp: '✨',
+};
+
+function PulseChips({ bodyLabel, mindLabel }: { bodyLabel: string | null; mindLabel: string | null }) {
+  if (!bodyLabel && !mindLabel) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {bodyLabel && (
+        <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-surface border border-border text-text-secondary">
+          <span aria-hidden>{BODY_EMOJI[bodyLabel] ?? '•'}</span>
+          <span className="font-medium text-text-primary capitalize">{bodyLabel}</span>
+          <span className="text-text-tertiary text-[10px] uppercase tracking-wider">Body</span>
+        </span>
+      )}
+      {mindLabel && (
+        <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-surface border border-border text-text-secondary">
+          <span aria-hidden>{MIND_EMOJI[mindLabel] ?? '•'}</span>
+          <span className="font-medium text-text-primary capitalize">{mindLabel}</span>
+          <span className="text-text-tertiary text-[10px] uppercase tracking-wider">Mind</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PulseView({
+  mode,
+  intention,
+  wentRight,
+  doneBetter,
+  bodyLabel,
+  mindLabel,
+}: {
+  mode: 'morning' | 'evening' | null;
+  intention: string;
+  wentRight: string;
+  doneBetter: string;
+  bodyLabel: string | null;
+  mindLabel: string | null;
+}) {
+  const modeIcon = mode === 'evening' ? '🌙' : mode === 'morning' ? '☀️' : '•';
+  const modeLabel = mode === 'evening' ? 'Evening pulse' : mode === 'morning' ? 'Morning pulse' : 'Pulse';
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="text-xl" aria-hidden>{modeIcon}</span>
+        <span className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold">{modeLabel}</span>
+      </div>
+      <PulseChips bodyLabel={bodyLabel} mindLabel={mindLabel} />
+      {mode === 'morning' && intention && (
+        <PulseSection label="Intention" accent="text-amber-500">{intention}</PulseSection>
+      )}
+      {mode === 'evening' && wentRight && (
+        <PulseSection label="Went right" accent="text-emerald-500">{wentRight}</PulseSection>
+      )}
+      {mode === 'evening' && doneBetter && (
+        <PulseSection label="Done better" accent="text-rose-400">{doneBetter}</PulseSection>
+      )}
+      {/* Legacy pulse entries with no pulseMode — show all non-empty
+          fields so nothing is lost. */}
+      {!mode && (
+        <>
+          {intention && <PulseSection label="Intention" accent="text-amber-500">{intention}</PulseSection>}
+          {wentRight && <PulseSection label="Went right" accent="text-emerald-500">{wentRight}</PulseSection>}
+          {doneBetter && <PulseSection label="Done better" accent="text-rose-400">{doneBetter}</PulseSection>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PulseSection({ label, accent, children }: { label: string; accent: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className={`text-[10px] uppercase tracking-widest font-semibold mb-1 ${accent}`}>{label}</p>
+      <p className="text-[15px] leading-relaxed text-text-primary whitespace-pre-wrap">{children}</p>
+    </div>
+  );
+}
+
+function PulseEditor({
+  mode,
+  value,
+  onChange,
+  bodyLabel,
+  mindLabel,
+}: {
+  mode: 'morning' | 'evening' | null;
+  value: { intention: string; wentRight: string; doneBetter: string };
+  onChange: (next: { intention: string; wentRight: string; doneBetter: string }) => void;
+  bodyLabel: string | null;
+  mindLabel: string | null;
+}) {
+  const modeIcon = mode === 'evening' ? '🌙' : mode === 'morning' ? '☀️' : '•';
+  const modeLabel = mode === 'evening' ? 'Evening pulse' : mode === 'morning' ? 'Morning pulse' : 'Pulse';
+  // Which fields to show as editable — matches the prompt the user
+  // originally answered. Legacy (no mode) entries show all three so
+  // the user can clean up any field.
+  const showIntention = mode === 'morning' || mode === null;
+  const showWent = mode === 'evening' || mode === null;
+  const showDone = mode === 'evening' || mode === null;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="text-xl" aria-hidden>{modeIcon}</span>
+        <span className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold">{modeLabel}</span>
+      </div>
+      <PulseChips bodyLabel={bodyLabel} mindLabel={mindLabel} />
+      {showIntention && (
+        <PulseField
+          label="Intention"
+          accent="text-amber-500"
+          value={value.intention}
+          onChange={(v) => onChange({ ...value, intention: v })}
+        />
+      )}
+      {showWent && (
+        <PulseField
+          label="Went right"
+          accent="text-emerald-500"
+          value={value.wentRight}
+          onChange={(v) => onChange({ ...value, wentRight: v })}
+        />
+      )}
+      {showDone && (
+        <PulseField
+          label="Done better"
+          accent="text-rose-400"
+          value={value.doneBetter}
+          onChange={(v) => onChange({ ...value, doneBetter: v })}
+        />
+      )}
+    </div>
+  );
+}
+
+function PulseField({
+  label,
+  accent,
+  value,
+  onChange,
+}: {
+  label: string;
+  accent: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <label className={`block text-[10px] uppercase tracking-widest font-semibold mb-1 ${accent}`}>{label}</label>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-[15px] text-text-primary leading-relaxed resize-none outline-none focus:border-primary min-h-[80px]"
+      />
     </div>
   );
 }
