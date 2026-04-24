@@ -440,10 +440,11 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         </motion.button>
       )}
 
-      {/* Full-screen composer overlay. Textarea fills the screen so
-          the user has room to write; mic + Save are pinned at the
-          bottom in the thumb-reach zone. A big X at the top-right
-          dismisses without needing to hunt for a tiny target. */}
+      {/* Full-screen composer overlay — mirrors the /journal writing
+          surface. Action bar uses `position: fixed` so iOS 16+'s
+          Visual Viewport keeps it above the keyboard (a flex-column
+          bottom row gets clipped instead). Writing area has bottom
+          padding so the last line is never hidden behind the bar. */}
       <AnimatePresence>
         {composerOpen && (
           <motion.div
@@ -456,7 +457,7 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
           >
             {/* Top bar: notebook context label + big close button */}
             <div
-              className="shrink-0 flex items-center justify-between px-5 pt-3 pb-2"
+              className="relative z-10 shrink-0 flex items-center justify-between px-5 pt-3 pb-2"
               style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
             >
               <div className="flex items-center gap-2 min-w-0">
@@ -479,8 +480,9 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
                   setComposerOpen(false);
                   setComposer('');
                   if (isListening) {
-                    // Best-effort: the mic hook exposes button props
-                    // (onClick toggles). Click to stop if currently on.
+                    // Best-effort: the mic hook's button props include
+                    // onClick which toggles listening state. Call it
+                    // to stop the mic if it's currently on.
                     micButtonProps.onClick?.();
                   }
                 }}
@@ -494,43 +496,40 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
               </button>
             </div>
 
-            {/* Writing surface — fills the middle, scrolls when the
-                user writes past the visible area. */}
-            <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4">
-              <p className="text-[10px] uppercase tracking-widest text-text-tertiary mb-2">
-                {t('journal.today')}
-              </p>
-              <textarea
-                ref={textareaRef}
-                value={composer}
-                onChange={(e) => setComposer(e.target.value)}
-                placeholder={t('journalWrite.placeholder')}
-                className="w-full bg-transparent text-[16px] text-text-primary placeholder:text-text-tertiary/60 border-0 outline-none focus:outline-none focus:ring-0 resize-none"
-                style={{
-                  lineHeight: 1.65,
-                  // Grow to fill available height — the parent is
-                  // flex-1 overflow-y-auto, so this gives the user a
-                  // full page to write on without the mic/save bar
-                  // moving out of reach.
-                  minHeight: 'calc(100% - 2rem)',
-                }}
-              />
+            {/* Writing surface — same pattern as /journal. The
+                `pb-[130px]` keeps the last line clear of the fixed
+                action bar regardless of keyboard state. */}
+            <div className="relative z-10 flex-1 overflow-y-auto px-6 pt-2 pb-[130px]">
+              <div className="max-w-md mx-auto">
+                <p className="text-[10px] uppercase tracking-widest text-text-tertiary mb-2">
+                  {t('journal.today')}
+                </p>
+                <textarea
+                  ref={textareaRef}
+                  value={composer}
+                  onChange={(e) => setComposer(e.target.value)}
+                  placeholder={t('journalWrite.placeholder')}
+                  className="w-full min-h-[40vh] bg-transparent text-base leading-relaxed text-text-primary placeholder:text-text-tertiary/60 border-0 outline-none focus:outline-none focus:ring-0 resize-none"
+                  style={{ lineHeight: 1.7 }}
+                />
+              </div>
             </div>
 
-            {/* Action bar — pinned to bottom, in the thumb-reach zone.
-                Safe-area padded so the iOS home indicator doesn't
-                overlap the Save button. */}
+            {/* Action bar — position: fixed so the iOS keyboard can't
+                push it offscreen (Visual Viewport tracks fixed-bottom
+                elements on iOS 16+). Identical shape to /journal so
+                the muscle memory carries over. */}
             <div
-              className="shrink-0 px-5 pt-3 border-t border-border/60 bg-surface-elevated/70 backdrop-blur"
+              className="fixed bottom-0 inset-x-0 z-20 px-6 pt-3 bg-gradient-to-t from-bg via-bg/95 to-transparent"
               style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
             >
-              <div className="flex items-center gap-3">
+              <div className="max-w-md mx-auto flex items-center justify-between gap-3">
                 <motion.button
                   type="button"
                   {...micButtonProps}
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
-                  className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center shadow-warm-sm
-                    ${isListening ? 'bg-error text-white' : 'bg-surface border border-border text-primary'}
+                  className={`relative flex items-center justify-center shrink-0 w-14 h-14 rounded-full shadow-warm-md
+                    ${isListening ? 'bg-error text-white' : 'bg-surface-elevated border border-border text-primary'}
                     transition-colors`}
                   aria-pressed={isListening}
                   aria-label={isListening ? t('journalWrite.micStop') : t('journalWrite.micStart')}
@@ -538,11 +537,20 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
                   {isListening ? (
                     <span className="block w-3 h-3 rounded-sm bg-white" aria-hidden />
                   ) : (
-                    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                       <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                       <line x1="12" x2="12" y1="19" y2="22" />
                     </svg>
+                  )}
+                  {isListening && (
+                    <motion.span
+                      aria-hidden
+                      className="absolute inset-0 rounded-full border-2 border-error"
+                      initial={{ scale: 1, opacity: 0.7 }}
+                      animate={{ scale: 1.35, opacity: 0 }}
+                      transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut' }}
+                    />
                   )}
                 </motion.button>
 
@@ -551,7 +559,7 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
                   whileTap={prefersReducedMotion || !canSave ? undefined : { scale: 0.97 }}
                   onClick={handleSave}
                   disabled={!canSave}
-                  className="flex-1 h-12 rounded-2xl font-semibold text-white text-base bg-primary hover:bg-primary-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-warm-md"
+                  className="flex-1 py-3.5 rounded-2xl font-semibold text-white shadow-warm-md bg-primary hover:bg-primary-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {saving ? t('common.saving') : t('journalWrite.save')}
                 </motion.button>
