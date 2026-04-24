@@ -164,13 +164,10 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
     if (!composer) composerStartRef.current = Date.now();
   }, [composer]);
 
-  // Auto-grow composer textarea to fit content.
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = `${Math.max(ta.scrollHeight, ta.clientHeight)}px`;
-  }, [composer]);
+  // Composer is a full-screen overlay now — it fills the flex-1
+  // middle region so we don't need to auto-grow the textarea's own
+  // height. Leaving the hook removed instead of no-op'd to keep the
+  // effect graph honest.
 
   // Focus the textarea the moment the composer opens so the keyboard
   // comes up without a second tap.
@@ -342,71 +339,8 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}
       >
         <div className="max-w-md mx-auto px-5 pt-2 pb-28 space-y-5">
-          {/* Composer — only visible after the user taps the FAB. The
-              notebook view is read-first; writing is opt-in. Pulse
-              never shows it (pulse entries come from the morning /
-              evening card on /home). */}
-          {activeNotebook?.system_key !== 'pulse' && composerOpen && (
-            <section className="relative bg-surface-elevated/70 border border-border rounded-2xl p-4 shadow-warm-md backdrop-blur">
-              <button
-                type="button"
-                onClick={() => {
-                  setComposerOpen(false);
-                  setComposer('');
-                }}
-                aria-label="Close composer"
-                className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-text-tertiary hover:text-text-primary hover:bg-surface"
-              >
-                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-              <p className="text-[10px] uppercase tracking-widest text-text-tertiary mb-2">
-                {t('journal.today')}
-              </p>
-              <textarea
-                ref={textareaRef}
-                value={composer}
-                onChange={(e) => setComposer(e.target.value)}
-                placeholder={t('journalWrite.placeholder')}
-                className="w-full min-h-[88px] bg-transparent text-[15px] text-text-primary placeholder:text-text-tertiary/60 border-0 outline-none focus:outline-none focus:ring-0 resize-none"
-                style={{ lineHeight: 1.6 }}
-              />
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <motion.button
-                  type="button"
-                  {...micButtonProps}
-                  whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
-                  className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-warm-sm
-                    ${isListening ? 'bg-error text-white' : 'bg-surface border border-border text-primary'}
-                    transition-colors`}
-                  aria-pressed={isListening}
-                  aria-label={isListening ? t('journalWrite.micStop') : t('journalWrite.micStart')}
-                >
-                  {isListening ? (
-                    <span className="block w-2.5 h-2.5 rounded-sm bg-white" aria-hidden />
-                  ) : (
-                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                      <line x1="12" x2="12" y1="19" y2="22" />
-                    </svg>
-                  )}
-                </motion.button>
-
-                <motion.button
-                  type="button"
-                  whileTap={prefersReducedMotion || !canSave ? undefined : { scale: 0.97 }}
-                  onClick={handleSave}
-                  disabled={!canSave}
-                  className="flex-1 py-2.5 rounded-xl font-semibold text-white text-sm bg-primary hover:bg-primary-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {saving ? t('common.saving') : t('journalWrite.save')}
-                </motion.button>
-              </div>
-            </section>
-          )}
+          {/* (Composer is now a full-screen overlay mounted near the
+              bottom of this component — see `composerOpen` block.) */}
 
           {/* Day groups */}
           <AnimatePresence mode="popLayout">
@@ -482,17 +416,17 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
       </div>
 
       {/* Floating + button — bottom-right, above the WallNav's
-          Patterns tab. Opens the composer inline. Hidden on Pulse
-          (entries there come from the /home morning/evening card)
-          and while the composer is already open. */}
+          Patterns tab. Raised high enough that the WallNav + iOS
+          home indicator never crowd it. Hidden on Pulse and while
+          the composer overlay is up. */}
       {activeNotebook?.system_key !== 'pulse' && !composerOpen && (
         <motion.button
           type="button"
           onClick={() => setComposerOpen(true)}
           whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
-          aria-label={t('journalWrite.save') ? 'New entry' : 'New entry'}
+          aria-label="New entry"
           className="fixed right-5 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-warm-lg flex items-center justify-center hover:bg-primary-dark transition-colors"
-          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 6rem)' }}
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 7.5rem)' }}
         >
           <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -500,6 +434,127 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
           </svg>
         </motion.button>
       )}
+
+      {/* Full-screen composer overlay. Textarea fills the screen so
+          the user has room to write; mic + Save are pinned at the
+          bottom in the thumb-reach zone. A big X at the top-right
+          dismisses without needing to hunt for a tiny target. */}
+      <AnimatePresence>
+        {composerOpen && (
+          <motion.div
+            key="composer-overlay"
+            initial={prefersReducedMotion ? undefined : { y: '100%' }}
+            animate={prefersReducedMotion ? undefined : { y: 0 }}
+            exit={prefersReducedMotion ? undefined : { y: '100%' }}
+            transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+            className="fixed inset-0 z-[70] bg-bg flex flex-col"
+          >
+            {/* Top bar: notebook context label + big close button */}
+            <div
+              className="shrink-0 flex items-center justify-between px-5 pt-3 pb-2"
+              style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {activeNotebook && (
+                  <>
+                    <span
+                      className="inline-block w-2 h-2 rounded-full shrink-0"
+                      style={{ background: activeNotebook.color }}
+                      aria-hidden
+                    />
+                    <span className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold truncate">
+                      {activeNotebook.name}
+                    </span>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setComposerOpen(false);
+                  setComposer('');
+                  if (isListening) {
+                    // Best-effort: the mic hook exposes button props
+                    // (onClick toggles). Click to stop if currently on.
+                    micButtonProps.onClick?.();
+                  }
+                }}
+                aria-label="Close composer"
+                className="w-11 h-11 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-text-secondary hover:text-text-primary"
+              >
+                <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Writing surface — fills the middle, scrolls when the
+                user writes past the visible area. */}
+            <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4">
+              <p className="text-[10px] uppercase tracking-widest text-text-tertiary mb-2">
+                {t('journal.today')}
+              </p>
+              <textarea
+                ref={textareaRef}
+                value={composer}
+                onChange={(e) => setComposer(e.target.value)}
+                placeholder={t('journalWrite.placeholder')}
+                className="w-full bg-transparent text-[16px] text-text-primary placeholder:text-text-tertiary/60 border-0 outline-none focus:outline-none focus:ring-0 resize-none"
+                style={{
+                  lineHeight: 1.65,
+                  // Grow to fill available height — the parent is
+                  // flex-1 overflow-y-auto, so this gives the user a
+                  // full page to write on without the mic/save bar
+                  // moving out of reach.
+                  minHeight: 'calc(100% - 2rem)',
+                }}
+              />
+            </div>
+
+            {/* Action bar — pinned to bottom, in the thumb-reach zone.
+                Safe-area padded so the iOS home indicator doesn't
+                overlap the Save button. */}
+            <div
+              className="shrink-0 px-5 pt-3 border-t border-border/60 bg-surface-elevated/70 backdrop-blur"
+              style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+            >
+              <div className="flex items-center gap-3">
+                <motion.button
+                  type="button"
+                  {...micButtonProps}
+                  whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
+                  className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center shadow-warm-sm
+                    ${isListening ? 'bg-error text-white' : 'bg-surface border border-border text-primary'}
+                    transition-colors`}
+                  aria-pressed={isListening}
+                  aria-label={isListening ? t('journalWrite.micStop') : t('journalWrite.micStart')}
+                >
+                  {isListening ? (
+                    <span className="block w-3 h-3 rounded-sm bg-white" aria-hidden />
+                  ) : (
+                    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" x2="12" y1="19" y2="22" />
+                    </svg>
+                  )}
+                </motion.button>
+
+                <motion.button
+                  type="button"
+                  whileTap={prefersReducedMotion || !canSave ? undefined : { scale: 0.97 }}
+                  onClick={handleSave}
+                  disabled={!canSave}
+                  className="flex-1 h-12 rounded-2xl font-semibold text-white text-base bg-primary hover:bg-primary-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-warm-md"
+                >
+                  {saving ? t('common.saving') : t('journalWrite.save')}
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <NotebookSettingsSheet
         open={settingsOpen}
