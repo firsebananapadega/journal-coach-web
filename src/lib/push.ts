@@ -163,6 +163,57 @@ export async function refreshSubscription(): Promise<void> {
   }
 }
 
+/**
+ * Self-healing wrapper. The problem `enablePushReminders` alone can't
+ * solve: if the user previously tapped "Allow" but the /api/push/
+ * subscribe POST failed (server was misconfigured), the browser has
+ * permission + a subscription object but the server has no row. The
+ * app then thinks "already subscribed, nothing to do" and reminders
+ * never fire.
+ *
+ * This function always resyncs. If the browser already has a sub,
+ * we re-POST it (server upsert is idempotent). If permission is
+ * granted but no sub, we subscribe + POST. If permission is default,
+ * we return 'needs-prompt' so the caller can show the bottom sheet
+ * within a user gesture. Never throws.
+ */
+export type EnsureSubscribedResult =
+  | 'ok'             // server has our current subscription
+  | 'needs-prompt'   // show the PushPermissionSheet to get a user gesture
+  | 'needs-install'  // iOS Safari, not installed to home screen
+  | 'blocked'        // user denied notification permission
+  | 'unsupported'    // browser lacks PushManager / SW
+  | 'error';         // network/server failure; try again later
+
+export async function ensureSubscribed(): Promise<EnsureSubscribedResult> {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return 'unsupported';
+  }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return 'unsupported';
+  }
+  if (isIos() && !isStandalone()) return 'needs-install';
+
+  const perm = Notification.permission;
+  if (perm === 'denied') return 'blocked';
+  if (perm === 'default') return 'needs-prompt';
+
+  // perm === 'granted' past here. Make sure we have a browser sub
+  // AND the server has a row for it.
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await subscribeInBrowser();
+      if (!sub) return 'error';
+    }
+    const sent = await sendSubscription(sub);
+    return sent ? 'ok' : 'error';
+  } catch {
+    return 'error';
+  }
+}
+
 const LS_DISMISS_KEY = 'push_prompt_dismissed_at';
 
 export function markPromptDismissed() {

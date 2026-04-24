@@ -3,10 +3,17 @@
 import { useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useTheme } from '@/lib/theme';
+import { installPromptBridge } from '@/hooks/usePwaInstall';
+import { refreshSubscription } from '@/lib/push';
+
+// Arm the install-prompt bridge at module load so we catch the event
+// even if it fires before any UI mounts.
+installPromptBridge.arm();
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const initialize = useAuthStore((s) => s.initialize);
   const loadTheme = useTheme((s) => s.loadTheme);
+  const session = useAuthStore((s) => s.session);
 
   useEffect(() => {
     initialize();
@@ -16,6 +23,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
   }, [initialize, loadTheme]);
+
+  // Silently re-sync the push subscription once a session exists.
+  // If the user previously granted permission but the /api/push/
+  // subscribe POST failed (e.g., the route was misconfigured at
+  // the time), the browser has the subscription but the server
+  // doesn't. This pushes the existing browser sub back to the
+  // server on every authenticated boot so reminders self-heal.
+  useEffect(() => {
+    if (!session) return;
+    const id = window.setTimeout(() => {
+      refreshSubscription().catch(() => {});
+    }, 1500);
+    return () => window.clearTimeout(id);
+  }, [session]);
 
   return <>{children}</>;
 }

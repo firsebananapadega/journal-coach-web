@@ -255,6 +255,7 @@ const translations: Record<string, Record<Locale, string>> = {
     es: 'iOS solo envía notificaciones a apps instaladas. Toca Compartir en Safari y "Añadir a pantalla de inicio". Abre la app desde ahí y te lo preguntamos de nuevo.',
   },
   'push.installGateCta': { en: 'Got it', es: 'Entendido' },
+  'push.retry': { en: 'Couldn’t set up — try again soon.', es: 'No se pudo configurar — intenta de nuevo.' },
 
   // ─── Journal writing surface (/journal) ───
   'journalWrite.placeholder': {

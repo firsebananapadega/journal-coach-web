@@ -20,7 +20,7 @@ import { getLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
 import { CapturePreviewSheet, type CompletionMatch, type PriorityDestinations } from '@/components/CapturePreviewSheet';
 import PushPermissionSheet from '@/components/PushPermissionSheet';
-import { shouldPromptForPermission } from '@/lib/push';
+import { ensureSubscribed } from '@/lib/push';
 
 export default function VoiceEntryPage() {
   const router = useRouter();
@@ -656,9 +656,9 @@ export default function VoiceEntryPage() {
 
             // If any priority carried a remind_at, surface a toast
             // showing when it'll fire — immediate visual confirmation
-            // that the reminder was captured. Also trigger the push-
-            // permission sheet if we haven't asked yet (or haven't in
-            // 30+ days).
+            // that the reminder was captured. Then self-heal the push
+            // subscription (handles stale browser state where perm
+            // was granted but the server row is missing).
             const remindersSet = edited.priorities
               .map((p) => p.remind_at_iso)
               .filter((x): x is string => !!x);
@@ -681,8 +681,30 @@ export default function VoiceEntryPage() {
                   : '';
               showToast(`🔔 Reminder set ${label}${suffix}`, 'success');
 
-              const shouldPrompt = await shouldPromptForPermission();
-              if (shouldPrompt) setPushPromptOpen(true);
+              // Self-healing subscription sync. ensureSubscribed:
+              //   - re-POSTs existing browser subs that never reached
+              //     the server (the bug we were hitting)
+              //   - subscribes silently if permission is already granted
+              //   - returns 'needs-prompt' for default permission →
+              //     we open the sheet (the only path requiring a gesture)
+              //   - returns 'needs-install' on iOS Safari → show sheet
+              //     with install-gate copy
+              const push = await ensureSubscribed();
+              if (push === 'needs-prompt' || push === 'needs-install') {
+                setPushPromptOpen(true);
+              } else if (push === 'ok') {
+                showToast('Reminders ready on this device ✓', 'success');
+              } else if (push === 'blocked') {
+                showToast(
+                  'Reminders are blocked. Re-enable in iOS Settings → Notifications.',
+                  'error',
+                );
+              } else if (push === 'error') {
+                showToast(
+                  'Couldn’t set up reminders on this device — try again.',
+                  'error',
+                );
+              }
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

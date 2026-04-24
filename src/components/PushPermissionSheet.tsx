@@ -48,15 +48,22 @@ export default function PushPermissionSheet({ open, onClose }: Props) {
     setBusy(true);
     const res = await enablePushReminders();
     setBusy(false);
-    if (res === 'ok') onClose('enabled');
-    else if (res === 'unsupported') {
+    if (res === 'ok') {
+      // Don't persist the dismiss timestamp — user succeeded.
+      onClose('enabled');
+    } else if (res === 'unsupported') {
       setStatus(isIos() ? t('push.iosHint') : t('push.unsupported'));
       markPromptDismissed();
       window.setTimeout(() => onClose('unsupported'), 1800);
-    } else {
+    } else if (res === 'denied') {
       setStatus(t('push.denied'));
       markPromptDismissed();
-      window.setTimeout(() => onClose('dismissed'), 1200);
+      window.setTimeout(() => onClose('dismissed'), 1600);
+    } else {
+      // 'error' — network/server. Don't persist dismiss; let them try
+      // again later on the next reminder capture.
+      setStatus(t('push.retry'));
+      window.setTimeout(() => onClose('dismissed'), 1600);
     }
   };
 
