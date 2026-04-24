@@ -129,16 +129,24 @@ export async function POST(req: Request) {
   }
   const admin = createClient(supaUrl, serviceKey, { auth: { persistSession: false } });
 
-  // Pick due tasks. coalesce(snooze_until, remind_at) so a snoozed
-  // task fires at the snoozed time.
-  const nowIso = new Date().toISOString();
+  // Pick due tasks. We bias the "due" horizon forward by 60s: a
+  // reminder set for 5:30:00.123 would otherwise miss the 5:30:00
+  // cron tick (remind_at > now) and wait for 5:31:00, giving the
+  // user a ~1 min late notification. With the bias the 5:29:00 tick
+  // picks it up, web-push delivers in seconds, user sees the
+  // notification close to 5:30:00.
+  //
+  // coalesce(snooze_until, remind_at) so a snoozed task fires at the
+  // snoozed time (same 60s-early bias applies there too).
+  const LEAD_MS = 60_000;
+  const horizonIso = new Date(Date.now() + LEAD_MS).toISOString();
   const { data: tasks, error } = await admin
     .from('tasks')
     .select('id, user_id, text, reminder_message, remind_at, remind_snoozed_until, remind_sent_at, completed')
     .eq('completed', false)
     .is('remind_sent_at', null)
     .not('remind_at', 'is', null)
-    .or(`remind_snoozed_until.lte.${nowIso},and(remind_snoozed_until.is.null,remind_at.lte.${nowIso})`)
+    .or(`remind_snoozed_until.lte.${horizonIso},and(remind_snoozed_until.is.null,remind_at.lte.${horizonIso})`)
     .limit(BATCH_LIMIT);
 
   if (error) {
