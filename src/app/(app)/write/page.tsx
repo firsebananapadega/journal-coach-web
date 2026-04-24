@@ -3,12 +3,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJournalStore } from '@/stores/journalStore';
+import { useUiStore } from '@/stores/uiStore';
 import { MoodSelector } from '@/components/MoodSelector';
 import { t } from '@/lib/translations';
 
 export default function FreeWritePage() {
   const router = useRouter();
   const createEntry = useJournalStore((s) => s.createEntry);
+  const showToast = useUiStore((s) => s.showToast);
   const [content, setContent] = useState('');
   const [moodScore, setMoodScore] = useState<number | null>(null);
   const [moodLabel, setMoodLabel] = useState<string | null>(null);
@@ -36,6 +38,7 @@ export default function FreeWritePage() {
         duration_seconds: duration,
         word_count: wordCount,
       });
+      showToast(t('write.saved'));
       router.push('/home');
     } catch {
       setSaving(false);

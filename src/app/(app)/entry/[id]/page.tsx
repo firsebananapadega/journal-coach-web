@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useJournalStore, type JournalEntry } from '@/stores/journalStore';
 import { MoodSelector } from '@/components/MoodSelector';
+import { getStructured } from '@/lib/structureEntry';
 import { t } from '@/lib/translations';
 import { getLanguage } from '@/lib/language';
 
@@ -55,6 +56,13 @@ export default function EntryDetailPage() {
   const [editQAPairs, setEditQAPairs] = useState<{ question: string; answer: string }[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Raw / Structured view toggle (freeform/voice entries only).
+  // Default to 'structured' per user preference — they see the
+  // polished version first, toggle to raw to edit.
+  const [viewMode, setViewMode] = useState<'raw' | 'structured'>('structured');
+  const [structuredText, setStructuredText] = useState<string | null>(null);
+  const [structuring, setStructuring] = useState(false);
+
   useEffect(() => {
     if (id) {
       fetchEntryById(id).then((e) => {
@@ -63,6 +71,38 @@ export default function EntryDetailPage() {
       });
     }
   }, [id, fetchEntryById]);
+
+  // Lazy-load structured text on first switch to the Structured tab.
+  // Uses the cache column directly if already populated.
+  useEffect(() => {
+    if (!entry) return;
+    if (viewMode !== 'structured') return;
+    if (structuredText) return;
+    if (entry.content_structured && entry.content_structured.trim()) {
+      setStructuredText(entry.content_structured);
+      return;
+    }
+    if (!entry.content_text || !entry.content_text.trim()) return;
+    let cancelled = false;
+    setStructuring(true);
+    (async () => {
+      try {
+        const res = await getStructured({
+          id: entry.id,
+          content_text: entry.content_text,
+          content_structured: entry.content_structured,
+        });
+        if (!cancelled) setStructuredText(res.text);
+      } catch {
+        // Leave structuredText null; UI falls back to raw display.
+      } finally {
+        if (!cancelled) setStructuring(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entry, viewMode, structuredText]);
 
   const startEditing = () => {
     if (!entry) return;
@@ -305,10 +345,44 @@ export default function EntryDetailPage() {
               ))}
             </div>
           ) : (
-            <div className="prose prose-invert max-w-none">
-              <p className="text-[15px] text-text-primary leading-relaxed whitespace-pre-wrap">
-                {entry.content_text || t('common.noContent')}
-              </p>
+            <div className="space-y-3">
+              {/* Raw / Structured segmented control. Default land
+                  is Structured per user preference — toggle to Raw
+                  to see the verbatim transcript or to edit. */}
+              <div className="inline-flex text-[11px] font-semibold rounded-full bg-surface border border-border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('structured')}
+                  className={`px-3 py-1 ${viewMode === 'structured' ? 'bg-primary text-white' : 'text-text-tertiary hover:text-text-secondary'}`}
+                >
+                  {t('entry.structured')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('raw')}
+                  className={`px-3 py-1 ${viewMode === 'raw' ? 'bg-primary text-white' : 'text-text-tertiary hover:text-text-secondary'}`}
+                >
+                  {t('entry.raw')}
+                </button>
+              </div>
+
+              <div className="prose prose-invert max-w-none">
+                {viewMode === 'structured' ? (
+                  structuring && !structuredText ? (
+                    <p className="text-[14px] text-text-tertiary italic">
+                      {t('entry.structuring')}
+                    </p>
+                  ) : (
+                    <p className="text-[15px] text-text-primary leading-relaxed whitespace-pre-wrap">
+                      {(structuredText || entry.content_text || t('common.noContent'))}
+                    </p>
+                  )
+                ) : (
+                  <p className="text-[15px] text-text-primary leading-relaxed whitespace-pre-wrap">
+                    {entry.content_text || t('common.noContent')}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </>

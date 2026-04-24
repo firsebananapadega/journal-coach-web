@@ -7,15 +7,16 @@
 // save, and borderless textarea that feels like writing on paper.
 // History lives on /notebooks and /notebooks/[slug].
 //
-// Entries auto-assign to the user's Journal system notebook via
-// journalStore.createEntry's default lookup.
+// 2026-04-24: tap-Save opens a bottom sheet with a detected-notebook
+// chip (overridable) rather than silently defaulting to Journal.
+// Action bar is position:fixed so the iOS soft keyboard can't push
+// it off-screen.
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { useJournalStore } from '@/stores/journalStore';
-import { useUiStore } from '@/stores/uiStore';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
+import SaveEntrySheet from '@/components/journal/SaveEntrySheet';
 import { t } from '@/lib/translations';
 import { getLocale } from '@/lib/language';
 import { prefersReducedMotion } from '@/lib/motionVariants';
@@ -31,12 +32,9 @@ function formatDayHeader(): string {
 
 export default function JournalWritingPage() {
   const router = useRouter();
-  const createEntry = useJournalStore((s) => s.createEntry);
-  const celebrate = useUiStore((s) => s.celebrate);
-  const showToast = useUiStore((s) => s.showToast);
 
   const [content, setContent] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [saveSheetOpen, setSaveSheetOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const startTime = useRef(Date.now());
 
@@ -60,35 +58,12 @@ export default function JournalWritingPage() {
   }, [content]);
 
   const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
-  // Save is unblocked the moment there's content. journalStore will
-  // resolve the default Journal notebook server-side — we don't
-  // gate on a client-side notebook fetch.
-  const canSave = content.trim().length > 0 && !saving;
+  const canSave = content.trim().length > 0;
 
-  const handleSave = async () => {
+  const handleSavePressed = () => {
     if (!canSave) return;
-    // Belt-and-braces: stop the mic first so the save cue audio plays
-    // and `content` reflects the final transcript.
     if (isListening) toggle();
-    setSaving(true);
-    const duration = Math.round((Date.now() - startTime.current) / 1000);
-    try {
-      await createEntry({
-        entry_type: 'freeform',
-        content_text: content.trim(),
-        title: null,
-        duration_seconds: duration,
-        word_count: wordCount,
-      });
-      celebrate();
-      window.setTimeout(
-        () => router.replace('/home'),
-        prefersReducedMotion ? 150 : 700,
-      );
-    } catch (err) {
-      setSaving(false);
-      showToast(err instanceof Error ? err.message : t('common.error'), 'error');
-    }
+    setSaveSheetOpen(true);
   };
 
   return (
@@ -118,8 +93,9 @@ export default function JournalWritingPage() {
         <span className="w-10" />
       </div>
 
-      {/* Writing surface — borderless textarea, feels like paper */}
-      <div className="relative z-10 flex-1 overflow-y-auto px-6 pt-4 pb-6">
+      {/* Writing surface — borderless textarea, feels like paper.
+          Extra pb to clear the fixed action bar below (~120px). */}
+      <div className="relative z-10 flex-1 overflow-y-auto px-6 pt-4 pb-[130px]">
         <div className="max-w-md mx-auto">
           <textarea
             ref={textareaRef}
@@ -144,9 +120,11 @@ export default function JournalWritingPage() {
         </div>
       </div>
 
-      {/* Action bar — mic + save */}
+      {/* Action bar — position: fixed so iOS keyboard can't hide it.
+          The Visual Viewport stays above the keyboard, and iOS 16+
+          tracks fixed-bottom elements to that. */}
       <div
-        className="relative z-10 shrink-0 px-6 pt-2 bg-gradient-to-t from-bg via-bg to-transparent"
+        className="fixed bottom-0 inset-x-0 z-20 px-6 pt-3 bg-gradient-to-t from-bg via-bg/95 to-transparent"
         style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
       >
         <div className="max-w-md mx-auto flex items-center justify-between gap-3">
@@ -186,7 +164,7 @@ export default function JournalWritingPage() {
           <motion.button
             type="button"
             whileTap={prefersReducedMotion || !canSave ? undefined : { scale: 0.97 }}
-            onClick={handleSave}
+            onClick={handleSavePressed}
             disabled={!canSave}
             className="
               flex-1 py-3.5 rounded-2xl font-semibold text-white shadow-warm-md
@@ -194,10 +172,25 @@ export default function JournalWritingPage() {
               disabled:opacity-40 disabled:cursor-not-allowed
             "
           >
-            {saving ? t('common.saving') : t('journalWrite.save')}
+            {t('journalWrite.save')}
           </motion.button>
         </div>
       </div>
+
+      <SaveEntrySheet
+        open={saveSheetOpen}
+        content={content}
+        wordCount={wordCount}
+        durationSeconds={Math.round((Date.now() - startTime.current) / 1000)}
+        onClose={() => setSaveSheetOpen(false)}
+        onSaved={() => {
+          setSaveSheetOpen(false);
+          window.setTimeout(
+            () => router.replace('/home'),
+            prefersReducedMotion ? 150 : 400,
+          );
+        }}
+      />
     </div>
   );
 }

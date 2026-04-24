@@ -144,6 +144,40 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       if (error) throw error;
       const created = data as JournalEntry;
       set({ entries: [created, ...get().entries] });
+
+      // Pre-generate the structured view in the background so the
+      // next notebook-feed render is instant. Don't await — the
+      // user sees their entry immediately; the polished version
+      // lands in content_structured a beat later.
+      if (created.content_text && created.content_text.trim().length > 10) {
+        (async () => {
+          try {
+            const { getStructured } = await import('../lib/structureEntry');
+            const res = await getStructured({
+              id: created.id,
+              content_text: created.content_text,
+              content_structured: null,
+            });
+            // Reflect the cached result in the store so any mounted
+            // EntryCard rendering this row picks it up.
+            set((s) => ({
+              entries: s.entries.map((e) =>
+                e.id === created.id
+                  ? {
+                      ...e,
+                      content_structured: res.text,
+                      structured_generated_at: new Date().toISOString(),
+                    }
+                  : e,
+              ),
+            }));
+          } catch {
+            // Swallow — EntryCard falls back to generating lazily
+            // on first view.
+          }
+        })();
+      }
+
       return created;
     } catch (error: unknown) {
       set({ error: error instanceof Error ? error.message : 'Failed to create entry' });

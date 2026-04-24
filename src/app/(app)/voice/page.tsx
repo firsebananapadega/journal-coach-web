@@ -26,7 +26,6 @@ export default function VoiceEntryPage() {
   const router = useRouter();
   const createEntry = useJournalStore((s) => s.createEntry);
   const updateEntry = useJournalStore((s) => s.updateEntry);
-  const celebrate = useUiStore((s) => s.celebrate);
   const showToast = useUiStore((s) => s.showToast);
   const [transcript, setTranscript] = useState('');
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
@@ -453,8 +452,7 @@ export default function VoiceEntryPage() {
       }
     }
 
-    celebrate();
-    showToast(t('write.saved'));
+    showToast(t('write.saved'), 'success');
     // Return to the Tasks Wall the user came from. Previously routed
     // to /home which silently flipped them to the Journal Wall.
     router.push('/today');

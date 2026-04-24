@@ -18,6 +18,7 @@ import {
 } from '@/stores/priorityStore';
 import type { ListRecord } from '@/stores/listStore';
 import { useNotebookStore } from '@/stores/notebookStore';
+import NotebookPickerChip from '@/components/notebooks/NotebookPickerChip';
 import { bestMatch } from '@/lib/fuzzyMatch';
 import { t } from '@/lib/translations';
 import { prefersReducedMotion } from '@/lib/motionVariants';
@@ -390,69 +391,8 @@ function TimeChip({
 // Notebook picker chip — shows the capture classifier's detected
 // notebook with a dropdown of all user notebooks. Used at the top of
 // the preview so the user can confirm or redirect before saving.
-function NotebookPicker({
-  currentSlug,
-  onChange,
-}: {
-  currentSlug: string | null;
-  onChange: (slug: string) => void;
-}) {
-  const notebooks = useNotebookStore((s) => s.notebooks);
-  const [open, setOpen] = useState(false);
-  const current =
-    notebooks.find((n) => n.slug === currentSlug) ??
-    notebooks.find((n) => n.system_key === 'journal') ??
-    null;
-
-  if (notebooks.length === 0 || !current) return null;
-
-  return (
-    <div className="relative inline-block">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border border-border bg-surface-elevated hover:bg-surface text-text-primary"
-        style={{ color: current.color }}
-        aria-label={t('preview.notebookLabel')}
-      >
-        <span
-          className="inline-block w-1.5 h-1.5 rounded-full"
-          style={{ background: current.color }}
-          aria-hidden
-        />
-        <span className="text-text-primary">{current.name}</span>
-        <span className="text-text-tertiary">▾</span>
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 top-full mt-1 left-0 bg-surface-elevated border border-border rounded-lg shadow-warm-md py-1 min-w-[180px] max-h-[260px] overflow-y-auto">
-            {notebooks.map((n) => (
-              <button
-                key={n.id}
-                onClick={() => {
-                  onChange(n.slug);
-                  setOpen(false);
-                }}
-                className={`w-full flex items-center gap-2 text-left px-3 py-1.5 text-xs ${
-                  n.slug === currentSlug
-                    ? 'text-primary font-semibold'
-                    : 'text-text-secondary hover:bg-surface'
-                }`}
-              >
-                <span
-                  className="inline-block w-1.5 h-1.5 rounded-full"
-                  style={{ background: n.color }}
-                  aria-hidden
-                />
-                {n.name}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
+// NotebookPicker moved to src/components/notebooks/NotebookPickerChip.tsx
+// so it can be reused by the /journal SaveEntrySheet.
 
 // Reminder chip — shows the bell + a human-readable time when the
 // priority carries remind_at_iso. Tap to edit via datetime-local
@@ -969,7 +909,7 @@ export function CapturePreviewSheet({
                 content to route. Lets the user override the classifier
                 pick in one tap before saving. */}
             {edited.journal && edited.journal.trim().length > 0 && (
-              <NotebookPicker
+              <NotebookPickerChip
                 currentSlug={edited.notebook_slug}
                 onChange={(slug) =>
                   setEdited((cur) => (cur ? { ...cur, notebook_slug: slug } : cur))

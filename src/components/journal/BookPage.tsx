@@ -19,6 +19,7 @@ import { t } from '@/lib/translations';
 import { getLocale } from '@/lib/language';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import EntryCard from './EntryCard';
+import { SwipeToDelete } from '@/components/SwipeToDelete';
 
 interface Props {
   // When set, the notebook picker is hidden and the feed is locked
@@ -60,13 +61,13 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
   const entries = useJournalStore((s) => s.entries);
   const fetchEntries = useJournalStore((s) => s.fetchEntries);
   const createEntry = useJournalStore((s) => s.createEntry);
+  const deleteEntry = useJournalStore((s) => s.deleteEntry);
   const hasFetchedEntries = useJournalStore((s) => s.hasFetched);
 
   const notebooks = useNotebookStore((s) => s.notebooks);
   const fetchNotebooks = useNotebookStore((s) => s.fetchNotebooks);
   const hasFetchedNotebooks = useNotebookStore((s) => s.hasFetched);
 
-  const celebrate = useUiStore((s) => s.celebrate);
   const showToast = useUiStore((s) => s.showToast);
 
   const [composer, setComposer] = useState('');
@@ -150,13 +151,13 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         notebook_id: activeNotebook.id,
       });
       setComposer('');
-      celebrate();
+      showToast('Entry saved', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : t('common.error'), 'error');
     } finally {
       setSaving(false);
     }
-  }, [composer, saving, activeNotebook, createEntry, celebrate, showToast]);
+  }, [composer, saving, activeNotebook, createEntry, showToast]);
 
   const canSave = composer.trim().length > 0 && !saving && !!activeNotebook;
 
@@ -315,7 +316,17 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
                 </h3>
                 <div className="space-y-3">
                   {g.entries.map((e) => (
-                    <EntryCard key={e.id} entry={e} />
+                    <SwipeToDelete
+                      key={e.id}
+                      onDelete={() => {
+                        deleteEntry(e.id).catch(() => {
+                          showToast('Could not delete entry', 'error');
+                        });
+                      }}
+                      onTap={() => router.push(`/entry/${e.id}`)}
+                    >
+                      <EntryCard entry={e} />
+                    </SwipeToDelete>
                   ))}
                 </div>
               </motion.section>
