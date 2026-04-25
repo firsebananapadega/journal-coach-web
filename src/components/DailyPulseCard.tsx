@@ -11,6 +11,7 @@ import { t } from '@/lib/translations';
 import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { prefersReducedMotion } from '@/lib/motionVariants';
+import { parseIntentionToItems } from '@/lib/intentionParser';
 
 interface Props {
   entries: JournalEntry[];
@@ -113,13 +114,20 @@ export default function DailyPulseCard({ entries }: Props) {
   const [mindScore, setMindScore] = useState<number | null>(null);
 
   // Intention-outcome reflection (evening only — closes the loop on
-  // the morning intention). Persisted on the evening pulse metadata
-  // as prior_intention / prior_intention_outcome / prior_intention_
-  // obstacle. Backed by Gollwitzer + Sheeran research on if-then plans
-  // and self-monitoring of goal completion.
+  // the morning intention). Backed by Gollwitzer + Sheeran research
+  // on if-then plans and self-monitoring of goal completion.
+  //
+  // Per-ITEM state: morning intentions are usually compound ("finish
+  // proposal AND call mom AND exercise"). Each parsed item gets its
+  // own outcome pill + optional notes textarea so the user can
+  // evaluate them independently rather than collapsing everything to
+  // a single overall verdict.
   type IntentionOutcome = 'fully' | 'partially' | 'distracted' | 'not';
-  const [intentionOutcome, setIntentionOutcome] = useState<IntentionOutcome | null>(null);
-  const [intentionObstacle, setIntentionObstacle] = useState('');
+  const [itemOutcomes, setItemOutcomes] = useState<Record<number, IntentionOutcome | null>>({});
+  const [itemNotes, setItemNotes] = useState<Record<number, string>>({});
+  // Loading flag while we wait on the Gemini parse of the morning
+  // intention. Only relevant on first evening view of a given day.
+  const [parsingIntention, setParsingIntention] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -157,19 +165,82 @@ export default function DailyPulseCard({ entries }: Props) {
 
   const currentModePulse = todayPulses.find((p) => pulseModeOf(p) === mode);
 
-  // Today's morning intention (if logged). Drives the optional
-  // recall step at the start of the evening pulse: "this morning
-  // your intention was X — how did that go?" When no morning pulse
-  // exists or its intention field is empty, the recall step is
-  // skipped entirely and the flow falls back to the original
-  // wentRight → doneBetter → body → mind sequence.
-  const morningIntention = useMemo(() => {
-    if (mode !== 'evening') return '';
-    const morning = todayPulses.find((p) => pulseModeOf(p) === 'morning');
-    if (!morning) return '';
-    const intention = (morning.metadata as Record<string, unknown> | null)?.intention;
-    return typeof intention === 'string' ? intention.trim() : '';
+  // Today's morning pulse + parsed-out intention items (if logged).
+  // The recall step shows each item separately so the user can
+  // evaluate compound intentions individually.
+  const morningPulse = useMemo(() => {
+    if (mode !== 'evening') return null;
+    return todayPulses.find((p) => pulseModeOf(p) === 'morning') ?? null;
   }, [mode, todayPulses]);
+  const morningMeta = (morningPulse?.metadata ?? null) as Record<string, unknown> | null;
+  const morningIntention = useMemo(() => {
+    if (!morningMeta) return '';
+    const v = morningMeta.intention;
+    return typeof v === 'string' ? v.trim() : '';
+  }, [morningMeta]);
+  // Items already cached on the morning pulse (parsed previously).
+  const cachedIntentionItems = useMemo<string[] | null>(() => {
+    if (!morningMeta) return null;
+    const v = morningMeta.intention_items;
+    if (!Array.isArray(v)) return null;
+    const cleaned = v.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+    return cleaned.length > 0 ? cleaned : null;
+  }, [morningMeta]);
+
+  // Local items state — flips between cached and freshly-parsed.
+  const [parsedItems, setParsedItems] = useState<string[]>(cachedIntentionItems ?? []);
+  // Sync items when the underlying morning pulse swaps (rare — same
+  // device, same day — but possible if entries refetch).
+  useEffect(() => {
+    if (cachedIntentionItems) setParsedItems(cachedIntentionItems);
+  }, [cachedIntentionItems]);
+
+  // Lazy parse on first evening view: if we have a morning intention
+  // but no cached items, fire Gemini to split it into a clean array
+  // and persist back onto the morning pulse so we only do this once
+  // per day.
+  useEffect(() => {
+    if (mode !== 'evening') return;
+    if (!morningPulse || !morningIntention) return;
+    if (cachedIntentionItems && cachedIntentionItems.length > 0) return;
+    let cancelled = false;
+    setParsingIntention(true);
+    (async () => {
+      try {
+        const items = await parseIntentionToItems(morningIntention);
+        if (cancelled) return;
+        if (items.length > 0) {
+          setParsedItems(items);
+          // Cache on the morning pulse so future evening loads (this
+          // device or another) skip the Gemini call. Merge — never
+          // overwrite — so we preserve every other field.
+          try {
+            await updateEntry(morningPulse.id, {
+              metadata: {
+                ...(morningMeta ?? {}),
+                intention_items: items,
+              },
+            });
+          } catch {
+            // Persist failure is non-fatal — the parsed items live
+            // in this card's state for the duration of the session.
+          }
+        }
+      } catch {
+        // Already handled inside parseIntentionToItems; nothing to do.
+      } finally {
+        if (!cancelled) setParsingIntention(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // morningMeta intentionally excluded — using id+intention as the
+    // identity, and morningMeta is a fresh object each render which
+    // would cause re-fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, morningPulse?.id, morningIntention, cachedIntentionItems]);
+
   const hasIntentionRecall = morningIntention.length > 0;
 
   // Step layout:
@@ -246,15 +317,30 @@ export default function DailyPulseCard({ entries }: Props) {
         contentText = `Went right: ${a1}\n\nDone better: ${a2}`;
         metadata = { pulseMode: 'evening', wentRight: a1, doneBetter: a2 };
 
-        // Intention-outcome — only present when the user actually
-        // logged a morning intention today AND tagged an outcome on
-        // the evening pulse. Empty obstacle is omitted so the
-        // metadata column stays clean.
-        if (hasIntentionRecall && intentionOutcome) {
+        // Intention-outcome — store the morning intention verbatim
+        // PLUS a per-item evaluation array. Each item carries its own
+        // outcome pill + optional note. Empty notes are omitted, and
+        // items the user didn't touch are skipped (no synthesized
+        // null-outcome rows).
+        if (hasIntentionRecall) {
           metadata.prior_intention = morningIntention;
-          metadata.prior_intention_outcome = intentionOutcome;
-          const obstacle = intentionObstacle.trim();
-          if (obstacle) metadata.prior_intention_obstacle = obstacle;
+          if (parsedItems.length > 0) {
+            const evaluatedItems = parsedItems
+              .map((text, i) => {
+                const outcome = itemOutcomes[i] ?? null;
+                const note = (itemNotes[i] ?? '').trim();
+                if (!outcome && !note) return null;
+                return {
+                  text,
+                  outcome,
+                  ...(note ? { note } : {}),
+                };
+              })
+              .filter((x): x is { text: string; outcome: IntentionOutcome | null; note?: string } => x !== null);
+            if (evaluatedItems.length > 0) {
+              metadata.prior_intention_items = evaluatedItems;
+            }
+          }
         }
       }
 
@@ -292,8 +378,8 @@ export default function DailyPulseCard({ entries }: Props) {
       setAnswer2('');
       setBodyScore(null);
       setMindScore(null);
-      setIntentionOutcome(null);
-      setIntentionObstacle('');
+      setItemOutcomes({});
+      setItemNotes({});
       setStep(0);
       celebrate();
       showToast(
@@ -458,11 +544,59 @@ export default function DailyPulseCard({ entries }: Props) {
                       <p className="text-sm text-text-primary mt-0.5 whitespace-pre-wrap">{meta.intention}</p>
                     </div>
                   )}
-                  {/* Evening intention-outcome — only shown on evenings
-                      that actually answered the recall step. Quotes the
-                      morning intention verbatim so the chain is visible
-                      without flipping back to the morning entry. */}
-                  {m === 'evening' && meta.prior_intention_outcome && (
+                  {/* Evening intention-outcome — per-item summary.
+                      New schema: prior_intention_items is an array of
+                      { text, outcome, note }. Old schema (single
+                      overall prior_intention_outcome + obstacle) is
+                      still rendered below for back-compat with
+                      pulses written before the per-item rewrite. */}
+                  {m === 'evening' && Array.isArray((entry.metadata as Record<string, unknown> | null)?.prior_intention_items) && (
+                    <div>
+                      <span className="text-xs font-medium text-primary">Morning intention</span>
+                      <ul className="space-y-2 mt-1">
+                        {((entry.metadata as Record<string, unknown>).prior_intention_items as Array<{
+                          text: string;
+                          outcome: 'fully' | 'partially' | 'distracted' | 'not' | null;
+                          note?: string;
+                        }>).map((it, i) => {
+                          const outcomeLabel =
+                            it.outcome === 'fully'
+                              ? '✓ Fully'
+                              : it.outcome === 'partially'
+                              ? '~ Partially'
+                              : it.outcome === 'distracted'
+                              ? 'Drifted'
+                              : it.outcome === 'not'
+                              ? '✗ Not at all'
+                              : null;
+                          return (
+                            <li key={i} className="text-sm">
+                              <div className="flex items-start gap-2">
+                                <span className="text-primary mt-0.5 shrink-0" aria-hidden>✦</span>
+                                <span className="text-text-primary leading-snug">{it.text}</span>
+                              </div>
+                              {outcomeLabel && (
+                                <p className="ml-6 mt-0.5 text-[12px] font-semibold text-text-secondary">
+                                  {outcomeLabel}
+                                </p>
+                              )}
+                              {it.note && (
+                                <p className="ml-6 mt-0.5 text-[13px] text-text-secondary leading-snug whitespace-pre-wrap">
+                                  {it.note}
+                                </p>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                  {/* Legacy single-overall outcome — only renders when
+                      the per-item array is absent. Old pulses written
+                      before the rewrite still display correctly. */}
+                  {m === 'evening' &&
+                    !Array.isArray((entry.metadata as Record<string, unknown> | null)?.prior_intention_items) &&
+                    meta.prior_intention_outcome && (
                     <div>
                       <span className="text-xs font-medium text-primary">Morning intention</span>
                       {meta.prior_intention && (
@@ -693,59 +827,96 @@ export default function DailyPulseCard({ entries }: Props) {
             : t('pulse.mindPrompt')}
         </p>
 
-        {/* Recall step — show the morning intention verbatim, then a
-            row of outcome pills, then an optional obstacle textarea
-            that only appears for non-"fully" answers. Skipping is
-            allowed (Next without picking) and persists nothing. */}
+        {/* Recall step — clean bullet list of parsed intentions, each
+            with its own outcome pills + optional notes textarea. The
+            displayed items come from a Gemini parse of the raw morning
+            transcript (cached on the morning pulse so we only parse
+            once per day). Each compound intention becomes its own row,
+            so "finish the proposal AND call mom AND exercise" gets
+            evaluated as 3 distinct items rather than one overall
+            verdict. */}
         {isIntentionStep && (
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-border bg-surface px-4 py-3">
-              <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-semibold mb-1">
-                This morning
-              </p>
-              <p className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap">
-                &ldquo;{morningIntention}&rdquo;
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  { id: 'fully', label: 'Fully' },
-                  { id: 'partially', label: 'Partially' },
-                  { id: 'distracted', label: 'Got distracted' },
-                  { id: 'not', label: 'Not at all' },
-                ] as Array<{ id: IntentionOutcome; label: string }>
-              ).map((opt) => {
-                const selected = intentionOutcome === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setIntentionOutcome(selected ? null : opt.id)}
-                    aria-pressed={selected}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                      selected
-                        ? 'bg-primary text-white border border-primary'
-                        : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-            {intentionOutcome && intentionOutcome !== 'fully' && (
-              <div className="space-y-1">
-                <p className="text-xs text-text-secondary">
-                  What got in the way? (optional)
-                </p>
-                <textarea
-                  value={intentionObstacle}
-                  onChange={(e) => setIntentionObstacle(e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2 bg-surface border border-border rounded-xl text-sm text-text-primary outline-none focus:border-primary resize-none"
-                />
+          <div className="space-y-4">
+            <p className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold">
+              Earlier today, you set out to:
+            </p>
+            {parsingIntention && parsedItems.length === 0 ? (
+              <div className="space-y-2 animate-pulse">
+                <div className="h-3 w-3/4 bg-surface rounded" />
+                <div className="h-3 w-2/3 bg-surface rounded" />
+                <div className="h-3 w-1/2 bg-surface rounded" />
               </div>
+            ) : parsedItems.length === 0 ? (
+              <p className="text-sm text-text-secondary leading-relaxed">
+                {morningIntention}
+              </p>
+            ) : (
+              <ul className="space-y-4">
+                {parsedItems.map((item, i) => {
+                  const outcome = itemOutcomes[i] ?? null;
+                  const note = itemNotes[i] ?? '';
+                  return (
+                    <li key={i} className="space-y-2">
+                      <div className="flex items-start gap-2">
+                        <span className="text-primary mt-0.5 shrink-0" aria-hidden>
+                          ✦
+                        </span>
+                        <span className="text-[15px] text-text-primary leading-snug">
+                          {item}
+                        </span>
+                      </div>
+                      {/* Outcome pills — single line, equally-sized via
+                          flex-1 so all four fit on iPhone-narrow widths
+                          without wrapping. Re-tap toggles off. */}
+                      <div className="flex items-center gap-1 flex-nowrap pl-6">
+                        {(
+                          [
+                            { id: 'fully', label: 'Fully' },
+                            { id: 'partially', label: 'Partial' },
+                            { id: 'distracted', label: 'Drift' },
+                            { id: 'not', label: 'None' },
+                          ] as Array<{ id: IntentionOutcome; label: string }>
+                        ).map((opt) => {
+                          const selected = outcome === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() =>
+                                setItemOutcomes((prev) => ({
+                                  ...prev,
+                                  [i]: selected ? null : opt.id,
+                                }))
+                              }
+                              aria-pressed={selected}
+                              className={`flex-1 min-w-0 px-2 py-1 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                                selected
+                                  ? 'bg-primary text-white border border-primary'
+                                  : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* Per-item note — always available so the user
+                          can write what actually happened (or what got
+                          in the way) without needing to first commit
+                          to a pill. */}
+                      <textarea
+                        value={note}
+                        onChange={(e) =>
+                          setItemNotes((prev) => ({ ...prev, [i]: e.target.value }))
+                        }
+                        placeholder="How did it go? (optional)"
+                        rows={2}
+                        className="ml-6 w-[calc(100%-1.5rem)] px-3 py-2 bg-surface border border-border rounded-xl text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-primary resize-none"
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </div>
         )}
