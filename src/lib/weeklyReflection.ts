@@ -64,6 +64,15 @@ export interface BuildWeeklyLetterInput {
   weekKey?: string;
   /** Dateformat locale for entry date stamps inside the prompt. */
   dateLocale?: string;
+  /**
+   * Optional pre-formatted block of behavioral signals (habit
+   * completion %, pulse averages, intention practice counts, task
+   * completion %, notebook distribution). Pasted verbatim into the
+   * prompt to ground the letter in actual behavior, not just text.
+   * Server cron path generates this via gatherWeeklySignals +
+   * formatSignalsForPrompt; client path leaves it undefined.
+   */
+  signalsBlock?: string;
 }
 
 // Switched from 2.0 → 2.5 on 2026-04-24 after the 2.0 free-tier key
@@ -75,6 +84,7 @@ function buildPrompt(
   userName: string,
   guideName: string,
   dateLocale: string,
+  signalsBlock: string,
 ): { letterPrompt: string; themesPrompt: string } {
   const summaries = entries.map((e) => {
     const date = new Date(e.created_at).toLocaleDateString(dateLocale, {
@@ -98,10 +108,12 @@ function buildPrompt(
   const letterPrompt = `You are ${guideName}, a warm and encouraging journaling guide. Write a personal weekly reflection letter to ${userName || 'your journaler'}.
 
 Here are their journal entries from the past week:
-${summaryBlock}
+${summaryBlock}${signalsBlock}
 
 Instructions:
 - Write a warm, personal letter identifying patterns and growth you notice
+- Where the behavioral signals above support a specific observation, ground the letter in that data (e.g. "you ran 4 days this week" rather than "you've been moving more")
+- Use cognitive/causal language ("because", "I notice", "the reason") more than pure emotion words — Pennebaker's research shows readers benefit from the why, not just the what
 - Sign the letter as ${guideName}
 - End with one reflective question
 - Keep under 200 words
@@ -152,6 +164,7 @@ export async function buildWeeklyLetter(
     userName,
     guideName,
     dateLocale,
+    input.signalsBlock ?? '',
   );
 
   const [letterText, themesText] = await Promise.all([

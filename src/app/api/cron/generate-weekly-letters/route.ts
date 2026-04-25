@@ -23,6 +23,10 @@ import {
 } from '@/lib/weeklyReflection';
 import { callGeminiServer } from '@/lib/server/gemini';
 import { getGuideOrDefault } from '@/lib/guideConfigs';
+import {
+  gatherWeeklySignals,
+  formatSignalsForPrompt,
+} from '@/lib/server/weeklySignals';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -163,6 +167,13 @@ async function processUser(
     return { userId, status: 'too-few-entries' };
   }
 
+  // Behavioral signals — habit completions, pulse averages, intention
+  // practice counts, task completion %, notebook distribution. The
+  // letter prompt grounds itself in these so it can say "you ran 4
+  // days this week" instead of "you've been reflecting on movement."
+  const signals = await gatherWeeklySignals(admin, userId);
+  const signalsBlock = formatSignalsForPrompt(signals);
+
   // Build the letter. Locale defaults to English for the cron —
   // profile doesn't yet carry a language field, and the client path
   // still handles Spanish speakers via getLocale(). When we add
@@ -182,6 +193,7 @@ async function processUser(
       locale: 'en',
       dateLocale: 'en-US',
       weekKey,
+      signalsBlock,
       callGemini: serverInvoker,
     });
   } catch (err) {
