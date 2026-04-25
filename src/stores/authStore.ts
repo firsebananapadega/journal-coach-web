@@ -45,7 +45,7 @@ interface AuthState {
   error: string | null;
 
   initialize: () => Promise<void>;
-  signUp: (email: string, password: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string) => Promise<{ error?: string; hasSession?: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   signInWithGoogle: () => Promise<{ error?: string }>;
@@ -136,7 +136,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       if (error) throw error;
       set({ session: data.session, user: data.user });
-      return {};
+      // With Supabase email-confirmation OFF (autoconfirm ON) the
+      // signUp call returns a live session — caller can route
+      // straight into the app. With confirmation ON, session is
+      // null and the caller falls back to "check your email."
+      return { hasSession: !!data.session };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Sign up failed';
       set({ error: msg });

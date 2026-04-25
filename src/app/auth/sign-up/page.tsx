@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
+import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import { t } from '@/lib/translations';
 
@@ -24,9 +25,28 @@ export default function SignUpPage() {
     const result = await signUp(email, password);
     if (result.error) {
       setError(result.error);
-    } else {
-      setSuccess(true);
+      return;
     }
+    // Autoconfirm path: Supabase returned a session immediately. Skip
+    // the check-email screen and route into the app — onboarding for
+    // first-time users, /home if a profile already exists. Mirrors
+    // /auth/confirm's branching so the two entry points behave the
+    // same. If confirmation gets re-enabled later, hasSession is
+    // false and we fall back to the original screen.
+    if (result.hasSession) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('onboarding_completed')
+          .eq('id', user.id)
+          .maybeSingle();
+        const needsOnboarding = !profile || !profile.onboarding_completed;
+        router.replace(needsOnboarding ? '/auth/onboarding' : '/home');
+        return;
+      }
+    }
+    setSuccess(true);
   };
 
   if (success) {
