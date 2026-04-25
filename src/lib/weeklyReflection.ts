@@ -66,7 +66,9 @@ export interface BuildWeeklyLetterInput {
   dateLocale?: string;
 }
 
-const DEFAULT_MODEL = 'gemini-2.0-flash';
+// Switched from 2.0 → 2.5 on 2026-04-24 after the 2.0 free-tier key
+// hit quota. 2.5-flash is what pulseAnalysis.ts already uses.
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 
 function buildPrompt(
   entries: EntryInput[],
