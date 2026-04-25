@@ -2,14 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
-import { useAuthStore } from '@/stores/authStore';
+import { motion } from 'framer-motion';
+import GuideMascot from '@/components/mascot/GuideMascot';
+import { staggerContainer, staggerItem, prefersReducedMotion } from '@/lib/motionVariants';
+import { useAuthStore, type LetterCadence } from '@/stores/authStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
+import { useUiStore } from '@/stores/uiStore';
 import { useTheme } from '@/lib/theme';
 import { GuideSelector } from '@/components/GuideSelector';
-import { getGuideOrDefault, getGuideArchetype, type GuideId } from '@/lib/guideConfigs';
-import { getGuideAvatar } from '@/lib/guideAvatars';
+import { getGuideOrDefault, ALL_GUIDES } from '@/lib/guideConfigs';
 import { getLanguage, getLocale, setLanguage, LANGUAGES, type AppLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
 
@@ -17,10 +19,9 @@ export default function SettingsPage() {
   const router = useRouter();
   const { profile, user, signOut, updateProfile, setPreferredGuide } = useAuthStore();
   const { habits, fetchHabits, deleteHabit } = useHabitStore();
-  const { mode, setMode } = useTheme();
+  const { mode, setMode, guideTheme, setGuideTheme } = useTheme();
+  const showToast = useUiStore((s) => s.showToast);
   const guide = getGuideOrDefault(profile?.preferred_guide);
-  const [showGuideSelector, setShowGuideSelector] = useState(false);
-  const [showGuidedBubble, setShowGuidedBubble] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
   const [enabledTemplateCount, setEnabledTemplateCount] = useState(0);
   const [newIntention, setNewIntention] = useState('');
@@ -30,19 +31,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchHabits();
-    const stored = localStorage.getItem('show_guided_bubble');
-    setShowGuidedBubble(stored !== 'false');
     const tmplStored = localStorage.getItem('enabled_template_ids');
     if (tmplStored) {
       try { setEnabledTemplateCount(JSON.parse(tmplStored).length); } catch { /* ignore */ }
     }
     setCurrentLang(getLanguage());
   }, [fetchHabits]);
-
-  const toggleGuidedBubble = (value: boolean) => {
-    setShowGuidedBubble(value);
-    localStorage.setItem('show_guided_bubble', String(value));
-  };
 
   const removeIntention = async (index: number) => {
     const updated = intentions.filter((_, i) => i !== index);
@@ -79,82 +73,142 @@ export default function SettingsPage() {
 
   const activeHabits = habits.filter((h) => h.is_active);
 
+  const motionRoot = prefersReducedMotion
+    ? {}
+    : { variants: staggerContainer, initial: 'initial' as const, animate: 'animate' as const };
+  const sectionMotion = prefersReducedMotion ? {} : { variants: staggerItem };
+
   return (
-    <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-5 overflow-y-auto">
-      <h1 className="text-2xl font-bold text-text-primary">{t('settings.title')}</h1>
+    <motion.div
+      {...motionRoot}
+      className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-5 overflow-y-auto"
+    >
+      <motion.div {...sectionMotion} className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-text-primary">{t('settings.title')}</h1>
+        <button
+          onClick={() => {
+            // history.back() lands the user back on whichever wall page
+            // they came from, preserving their flip state. Falls back
+            // to /pulse (Journal wall default) if history is empty.
+            if (typeof window !== 'undefined' && window.history.length > 1) {
+              router.back();
+            } else {
+              router.push('/pulse');
+            }
+          }}
+          className="w-9 h-9 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-text-primary"
+          aria-label={t('common.back')}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </motion.div>
 
-      {/* Profile Card */}
-      <div className="bg-surface rounded-2xl border border-border p-5 flex flex-col items-center gap-2">
-        <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-          <span className="text-2xl font-bold text-white">
-            {(profile?.display_name || 'U').charAt(0).toUpperCase()}
-          </span>
-        </div>
-        <p className="text-lg font-semibold text-text-primary">{profile?.display_name || 'User'}</p>
-        <p className="text-sm text-text-secondary">{user?.email || ''}</p>
-      </div>
-
-      {/* Home Screen — Guided Journal toggle */}
-      <div className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.homeScreen')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">💬</span>
-              <span className="text-sm font-medium text-text-primary">{t('settings.guidedJournal')}</span>
-            </div>
-            <button
-              onClick={() => toggleGuidedBubble(!showGuidedBubble)}
-              className={`w-11 h-6 rounded-full transition-colors relative ${showGuidedBubble ? 'bg-primary' : 'bg-border'}`}
-            >
-              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${showGuidedBubble ? 'left-[22px]' : 'left-0.5'}`} />
-            </button>
+      {/* Profile Card — glass + Bodhi */}
+      <motion.div
+        {...sectionMotion}
+        className="glass-card rounded-2xl p-5 flex items-center gap-4 shadow-warm-md"
+      >
+        <div className="relative">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center shadow-warm-md">
+            <span className="text-2xl font-bold text-white">
+              {(profile?.display_name || 'U').charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <div className="absolute -bottom-1 -right-1">
+            <GuideMascot pose="idle" size="sm" animate />
           </div>
         </div>
-      </div>
+        <div className="min-w-0">
+          <p className="text-lg font-semibold text-text-primary truncate">{profile?.display_name || 'User'}</p>
+          <p className="text-sm text-text-secondary truncate">{user?.email || ''}</p>
+        </div>
+      </motion.div>
 
-      {/* Your Guide */}
-      {showGuidedBubble && (
-        <div className="space-y-2">
+      {/* Your Guide — always visible for easy swapping */}
+      {(
+        <motion.div {...sectionMotion} className="space-y-2">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.yourGuide')}</h2>
-          <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
-            <button
-              onClick={() => setShowGuideSelector(!showGuideSelector)}
-              className="w-full flex items-center justify-between"
-            >
-              <div className="flex items-center gap-3">
-                <Image
-                  src={getGuideAvatar(guide.id as GuideId)}
-                  alt={guide.name}
-                  width={40}
-                  height={40}
-                  className="rounded-full"
-                  style={{ borderWidth: 2, borderColor: guide.accentColor, borderStyle: 'solid' }}
-                />
-                <div className="text-left">
-                  <p className="text-sm font-semibold text-text-primary">{guide.name}</p>
-                  <p className="text-xs text-text-secondary">{getGuideArchetype(guide, getLocale())}</p>
-                </div>
-              </div>
-              <span className="text-sm text-text-tertiary">{showGuideSelector ? t('common.done') : t('common.change')}</span>
-            </button>
-            {showGuideSelector && (
-              <GuideSelector
-                value={guide.id}
-                onChange={async (id) => {
+          <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm">
+            <GuideSelector
+              value={guide.id}
+              onChange={async (id) => {
+                if (id === guide.id) return;
+                try {
                   await setPreferredGuide(id);
-                  setShowGuideSelector(false);
-                }}
-              />
-            )}
+                  const newGuide = ALL_GUIDES.find((g) => g.id === id);
+                  showToast(
+                    t('settings.guideChanged', { name: newGuide?.name ?? '' })
+                  );
+                } catch (err) {
+                  showToast(
+                    err instanceof Error ? err.message : t('common.error'),
+                    'error'
+                  );
+                }
+              }}
+            />
           </div>
-        </div>
+        </motion.div>
       )}
 
+      {/* Reflections — letter cadence */}
+      <motion.div {...sectionMotion} className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Reflections</h2>
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-3">
+          <div>
+            <p className="text-sm font-medium text-text-primary">Weekly letter cadence</p>
+            <p className="text-xs text-text-secondary mt-0.5">
+              How often {guide.name} writes you a letter.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { id: 'weekly', label: 'Weekly' },
+                { id: 'biweekly', label: 'Every 2 weeks' },
+                { id: 'monthly', label: 'Monthly' },
+                { id: 'off', label: 'Off' },
+              ] as Array<{ id: LetterCadence; label: string }>
+            ).map((opt) => {
+              const selected = (profile?.letter_cadence ?? 'weekly') === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={async () => {
+                    if (selected) return;
+                    try {
+                      await updateProfile({ letter_cadence: opt.id });
+                      showToast(`Letter cadence: ${opt.label}`, 'success');
+                    } catch (err) {
+                      showToast(
+                        err instanceof Error ? err.message : 'Could not save',
+                        'error',
+                      );
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                    selected
+                      ? 'bg-primary text-white border border-primary'
+                      : 'bg-surface-elevated border border-border text-text-secondary hover:text-text-primary'
+                  }`}
+                  aria-pressed={selected}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </motion.div>
+
       {/* Templates — nav link */}
-      <div className="space-y-2">
+      <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.templates')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4">
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm">
           <button
             onClick={() => router.push('/templates')}
             className="w-full flex items-center justify-between"
@@ -171,12 +225,12 @@ export default function SettingsPage() {
             <span className="text-text-tertiary text-sm">&#8250;</span>
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Appearance */}
-      <div className="space-y-2">
+      <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.appearance')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4">
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-text-primary">{t('settings.theme')}</span>
             <div className="flex gap-2">
@@ -193,13 +247,34 @@ export default function SettingsPage() {
               ))}
             </div>
           </div>
+          {/* Guide-matched theme toggle — off by default. When on, the
+              app's primary accent color follows the currently-selected
+              guide (saffron for Bodhi, red for Ben, teal for Quinn,
+              green for Sage). */}
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <div className="flex-1 pr-3">
+              <p className="text-sm font-medium text-text-primary">{t('settings.guideTheme')}</p>
+              <p className="text-xs text-text-secondary mt-0.5">{t('settings.guideThemeDesc')}</p>
+            </div>
+            <button
+              onClick={() => setGuideTheme(!guideTheme)}
+              aria-pressed={guideTheme}
+              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${guideTheme ? 'bg-primary' : 'bg-border'}`}
+            >
+              <span
+                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                  guideTheme ? 'left-[22px]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Language */}
-      <div className="space-y-2">
+      <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.language')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4">
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-text-primary">
               {LANGUAGES.find((l) => l.code === currentLang)?.flag}{' '}
@@ -222,23 +297,23 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Privacy */}
-      <div className="space-y-2">
+      <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.privacy')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4 flex items-start gap-3">
+        <div className="bg-surface rounded-2xl border border-border p-4 flex items-start gap-3 shadow-warm-sm">
           <span className="text-xl mt-0.5">🔒</span>
           <p className="text-sm text-text-secondary leading-relaxed">
             {t('settings.privacyMessage')}
           </p>
         </div>
-      </div>
+      </motion.div>
 
       {/* Intentions — compact display + nav link */}
-      <div className="space-y-2">
+      <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.intentions')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
+        <div className="bg-surface rounded-2xl border border-border p-4 space-y-3 shadow-warm-sm">
           {intentions.length > 0 ? (
             <div className="space-y-2">
               {intentions.map((intention, i) => (
@@ -268,18 +343,18 @@ export default function SettingsPage() {
             </button>
           </div>
           <button
-            onClick={() => router.push('/intentions')}
+            onClick={() => router.push('/intentions/gallery')}
             className="w-full py-2.5 bg-surface-elevated text-primary rounded-xl text-sm font-medium hover:bg-primary/10 transition-colors"
           >
             {t('settings.browseIntentions')} &#8250;
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Habits — compact display + nav link */}
-      <div className="space-y-2">
+      <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.habits')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
+        <div className="bg-surface rounded-2xl border border-border p-4 space-y-3 shadow-warm-sm">
           {activeHabits.length > 0 ? (
             <div className="space-y-2">
               {activeHabits.map((habit) => (
@@ -307,18 +382,20 @@ export default function SettingsPage() {
             {t('settings.manageHabits')} &#8250;
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Sign Out */}
-      <button
+      <motion.button
+        {...sectionMotion}
+        whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
         onClick={handleSignOut}
         disabled={signingOut}
         className="w-full py-3 bg-surface border border-border text-error font-medium rounded-2xl hover:bg-surface-elevated transition-colors disabled:opacity-50"
       >
         {signingOut ? t('settings.signingOut') : t('settings.signOut')}
-      </button>
+      </motion.button>
 
-      <p className="text-center text-xs text-text-tertiary">JournalCoach Web v1.0.0</p>
-    </div>
+      <motion.p {...sectionMotion} className="text-center text-xs text-text-tertiary">JournalCoach Web v1.0.0</motion.p>
+    </motion.div>
   );
 }

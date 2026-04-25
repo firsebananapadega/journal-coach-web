@@ -506,6 +506,22 @@ export default function PatternsPage() {
     [allPracticeDates],
   );
 
+  // Consistency phrasing — "X of last 7 days" instead of streak count.
+  // Research from quantified-self + Duolingo retention work shows hard
+  // streaks shame the user on a missed day and can drive abandonment;
+  // a "rhythm" framing rewards showing up without punishing breaks.
+  const practiceDaysLast7 = useMemo(() => {
+    const today = new Date();
+    let count = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = toLocalDateStr(d);
+      if (allPracticeDates.has(key)) count += 1;
+    }
+    return count;
+  }, [allPracticeDates]);
+
   // Voice + word stats for the bottom strip.
   const { voiceThisWeek, wordsThisWeek } = useMemo(() => {
     const cutoff = new Date();
@@ -578,19 +594,18 @@ export default function PatternsPage() {
             practice{practicesThisWeek === 1 ? '' : 's'} done
           </span>
         </div>
-        {(currentStreak > 0 || bestStreak > 0) && (
+        {practiceDaysLast7 > 0 && (
           <div className="flex items-center gap-4 mt-3 text-[11px]">
+            {/* Consistency over streaks — counts practice days in the
+                rolling last 7, not consecutive-day streaks. A missed
+                day no longer resets anything; the user's rhythm just
+                ticks down by one and ticks back up next time. */}
             <span className="flex items-center gap-1.5 text-success font-medium">
-              🔥 {currentStreak}d current
+              ✦ {practiceDaysLast7} {practiceDaysLast7 === 1 ? 'day' : 'days'} of the last 7
             </span>
-            {bestStreak > currentStreak && (
-              <span className="text-text-tertiary">
-                · best {bestStreak}d
-              </span>
-            )}
           </div>
         )}
-        {practicesThisWeek === 0 && currentStreak === 0 && (
+        {practicesThisWeek === 0 && practiceDaysLast7 === 0 && (
           <p className="text-xs text-text-tertiary mt-2 leading-snug">
             Tap an intention to begin — each has a ~2-minute guided practice.
           </p>

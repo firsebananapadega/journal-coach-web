@@ -1,6 +1,17 @@
 import { create } from 'zustand';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { withTimeout } from '../lib/withTimeout';
+
+// Every Supabase round-trip is capped so a stalled request can't pin
+// a "Saving…" spinner forever. The onboarding flow and the daily-pulse
+// save both hit updateProfile/fetchProfile via zustand, and a hung
+// auth round-trip there was stranding the whole UI.
+const AUTH_MS = 8000;
+const READ_MS = 10000;
+const WRITE_MS = 15000;
+
+export type LetterCadence = 'weekly' | 'biweekly' | 'monthly' | 'off';
 
 export interface Profile {
   id: string;
@@ -16,6 +27,11 @@ export interface Profile {
     evening_reminder: boolean;
     reminder_times: { morning: string; evening: string };
   };
+  /** How often the weekly guide letter should fire. Default 'weekly'. */
+  letter_cadence: LetterCadence;
+  tour_completed: boolean;
+  install_prompt_dismissed_at: string | null;
+  pwa_installed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -60,7 +76,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const {
         data: { session },
         error,
-      } = await supabase.auth.getSession();
+      } = await withTimeout(supabase.auth.getSession(), AUTH_MS, 'auth.getSession');
 
       if (error) throw error;
 
@@ -97,7 +113,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signUp: async (email: string, password: string) => {
     try {
       set({ loading: true, error: null });
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      // `emailRedirectTo` is the URL Supabase appends to the
+      // confirmation-email link. Without it, the link falls back to
+      // the project's dashboard-configured Site URL — which in a
+      // freshly-initialized project is `http://localhost:3000`, so
+      // users who clicked through on another device landed on a dead
+      // localhost page. Setting it explicitly to the current origin
+      // means prod emails go to prod and dev emails go to dev.
+      //
+      // NOTE: the target URL must also be on the project's "Redirect
+      // URLs" allow-list in the Supabase dashboard. Otherwise Supabase
+      // silently drops this value and falls back to Site URL anyway.
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo:
+            typeof window !== 'undefined'
+              ? `${window.location.origin}/auth/confirm`
+              : undefined,
+        },
+      });
       if (error) throw error;
       set({ session: data.session, user: data.user });
       return {};
@@ -176,11 +212,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = get().user;
       if (!user) return;
       set({ error: null });
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+      const { data, error } = await withTimeout(
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        READ_MS,
+        'fetchProfile',
+      );
       if (error) throw error;
       set({ profile: data as Profile });
     } catch (error: unknown) {
@@ -193,12 +229,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = get().user;
       if (!user) throw new Error('No authenticated user');
       set({ loading: true, error: null });
-      const { data, error } = await supabase
-        .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', user.id)
-        .select()
-        .single();
+      const { data, error } = await withTimeout(
+        supabase
+          .from('profiles')
+          .update({ ...updates, updated_at: new Date().toISOString() })
+          .eq('id', user.id)
+          .select()
+          .single(),
+        WRITE_MS,
+        'updateProfile',
+      );
       if (error) throw error;
       set({ profile: data as Profile });
     } catch (error: unknown) {
@@ -219,19 +259,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = get().user;
       if (!user) throw new Error('No authenticated user');
       set({ loading: true, error: null });
-      const { data, error } = await supabase
-        .from('profiles')
-        .update({
-          display_name: displayName,
-          anchor_moment: anchorMoment,
-          intentions,
-          preferred_guide: preferredGuide || 'ben',
-          onboarding_completed: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id)
-        .select()
-        .single();
+      const { data, error } = await withTimeout(
+        supabase
+          .from('profiles')
+          .update({
+            display_name: displayName,
+            anchor_moment: anchorMoment,
+            intentions,
+            preferred_guide: preferredGuide || 'ben',
+            onboarding_completed: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id)
+          .select()
+          .single(),
+        WRITE_MS,
+        'completeOnboarding',
+      );
       if (error) throw error;
       set({ profile: data as Profile });
     } catch (error: unknown) {
@@ -244,6 +288,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setPreferredGuide: async (guideId: string) => {
     const { updateProfile } = get();
+    // Write localStorage immediately so GuideMascot picks it up on the
+    // next synchronous render — avoids a flash of the wrong guide while
+    // the Supabase round-trip is in flight.
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('preferred_guide', guideId);
+      } catch {
+        /* ignore */
+      }
+    }
     await updateProfile({ preferred_guide: guideId } as Partial<Profile>);
   },
 }));

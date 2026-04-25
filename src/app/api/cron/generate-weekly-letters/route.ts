@@ -44,7 +44,17 @@ interface ProfileRow {
   id: string;
   display_name: string | null;
   preferred_guide: string | null;
+  letter_cadence: 'weekly' | 'biweekly' | 'monthly' | 'off' | null;
 }
+
+/** Minimum days between letters per cadence. Anything later than the
+ *  most recent letter's generated_at + this gap qualifies. 'off' is
+ *  handled separately — the user gets nothing. */
+const CADENCE_MIN_GAP_DAYS: Record<'weekly' | 'biweekly' | 'monthly', number> = {
+  weekly: 6,    // 6 not 7, so a Sunday-cadence cron isn't blocked by sub-day jitter
+  biweekly: 13,
+  monthly: 27,
+};
 
 interface EntryRow {
   id: string;
@@ -135,8 +145,16 @@ async function processUser(
   weekKey: string,
 ): Promise<{ userId: string; status: string; error?: string }> {
   const userId = profile.id;
+  const cadence = profile.letter_cadence ?? 'weekly';
 
-  // Idempotency: already have a row for this week? Skip.
+  // Cadence: 'off' means the user explicitly muted the letter.
+  if (cadence === 'off') {
+    return { userId, status: 'cadence-off' };
+  }
+
+  // Idempotency #1: already have a row for this exact week? Skip.
+  // (week_key uniqueness already protects us at the DB level, but the
+  // pre-check saves an LLM call.)
   const { data: existing } = await admin
     .from('weekly_letters')
     .select('id')
@@ -145,6 +163,25 @@ async function processUser(
     .maybeSingle();
   if (existing) {
     return { userId, status: 'already-delivered' };
+  }
+
+  // Cadence: 'biweekly' / 'monthly' — only generate if the most-
+  // recent letter is older than the gap.
+  if (cadence === 'biweekly' || cadence === 'monthly') {
+    const { data: lastRow } = await admin
+      .from('weekly_letters')
+      .select('generated_at')
+      .eq('user_id', userId)
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const last = lastRow?.generated_at ? new Date(lastRow.generated_at) : null;
+    if (last) {
+      const ageDays = (Date.now() - last.getTime()) / (24 * 60 * 60 * 1000);
+      if (ageDays < CADENCE_MIN_GAP_DAYS[cadence]) {
+        return { userId, status: `cadence-${cadence}-too-soon` };
+      }
+    }
   }
 
   // Fetch last 7 days of reflective entries. We deliberately exclude
@@ -297,7 +334,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('id, display_name, preferred_guide')
+    .select('id, display_name, preferred_guide, letter_cadence')
     .in('id', activeUserIds);
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 500 });
