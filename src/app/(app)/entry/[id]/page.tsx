@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,6 +66,26 @@ export default function EntryDetailPage() {
     doneBetter: '',
   });
   const [saving, setSaving] = useState(false);
+
+  // Refs for the various edit-mode textareas. `primaryEditRef` is the
+  // freeform/voice/pulse-intention textarea — the most common entry
+  // surface, so tap-to-edit focuses this one. The other refs help us
+  // focus a specific section's textarea on tap (guided exchange
+  // index, template QA index, pulse field).
+  const primaryEditRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /** Drop into edit mode and focus the relevant textarea on the next
+   *  frame. Used everywhere the rendered body is tappable. */
+  const enterEditMode = () => {
+    // Force structured→raw before editing. The structured view is
+    // auto-generated from the raw text, so the editable source-of-
+    // truth is the raw transcript. Keeps "what I tap is what I edit."
+    setViewMode('raw');
+    startEditing();
+    requestAnimationFrame(() => {
+      primaryEditRef.current?.focus();
+    });
+  };
 
   // Raw / Structured view toggle (freeform/voice entries only).
   // Default is Structured. Structuring normally happens in the
@@ -245,7 +265,7 @@ export default function EntryDetailPage() {
     // container so long entries can still pan up, and leave extra
     // bottom padding so the user can scroll past the last line.
     <div className="flex flex-col h-full overflow-y-auto">
-      <div className="max-w-lg w-full mx-auto px-5 pt-8 pb-[60vh] space-y-6">
+      <div className="max-w-lg w-full mx-auto px-5 pt-8 pb-[100vh] space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <button onClick={() => router.back()} className="text-text-secondary hover:text-text-primary text-sm">
@@ -377,6 +397,7 @@ export default function EntryDetailPage() {
           ) : (
             // Voice / freeform: edit full text
             <textarea
+              ref={primaryEditRef}
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-[15px] text-text-primary leading-relaxed resize-none outline-none focus:border-primary min-h-[200px]"
@@ -393,19 +414,50 @@ export default function EntryDetailPage() {
           )}
         </div>
       ) : (
-        // View mode
+        // View mode — every rendered body is tappable to enter edit
+        // mode. Tapping anywhere on the entry body drops the user
+        // straight into the textarea with the keyboard up; no need
+        // to hunt for the "Edit" button. The Edit button stays in
+        // the header as a visible affordance for users who don't
+        // realize the body itself is tappable.
         <>
           {isPulse ? (
-            <PulseView
-              mode={pulseMode}
-              intention={typeof pulseMeta.intention === 'string' ? pulseMeta.intention : ''}
-              wentRight={typeof pulseMeta.wentRight === 'string' ? pulseMeta.wentRight : ''}
-              doneBetter={typeof pulseMeta.doneBetter === 'string' ? pulseMeta.doneBetter : ''}
-              bodyLabel={typeof pulseMeta.body_label === 'string' ? pulseMeta.body_label : null}
-              mindLabel={typeof pulseMeta.mind_label === 'string' ? pulseMeta.mind_label : null}
-            />
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={enterEditMode}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  enterEditMode();
+                }
+              }}
+              className="text-left cursor-text rounded-2xl"
+              aria-label="Tap to edit"
+            >
+              <PulseView
+                mode={pulseMode}
+                intention={typeof pulseMeta.intention === 'string' ? pulseMeta.intention : ''}
+                wentRight={typeof pulseMeta.wentRight === 'string' ? pulseMeta.wentRight : ''}
+                doneBetter={typeof pulseMeta.doneBetter === 'string' ? pulseMeta.doneBetter : ''}
+                bodyLabel={typeof pulseMeta.body_label === 'string' ? pulseMeta.body_label : null}
+                mindLabel={typeof pulseMeta.mind_label === 'string' ? pulseMeta.mind_label : null}
+              />
+            </div>
           ) : isGuided ? (
-            <div className="space-y-4">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={enterEditMode}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  enterEditMode();
+                }
+              }}
+              className="space-y-4 text-left cursor-text"
+              aria-label="Tap to edit"
+            >
               {exchanges!.map((ex, i) => (
                 <div key={i} className="space-y-2">
                   <div className="bg-[#1A2B22] rounded-2xl p-4">
@@ -440,7 +492,19 @@ export default function EntryDetailPage() {
                 </button>
               </div>
 
-              <div className="max-w-none">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={enterEditMode}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    enterEditMode();
+                  }
+                }}
+                className="max-w-none text-left cursor-text"
+                aria-label="Tap to edit"
+              >
                 {viewMode === 'structured' && structuredText ? (
                   <div className="text-[15px] text-text-primary leading-relaxed space-y-3
                                   [&_p]:leading-relaxed

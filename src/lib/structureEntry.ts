@@ -20,6 +20,7 @@
 import { callGemini } from './geminiClient';
 import { supabase } from './supabase';
 import { withTimeout } from './withTimeout';
+import { wasTruncated, stripTruncationSentinel } from './geminiTruncation';
 
 const STRUCTURE_MODEL = 'gemini-2.5-flash';
 const TIMEOUT_MS = 25_000;
@@ -108,7 +109,36 @@ export async function getStructured(entry: {
 
   const dict = await loadVoiceDictionary();
   const prompt = buildPrompt(raw, dict);
-  const text = (await callGemini(STRUCTURE_MODEL, prompt, TIMEOUT_MS)).trim();
+  const rawResponse = (await callGemini(STRUCTURE_MODEL, prompt, TIMEOUT_MS)).trim();
+
+  // Detect MAX_TOKENS truncation. The server appends a sentinel to
+  // any response that hit the output cap. If the polish came back
+  // clipped AND it's materially shorter than the raw entry, refuse
+  // to persist — overwriting a complete raw with a truncated
+  // structured would erase content the user wrote. Falls through to
+  // the raw entry on read.
+  const truncated = wasTruncated(rawResponse);
+  const text = stripTruncationSentinel(rawResponse);
+  if (truncated) {
+    const rawWords = raw.split(/\s+/).filter(Boolean).length;
+    const polishedWords = text.split(/\s+/).filter(Boolean).length;
+    const ratio = rawWords === 0 ? 1 : polishedWords / rawWords;
+    console.warn('[structureEntry] truncated response', {
+      entryId: entry.id,
+      rawWords,
+      polishedWords,
+      ratio: Math.round(ratio * 100) / 100,
+    });
+    if (ratio < 0.8) {
+      // Materially clipped — abandon the polish for this attempt.
+      // Returning the raw lets the UI render the verbatim transcript;
+      // a future call (with more headroom now that maxOutputTokens
+      // is 8192) can produce a complete polish.
+      return { text: raw, cached: false };
+    }
+    // Truncation but only mild — still persist the polish (better
+    // than raw, even if the very last sentence got clipped).
+  }
 
   // Persist synchronously so the next view is instant. Earlier this
   // was fire-and-forget with `.catch(() => {})`, which silently ate

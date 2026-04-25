@@ -442,17 +442,23 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
 
       {/* Full-screen composer overlay — mirrors the /journal writing
           surface. Action bar uses `position: fixed` so iOS 16+'s
-          Visual Viewport keeps it above the keyboard (a flex-column
-          bottom row gets clipped instead). Writing area has bottom
-          padding so the last line is never hidden behind the bar. */}
+          Visual Viewport keeps it above the keyboard. Writing area has
+          bottom padding so the last line is never hidden behind the
+          bar.
+          IMPORTANT — animate via opacity, NOT translateY: a `transform`
+          on this overlay would create a containing block for its
+          descendants, which means the inner `fixed bottom-0` action
+          bar would no longer pin to the actual viewport on iOS, and
+          the keyboard would push it offscreen along with the content.
+          Opacity-only keeps the descendants truly viewport-fixed. */}
       <AnimatePresence>
         {composerOpen && (
           <motion.div
             key="composer-overlay"
-            initial={prefersReducedMotion ? undefined : { y: '100%' }}
-            animate={prefersReducedMotion ? undefined : { y: 0 }}
-            exit={prefersReducedMotion ? undefined : { y: '100%' }}
-            transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+            initial={prefersReducedMotion ? undefined : { opacity: 0 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
             className="fixed inset-0 z-[70] bg-bg flex flex-col"
           >
             {/* Top bar: notebook context label + big close button */}

@@ -304,12 +304,21 @@ export default function HomePage() {
     // /components/mascot/bodies/JaneBody.tsx); using it in the bubble
     // turns "Ask Jane" into a recognizable character instead of an
     // abstract ✨ sparkle.
-    items.push({
-      id: '__askjane__',
-      icon: { type: 'mascot', guide: 'jane' },
-      label: t('home.askJane'),
-      href: '/ask',
-    });
+    //
+    // Toggled OFF 2026-04-24 per user request — they'll go to Gemini
+    // directly when they want that. Code + the /ask route remain
+    // intact so flipping ASK_JANE_BUBBLE_ENABLED back to true (or
+    // exposing it as a per-user setting later) re-enables it without
+    // a re-implementation.
+    const ASK_JANE_BUBBLE_ENABLED = false;
+    if (ASK_JANE_BUBBLE_ENABLED) {
+      items.push({
+        id: '__askjane__',
+        icon: { type: 'mascot', guide: 'jane' },
+        label: t('home.askJane'),
+        href: '/ask',
+      });
+    }
 
     const locale = getLocale();
     for (const tmpl of templates.filter((tp) => enabledIds.includes(tp.id))) {

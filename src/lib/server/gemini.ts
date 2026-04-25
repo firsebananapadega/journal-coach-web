@@ -1,6 +1,8 @@
 // SERVER-ONLY: do not import from client components. Lives under
 // src/lib/server/ by convention. Reads non-NEXT_PUBLIC_ env vars so any
 // accidental client import would also surface as undefined keys.
+
+import { TRUNCATION_SENTINEL } from '../geminiTruncation';
 //
 // Bypasses the @google/generative-ai SDK and calls the Gemini REST API
 // directly. The SDK (v0.24.1) does not expose `thinkingConfig` in its
@@ -87,7 +89,12 @@ async function generate(
   const body: Record<string, unknown> = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
-      maxOutputTokens: 2048,
+      // Bumped 2048 → 8192 (Gemini 2.5 Flash supports it). The cap
+      // limits runaway responses but never *induces* longer output —
+      // the model emits as much as it needs, and we only pay for what
+      // it emits. The old 2048 was clipping long structured-entry
+      // polishes mid-sentence ("...used for switching to the").
+      maxOutputTokens: 8192,
     },
   };
 
@@ -148,10 +155,11 @@ async function generate(
     throw new Error(msg);
   }
 
-  const text =
-    (data as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    })?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const candidate = (data as {
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+  })?.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text;
+  const finishReason = candidate?.finishReason;
 
   const usage = (data as { usageMetadata?: Record<string, number> }).usageMetadata;
   console.log(
@@ -161,6 +169,7 @@ async function generate(
       ms: Date.now() - t0,
       model: modelName,
       ok: typeof text === 'string',
+      finishReason,
       promptTok: usage?.promptTokenCount,
       thoughtTok: usage?.thoughtsTokenCount,
       outTok: usage?.candidatesTokenCount,
@@ -169,6 +178,16 @@ async function generate(
 
   if (typeof text !== 'string') {
     throw new Error('Gemini returned no text in candidate');
+  }
+
+  // Tag truncated responses with a sentinel that callers can detect.
+  // Using a marker the surrounding code can grep for (and trim away
+  // before showing to the user) keeps the public string-returning
+  // signature simple while still surfacing truncation. Sentinel + its
+  // helpers live in the shared module src/lib/geminiTruncation.ts so
+  // client code can detect/strip without importing from /server/.
+  if (finishReason === 'MAX_TOKENS') {
+    return text.trim() + '\n\n' + TRUNCATION_SENTINEL;
   }
 
   return text.trim();

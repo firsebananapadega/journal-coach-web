@@ -166,6 +166,30 @@ export const useWallState = create<WallState>((set, get) => ({
   },
 }));
 
+// The exact pathnames that show the WallEdgeTab "JOURNAL"/"TASKS"
+// switcher pill at the top. Sub-routes (/notebooks/[slug], /lists/[id],
+// /intentions/[id], /entry/[id], etc.) intentionally hide the pill so
+// the user isn't pulled out of a focused context. Keep this in sync
+// with WallNav's slot definitions.
+export const WALL_ROOT_PATHS: ReadonlySet<string> = new Set([
+  // Tasks wall — 4 root tabs (matches WallNav slots 0,1,3,4 — slot 2 is /voice center action)
+  '/today',
+  '/lists',
+  '/upcoming',
+  '/groceries',
+  // Journal wall — 5 root tabs (matches WallNav slots 0,1,3,4 — slot 2 is /journal center action)
+  '/home',
+  '/pulse',
+  '/notebooks',
+  '/patterns',
+  '/intentions',
+]);
+
+/** True only on the exact root tabs of either wall. */
+export function isWallRootPath(pathname: string): boolean {
+  return WALL_ROOT_PATHS.has(pathname);
+}
+
 // Map a pathname to the wall it belongs to. Returns null if the route
 // is full-screen (guided, voice, etc.) and shouldn't show the wall nav
 // at all — caller decides what to do.
