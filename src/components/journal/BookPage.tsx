@@ -239,61 +239,43 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         style={{ background: 'var(--theme-primary-glow)' }}
       />
 
-      {/* Top bar — two rows.
-          Row 1 (same vertical as WallEdgeTab "JOURNAL/TASKS" pill):
-            [Back] … [gear]. Center is intentionally empty so the
-            fixed-top-center wall switcher has its own lane.
-          Row 2: the notebook-name pill, centered, directly below the
-            wall switcher. This is the only layout that keeps both
-            elements visible on narrow screens — no matter how long
-            the notebook name is, nothing gets clipped. */}
+      {/* Top bar — single row.
+          Layout: [Back] (intrinsic, left) — [Notebook pill] (absolutely
+          centered) — [Gear] (intrinsic, right). All three sit at the
+          same vertical line.
+          The notebook pill used to live on a second row to dodge the
+          fixed-top-center WallEdgeTab "JOURNAL/TASKS" switcher, but
+          that pill is now suppressed on /notebooks/<slug> sub-routes
+          (see WallEdgeTab → isWallRootPath check) so the center is
+          free again. Reclaiming the row halves the dead vertical
+          space above the entry feed. */}
       <div
-        className="relative z-10 shrink-0 flex flex-col"
+        className="relative z-10 shrink-0 px-4 h-12 flex items-center justify-between"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
-        <div className="flex items-center justify-between px-4 gap-2 h-8">
-          <button
-            type="button"
-            onClick={() => (backHref ? router.push(backHref) : router.back())}
-            className="text-sm text-text-tertiary hover:text-text-secondary px-2 shrink-0"
-            aria-label={t('common.back')}
-          >
-            ← {t('common.back')}
-          </button>
+        <button
+          type="button"
+          onClick={() => (backHref ? router.push(backHref) : router.back())}
+          className="text-sm text-text-tertiary hover:text-text-secondary px-2 shrink-0"
+          aria-label={t('common.back')}
+        >
+          ← {t('common.back')}
+        </button>
 
-          {/* Reserved lane for the WallEdgeTab (112px wide, centered
-              by its own fixed positioning — we just hold the row
-              height stable). */}
-          <span className="w-[112px] shrink-0" aria-hidden />
-
-          {/* Right slot: context-aware gear (notebook settings) for
-              a locked-notebook route. The global app-settings gear is
-              suppressed in the (app) layout for these routes. */}
-          {lockedSlug && activeNotebook ? (
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Notebook settings"
-              className="w-9 h-9 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-text-secondary hover:text-text-primary shrink-0"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </button>
-          ) : (
-            <span className="w-9 shrink-0" aria-hidden />
-          )}
-        </div>
-
-        {/* Row 2 — notebook name pill, centered below the wall tab. */}
+        {/* Notebook pill — absolutely centered relative to the row so
+            varying-width Back/Gear buttons can't push it off-center.
+            max-w caps it for very long notebook names; truncate
+            handles overflow gracefully. */}
         {activeNotebook && (
-          <div className="relative flex items-center justify-center px-5 pt-3 pb-2">
+          <div
+            className="absolute left-1/2 -translate-x-1/2 max-w-[60%] flex flex-col items-center"
+            style={{ top: 'max(0.75rem, env(safe-area-inset-top))' }}
+          >
             <button
               type="button"
               onClick={() => !lockedSlug && setPickerOpen((o) => !o)}
               disabled={!!lockedSlug}
-              className="flex items-center gap-2 max-w-full text-base font-semibold text-text-primary disabled:cursor-default"
+              className="flex items-center gap-2 max-w-full h-9 text-base font-semibold text-text-primary disabled:cursor-default"
             >
               <span
                 className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
@@ -335,6 +317,25 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
               </>
             )}
           </div>
+        )}
+
+        {/* Right slot: context-aware gear (notebook settings) for a
+            locked-notebook route. The global app-settings gear is
+            suppressed in the (app) layout for these routes. */}
+        {lockedSlug && activeNotebook ? (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Notebook settings"
+            className="w-9 h-9 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-text-secondary hover:text-text-primary shrink-0"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        ) : (
+          <span className="w-9 shrink-0" aria-hidden />
         )}
       </div>
 
