@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useJournalStore, type JournalEntry } from '@/stores/journalStore';
+import { useStructureNotesStore } from '@/stores/structureNotesStore';
 import { MoodSelector } from '@/components/MoodSelector';
 import { t } from '@/lib/translations';
 import { getLanguage } from '@/lib/language';
@@ -47,6 +48,21 @@ export default function EntryDetailPage() {
   const { fetchEntryById, toggleFavorite, updateEntry } = useJournalStore();
   const [entry, setEntry] = useState<JournalEntry | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Structure notes — for the "Add to a note" affordance below the
+  // entry meta. Lists user's existing notes; toggle membership in
+  // place. New-note creation is handled via the /notes route to
+  // keep this picker scoped.
+  const structureNotes = useStructureNotesStore((s) => s.notes);
+  const fetchStructureNotes = useStructureNotesStore((s) => s.fetchNotes);
+  const hasFetchedStructureNotes = useStructureNotesStore((s) => s.hasFetched);
+  const toggleNoteEntry = useStructureNotesStore((s) => s.toggleEntry);
+  const createStructureNote = useStructureNotesStore((s) => s.createNote);
+  useEffect(() => {
+    if (!hasFetchedStructureNotes) fetchStructureNotes().catch(() => {});
+  }, [hasFetchedStructureNotes, fetchStructureNotes]);
+  const [notesPickerOpen, setNotesPickerOpen] = useState(false);
+  const [newNoteTitle, setNewNoteTitle] = useState('');
 
   // Edit mode state
   const [editing, setEditing] = useState(false);
@@ -342,6 +358,92 @@ export default function EntryDetailPage() {
             weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
           })}
         </p>
+
+        {/* Structure-note picker — shows which user-defined themes
+            this entry is part of and lets the user toggle/Create.
+            Compact: just chips for already-linked notes + a small
+            "Add to a note" button that expands the full picker.
+            New-note creation lives here (tiny inline input) so users
+            don't have to bounce to /notes. */}
+        {!editing && (
+          <div className="space-y-1.5 pt-1" data-no-tap>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {structureNotes
+                .filter((n) => n.entry_ids.includes(entry.id))
+                .map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() =>
+                      toggleNoteEntry(n.id, entry.id).catch(() => {})
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary text-[11px] font-medium rounded-full hover:bg-primary/20 transition-colors"
+                    title="Tap to remove from this note"
+                  >
+                    <span aria-hidden>✦</span> {n.title} <span className="text-text-tertiary">×</span>
+                  </button>
+                ))}
+              <button
+                type="button"
+                onClick={() => setNotesPickerOpen((o) => !o)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-surface border border-border text-text-secondary text-[11px] font-medium rounded-full hover:border-primary/60 hover:text-text-primary transition-colors"
+              >
+                {notesPickerOpen ? 'Done' : '+ Add to a note'}
+              </button>
+            </div>
+            {notesPickerOpen && (
+              <div className="mt-2 bg-surface-elevated border border-border rounded-2xl p-3 space-y-2">
+                {structureNotes.filter((n) => !n.entry_ids.includes(entry.id)).length === 0 && structureNotes.length > 0 && (
+                  <p className="text-xs text-text-tertiary">
+                    This entry is in every note you have. Create a new one below.
+                  </p>
+                )}
+                {structureNotes
+                  .filter((n) => !n.entry_ids.includes(entry.id))
+                  .map((n) => (
+                    <button
+                      key={n.id}
+                      type="button"
+                      onClick={() => {
+                        toggleNoteEntry(n.id, entry.id).catch(() => {});
+                      }}
+                      className="w-full flex items-center justify-between text-left px-3 py-2 rounded-xl bg-surface border border-border hover:border-primary/60 transition-colors"
+                    >
+                      <span className="text-sm text-text-primary">✦ {n.title}</span>
+                      <span className="text-xs text-text-tertiary">+</span>
+                    </button>
+                  ))}
+                {/* Inline create */}
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    value={newNoteTitle}
+                    onChange={(e) => setNewNoteTitle(e.target.value)}
+                    placeholder="New note — e.g. Wrestling with rest"
+                    className="flex-1 px-3 py-2 bg-surface border border-border rounded-xl text-sm text-text-primary outline-none focus:border-primary"
+                  />
+                  <button
+                    type="button"
+                    disabled={!newNoteTitle.trim()}
+                    onClick={async () => {
+                      const title = newNoteTitle.trim();
+                      if (!title) return;
+                      try {
+                        const created = await createStructureNote({ title });
+                        await toggleNoteEntry(created.id, entry.id);
+                        setNewNoteTitle('');
+                      } catch {
+                        /* silent */
+                      }
+                    }}
+                    className="text-xs font-semibold text-white bg-primary rounded-full px-3 py-2 disabled:opacity-40"
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Content — view or edit */}

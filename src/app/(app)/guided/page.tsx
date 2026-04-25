@@ -105,6 +105,13 @@ export default function GuidedSessionPage() {
   const [rateLimitState, setRateLimitState] = useState<'none' | 'fallback' | 'exhausted'>('none');
   const [detectedGoal, setDetectedGoal] = useState<string | null>(null);
   const [sessionWasDeep, setSessionWasDeep] = useState(false);
+  // If-then plan (Gollwitzer's implementation intentions). Optional
+  // closing step: "When ___ this week, I will ___." Filled values
+  // become a task row tagged as an if-then plan so the next weekly
+  // letter can reference it. Empty values mean the user skipped — no
+  // task is created.
+  const [ifThenSituation, setIfThenSituation] = useState('');
+  const [ifThenAction, setIfThenAction] = useState('');
   const [liteMode, setLiteMode] = useState(false);
   const [thinkingLong, setThinkingLong] = useState(false);
   const [debugCopied, setDebugCopied] = useState(false);
@@ -516,6 +523,33 @@ export default function GuidedSessionPage() {
 
     try {
       await saveWithTimeout();
+      // If-then plan: best-effort fire-and-forget. Either field
+      // empty = user skipped, no task. Failure here is silent —
+      // the journal entry already saved cleanly above and the
+      // user shouldn't be blocked on a side effect.
+      const situation = ifThenSituation.trim();
+      const action = ifThenAction.trim();
+      if (situation && action) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            // Default the cue date to one week out so the if-then
+            // shows up in the user's Upcoming view + becomes
+            // surfaceable in next week's letter.
+            const dueDate = new Date();
+            dueDate.setDate(dueDate.getDate() + 7);
+            await supabase.from('tasks').insert({
+              user_id: user.id,
+              text: `When ${situation}, I'll ${action}`,
+              due_date: dueDate.toISOString().slice(0, 10),
+              notes: '[if-then plan from guided session]',
+              important: true,
+            });
+          }
+        } catch (planErr) {
+          console.warn('If-then save failed:', planErr);
+        }
+      }
       setSaving(false);
       router.push('/home');
     } catch (err) {
@@ -900,6 +934,42 @@ export default function GuidedSessionPage() {
             )}
 
             <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
+
+            {/* Optional if-then plan — Gollwitzer's implementation
+                intentions. Filling both fields creates a task tagged
+                as an if-then plan so the next weekly letter can
+                surface "you planned to X when Y — did that happen?".
+                Skip is the default (both empty). */}
+            <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-text-primary">
+                  One if-then plan? (optional)
+                </p>
+                <p className="text-[11px] text-text-tertiary mt-0.5 leading-snug">
+                  Specific cues + actions are 2-3× more likely to actually happen than vague intentions.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase tracking-widest text-text-tertiary font-semibold w-12 shrink-0">When</span>
+                  <input
+                    value={ifThenSituation}
+                    onChange={(e) => setIfThenSituation(e.target.value)}
+                    placeholder="I sit down at my desk tomorrow"
+                    className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase tracking-widest text-text-tertiary font-semibold w-12 shrink-0">I&apos;ll</span>
+                  <input
+                    value={ifThenAction}
+                    onChange={(e) => setIfThenAction(e.target.value)}
+                    placeholder="open the proposal first thing"
+                    className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+            </div>
 
             {saveError && (
               <div className="bg-[#2A1A1A] border border-[#4A2A2A] rounded-2xl p-4 space-y-3">

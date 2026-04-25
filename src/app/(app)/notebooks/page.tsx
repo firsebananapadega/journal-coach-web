@@ -77,26 +77,23 @@ export default function NotebooksIndexPage() {
   }, [newName, busy, createNotebook, showToast]);
 
   return (
-    <div className="relative min-h-[100dvh] bg-bg">
+    <div className="relative bg-bg">
       <div
         aria-hidden
         className="absolute top-0 left-1/2 -translate-x-1/2 w-[80vmin] h-[80vmin] rounded-full blur-3xl pointer-events-none opacity-40"
         style={{ background: 'var(--theme-primary-glow)' }}
       />
 
-      <header
-        className="relative z-10 px-6"
-        style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}
-      >
-        <h1 className="text-2xl font-semibold text-text-primary tracking-tight">
-          {t('notebooks.title')}
-        </h1>
-        <p className="text-sm text-text-secondary mt-1">
-          {t('notebooks.subtitle')}
-        </p>
-      </header>
+      <div className="relative z-10 max-w-md mx-auto px-5 pt-16 pb-24 space-y-5">
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary tracking-tight">
+            {t('notebooks.title')}
+          </h1>
+          <p className="text-sm text-text-secondary mt-1">
+            {t('notebooks.subtitle')}
+          </p>
+        </div>
 
-      <main className="relative z-10 px-6 pt-6 pb-32 max-w-md mx-auto">
         <ul className="space-y-2">
           {notebooks.map((n) => {
             const s = stats.get(n.id);
@@ -141,6 +138,25 @@ export default function NotebooksIndexPage() {
             );
           })}
         </ul>
+
+        {/* Cross-link to structure notes — they're a different
+            organizational lens than notebooks (notebooks = where an
+            entry lives; structure notes = themes that span multiple
+            entries) so the discovery point belongs here. */}
+        <Link
+          href="/notes"
+          className="mt-2 flex items-center justify-between rounded-2xl bg-surface-elevated border border-border px-4 py-3 hover:border-primary/60 transition-colors"
+        >
+          <div>
+            <p className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
+              <span aria-hidden>✦</span> Structure notes
+            </p>
+            <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
+              Themes that link entries across notebooks.
+            </p>
+          </div>
+          <span className="text-text-tertiary text-sm">›</span>
+        </Link>
 
         {/* + New notebook */}
         {!creating ? (
@@ -189,7 +205,7 @@ export default function NotebooksIndexPage() {
             </div>
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }

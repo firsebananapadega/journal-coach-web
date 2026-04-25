@@ -43,10 +43,12 @@ self.addEventListener('push', (event) => {
 
   const { title, body, data, kind } = payload;
 
-  // Weekly letters don't get action buttons — a letter isn't
-  // snooze-able and there's nothing to mark done. One-tap open only.
+  // Letters / monthly patterns don't get action buttons — there's
+  // nothing to snooze or mark done. One-tap open only.
   const isLetter = kind === 'weekly_letter';
-  const actions = isLetter
+  const isPattern = kind === 'monthly_pattern';
+  const isArchiveItem = isLetter || isPattern;
+  const actions = isArchiveItem
     ? []
     : [
         { action: 'snooze10', title: 'Snooze 10 min' },
@@ -55,12 +57,23 @@ self.addEventListener('push', (event) => {
 
   // Coalesce notifications by a deterministic tag so a second fire
   // replaces the first instead of stacking.
-  const tag = isLetter
-    ? (data && data.letter_id ? `letter-${data.letter_id}` : 'weekly-letter')
-    : (data && data.task_id ? `task-${data.task_id}` : undefined);
+  let tag;
+  if (isLetter) {
+    tag = data && data.letter_id ? `letter-${data.letter_id}` : 'weekly-letter';
+  } else if (isPattern) {
+    tag = data && data.pattern_id ? `pattern-${data.pattern_id}` : 'monthly-pattern';
+  } else if (data && data.task_id) {
+    tag = `task-${data.task_id}`;
+  }
+
+  const fallbackTitle = isLetter
+    ? 'New letter'
+    : isPattern
+    ? 'Monthly pattern'
+    : 'Reminder';
 
   event.waitUntil(
-    self.registration.showNotification(title || (isLetter ? 'New letter' : 'Reminder'), {
+    self.registration.showNotification(title || fallbackTitle, {
       body: body || '',
       icon: '/icon',
       badge: '/icon',
@@ -79,15 +92,17 @@ self.addEventListener('notificationclick', (event) => {
   const data = event.notification.data || {};
   const taskId = data.task_id;
   const isLetter = data.kind === 'weekly_letter';
+  const isPattern = data.kind === 'monthly_pattern';
 
   const handle = async () => {
-    // Weekly letter notifications have no actions — any tap opens the
-    // letter archive (or the specific letter if we know its id). This
-    // branch runs before the reminder action branches so letter taps
-    // never accidentally fall through.
-    if (isLetter) {
-      const target = data.letter_id
-        ? `/letters/${data.letter_id}`
+    // Letters and monthly patterns have no actions — any tap opens
+    // the archive (or the specific item if we know its id). This
+    // branch runs before the reminder action branches so archive
+    // taps never accidentally fall through.
+    if (isLetter || isPattern) {
+      const itemId = data.letter_id || data.pattern_id;
+      const target = itemId
+        ? `/letters/${itemId}`
         : (data.url || '/letters');
       const winClients = await self.clients.matchAll({
         type: 'window',

@@ -18,7 +18,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
-import { useLettersStore, type WeeklyLetter } from '@/stores/lettersStore';
+import { useLettersStore, type WeeklyLetter, type ArchiveItem } from '@/stores/lettersStore';
 import { getTimeOfDay } from '@/lib/guidanceEngine';
 import { getGuideOrDefault } from '@/lib/guideConfigs';
 import { toLocalDateStr, entryDateStr } from '@/lib/dateUtils';
@@ -198,6 +198,7 @@ export default function HomePage() {
   // client-side generated reflection for users who haven't received
   // a server letter yet (e.g. fresh after the feature launch).
   const letters = useLettersStore((s) => s.letters);
+  const patterns = useLettersStore((s) => s.patterns);
   const fetchLetters = useLettersStore((s) => s.fetchLetters);
   const markLetterSeen = useLettersStore((s) => s.markSeen);
   const [templates, setTemplates] = useState<TemplateInfo[]>(() => {
@@ -267,13 +268,20 @@ export default function HomePage() {
   const todayCompletions = completions[today] || new Set<string>();
   const activeHabits = habits.filter((h) => h.is_active);
 
-  // Most-recent letter across all weeks (letters are pre-sorted
-  // descending by generated_at in the store).
+  // Most-recent archive item — interleaves weekly letters and
+  // monthly patterns by generated_at so whichever is freshest wins
+  // the spotlight. Once the user opens it, it drops to the quieter
+  // bottom card. The bottom card still always shows a weekly-letter
+  // snippet (the monthly pattern has its own /letters/[id] surface).
   const latestLetter: WeeklyLetter | null = letters[0] ?? null;
-  // Surface only when the user hasn't opened it yet — that's the
-  // "Ben left you a letter" moment. After it's seen, the letter moves
-  // to the quieter archive pill below.
-  const unreadLetter = latestLetter && !latestLetter.seen_at ? latestLetter : null;
+  const archiveItems: ArchiveItem[] = useMemo(() => {
+    const merged: ArchiveItem[] = [
+      ...letters.map((l) => ({ kind: 'weekly' as const, ...l })),
+      ...patterns.map((p) => ({ kind: 'monthly' as const, ...p })),
+    ];
+    return merged.sort((a, b) => (a.generated_at < b.generated_at ? 1 : -1));
+  }, [letters, patterns]);
+  const unreadItem: ArchiveItem | null = archiveItems.find((i) => !i.seen_at) ?? null;
 
   const templateCompletedToday = useMemo(() => {
     const completed = new Set<string>();
@@ -503,31 +511,42 @@ export default function HomePage() {
         </div>
       </motion.div>
 
-      {/* Unread weekly-letter card — the guide just wrote, surface it
-          prominently. Mounts above the Daily Pulse so the user doesn't
-          miss it. Tapping routes to /letters/[id] so the archive is
-          the canonical read surface. */}
-      {unreadLetter && (
+      {/* Unread-item card — surfaces the latest weekly letter OR
+          monthly pattern, whichever is fresher. Tapping routes to
+          /letters/[id] (which handles both kinds) and marks seen. */}
+      {unreadItem && (
         <Link
-          href={`/letters/${unreadLetter.id}`}
-          onClick={() => markLetterSeen(unreadLetter.id)}
-          className="block relative bg-gradient-to-br from-primary/15 via-primary/10 to-transparent border border-primary/30 rounded-2xl p-4 hover:border-primary/60 transition-colors"
+          href={`/letters/${unreadItem.id}`}
+          onClick={() => markLetterSeen(unreadItem.id, unreadItem.kind)}
+          className={`block relative rounded-2xl border p-4 transition-colors ${
+            unreadItem.kind === 'monthly'
+              ? 'bg-gradient-to-br from-primary/20 via-primary/10 to-transparent border-primary/40 hover:border-primary/70'
+              : 'bg-gradient-to-br from-primary/15 via-primary/10 to-transparent border-primary/30 hover:border-primary/60'
+          }`}
         >
           <span
             aria-hidden
             className="absolute top-3 right-3 inline-block w-2.5 h-2.5 rounded-full bg-primary"
           />
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xl" role="img" aria-label="letter">&#128140;</span>
+            <span className="text-xl" aria-hidden>
+              {unreadItem.kind === 'monthly' ? '✦' : '\u{1F48C}'}
+            </span>
             <span className="text-[11px] uppercase tracking-widest text-primary font-bold">
-              {t('letter.newBadge') !== 'letter.newBadge' ? t('letter.newBadge') : 'New letter'}
+              {unreadItem.kind === 'monthly' ? 'New monthly pattern' : 'New letter'}
             </span>
           </div>
           <p className="text-sm font-semibold text-text-primary">
-            {guide.name} {t('letter.wroteYou') !== 'letter.wroteYou' ? t('letter.wroteYou') : 'wrote you a letter'}
+            {unreadItem.kind === 'monthly'
+              ? `${guide.name}: a month of patterns`
+              : `${guide.name} wrote you a letter`}
           </p>
           <p className="text-xs text-text-secondary mt-1 line-clamp-2">
-            {unreadLetter.letter_text.slice(0, 160)}…
+            {(unreadItem.kind === 'monthly'
+              ? unreadItem.narrative
+              : unreadItem.letter_text
+            ).slice(0, 160)}
+            …
           </p>
         </Link>
       )}
@@ -604,7 +623,7 @@ export default function HomePage() {
           guideName={guide.name}
           onSeen={(id) => markLetterSeen(id)}
         />
-      ) : !unreadLetter && reflection ? (
+      ) : !unreadItem && reflection ? (
         <WeeklyReflectionCard
           reflection={{ letter: reflection.letter, themes: reflection.themes }}
           guideName={guide.name}
