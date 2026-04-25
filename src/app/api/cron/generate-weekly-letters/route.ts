@@ -22,6 +22,12 @@ import {
   WEEKLY_LETTER_MODEL,
 } from '@/lib/weeklyReflection';
 import { callGeminiServer } from '@/lib/server/gemini';
+import {
+  checkAccountAge,
+  checkActiveDays,
+  checkEntryCount,
+  ELIGIBILITY,
+} from '@/lib/server/eligibility';
 import { getGuideOrDefault } from '@/lib/guideConfigs';
 import {
   gatherWeeklySignals,
@@ -35,16 +41,13 @@ export const maxDuration = 60;
 // Letters can take ~10–15s each (two parallel Gemini calls). Keep the
 // batch small so we stay well under the 60s function ceiling.
 const BATCH_LIMIT = 20;
-// Minimum journal entries (non-pulse, non-practice) in the past 7
-// days before we bother generating a letter. Below this threshold the
-// letter would be thin — skip and let the user build more material.
-const MIN_ENTRIES = 3;
 
 interface ProfileRow {
   id: string;
   display_name: string | null;
   preferred_guide: string | null;
   letter_cadence: 'weekly' | 'biweekly' | 'monthly' | 'off' | null;
+  created_at: string | null;
 }
 
 /** Minimum days between letters per cadence. Anything later than the
@@ -85,8 +88,12 @@ function log(tag: string, extra?: Record<string, unknown>) {
 }
 
 /** Gemini invoker suitable for buildWeeklyLetter — returns plain text.  */
-const serverInvoker = async (model: string, prompt: string): Promise<string> => {
-  const r = await callGeminiServer(model, prompt);
+const serverInvoker = async (
+  model: string,
+  prompt: string,
+  opts?: { responseMimeType?: 'application/json' | 'text/plain'; responseSchema?: Record<string, unknown> },
+): Promise<string> => {
+  const r = await callGeminiServer(model, prompt, opts ?? {});
   return r.text;
 };
 
@@ -152,6 +159,10 @@ async function processUser(
     return { userId, status: 'cadence-off' };
   }
 
+  // Eligibility — see src/lib/server/eligibility.ts.
+  const ageCheck = checkAccountAge(profile.created_at, ELIGIBILITY.weekly.accountAgeDays);
+  if (!ageCheck.ok) return { userId, status: ageCheck.reason! };
+
   // Idempotency #1: already have a row for this exact week? Skip.
   // (week_key uniqueness already protects us at the DB level, but the
   // pre-check saves an LLM call.)
@@ -200,9 +211,10 @@ async function processUser(
     return { userId, status: 'entry-fetch-failed', error: entriesErr.message };
   }
   const rows = (entries ?? []) as EntryRow[];
-  if (rows.length < MIN_ENTRIES) {
-    return { userId, status: 'too-few-entries' };
-  }
+  const entryCheck = checkEntryCount(rows, ELIGIBILITY.weekly.minEntries);
+  if (!entryCheck.ok) return { userId, status: entryCheck.reason! };
+  const activeCheck = checkActiveDays(rows, ELIGIBILITY.weekly.minActiveDays);
+  if (!activeCheck.ok) return { userId, status: activeCheck.reason! };
 
   // Behavioral signals — habit completions, pulse averages, intention
   // practice counts, task completion %, notebook distribution. The
@@ -334,7 +346,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('id, display_name, preferred_guide, letter_cadence')
+    .select('id, display_name, preferred_guide, letter_cadence, created_at')
     .in('id', activeUserIds);
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 500 });

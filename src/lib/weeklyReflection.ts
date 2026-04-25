@@ -50,7 +50,21 @@ interface EntryInput {
  * (client, user-auth'd via /api/gemini) and `callGeminiServer`
  * (server, API-key'd via REST).
  */
-export type GeminiInvoker = (model: string, prompt: string) => Promise<string>;
+export interface InvokerOptions {
+  responseMimeType?: 'application/json' | 'text/plain';
+  responseSchema?: Record<string, unknown>;
+}
+
+export type GeminiInvoker = (
+  model: string,
+  prompt: string,
+  opts?: InvokerOptions,
+) => Promise<string>;
+
+const THEMES_RESPONSE_SCHEMA = {
+  type: 'array',
+  items: { type: 'string' },
+};
 
 export interface BuildWeeklyLetterInput {
   entries: EntryInput[];
@@ -169,7 +183,10 @@ export async function buildWeeklyLetter(
 
   const [letterText, themesText] = await Promise.all([
     invoker(DEFAULT_MODEL, letterPrompt),
-    invoker(DEFAULT_MODEL, themesPrompt),
+    invoker(DEFAULT_MODEL, themesPrompt, {
+      responseMimeType: 'application/json',
+      responseSchema: THEMES_RESPONSE_SCHEMA,
+    }),
   ]);
 
   return {

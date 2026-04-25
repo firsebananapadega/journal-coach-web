@@ -21,6 +21,12 @@ import {
   gatherWeeklySignals,
   formatSignalsForPrompt,
 } from '@/lib/server/weeklySignals';
+import {
+  checkAccountAge,
+  checkActiveDays,
+  checkEntryCount,
+  ELIGIBILITY,
+} from '@/lib/server/eligibility';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,14 +34,12 @@ export const maxDuration = 60;
 
 // Larger LLM payload (3 themes JSON + narrative) → keep batch tight.
 const BATCH_LIMIT = 15;
-// Minimum reflective entries in the past 30 days before we generate a
-// pattern. Below this the themes would be thin / synthesized.
-const MIN_ENTRIES = 5;
 
 interface ProfileRow {
   id: string;
   display_name: string | null;
   preferred_guide: string | null;
+  created_at: string | null;
 }
 
 interface EntryRow {
@@ -66,8 +70,12 @@ function log(tag: string, extra?: Record<string, unknown>) {
   console.log('[monthly-pattern-cron]', JSON.stringify({ tag, ts: Date.now(), ...extra }));
 }
 
-const serverInvoker = async (model: string, prompt: string): Promise<string> => {
-  const r = await callGeminiServer(model, prompt);
+const serverInvoker = async (
+  model: string,
+  prompt: string,
+  opts?: { responseMimeType?: 'application/json' | 'text/plain'; responseSchema?: Record<string, unknown> },
+): Promise<string> => {
+  const r = await callGeminiServer(model, prompt, opts ?? {});
   return r.text;
 };
 
@@ -127,6 +135,10 @@ async function processUser(
 ): Promise<{ userId: string; status: string; error?: string }> {
   const userId = profile.id;
 
+  // Eligibility — see src/lib/server/eligibility.ts.
+  const ageCheck = checkAccountAge(profile.created_at, ELIGIBILITY.monthly.accountAgeDays);
+  if (!ageCheck.ok) return { userId, status: ageCheck.reason! };
+
   const { data: existing } = await admin
     .from('monthly_patterns')
     .select('id')
@@ -150,9 +162,10 @@ async function processUser(
     return { userId, status: 'entry-fetch-failed', error: entriesErr.message };
   }
   const rows = (entries ?? []) as EntryRow[];
-  if (rows.length < MIN_ENTRIES) {
-    return { userId, status: 'too-few-entries' };
-  }
+  const entryCheck = checkEntryCount(rows, ELIGIBILITY.monthly.minEntries);
+  if (!entryCheck.ok) return { userId, status: entryCheck.reason! };
+  const activeCheck = checkActiveDays(rows, ELIGIBILITY.monthly.minActiveDays);
+  if (!activeCheck.ok) return { userId, status: activeCheck.reason! };
 
   // Reuse the same signal block as the weekly letter — habits, pulse
   // averages, task completion %, notebook distribution. Gives the
@@ -272,7 +285,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('id, display_name, preferred_guide')
+    .select('id, display_name, preferred_guide, created_at')
     .in('id', activeUserIds);
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 500 });

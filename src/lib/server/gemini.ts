@@ -73,36 +73,51 @@ export interface GeminiServerResult {
   modelUsed: string;
 }
 
+/** Per-call generation overrides. `responseMimeType: 'application/json'`
+ *  + `responseSchema` is the safe path for any prompt that expects
+ *  parseable JSON — Gemini constrains output to a JSON.parse-clean
+ *  shape, eliminating the raw-control-char failure mode. */
+export interface GenerationOptions {
+  timeoutMs?: number;
+  responseMimeType?: 'application/json' | 'text/plain';
+  responseSchema?: Record<string, unknown>;
+}
+
 // Direct REST call so we can set thinkingConfig.
 async function generate(
   apiKey: string,
   modelName: string,
   prompt: string,
-  timeoutMs: number,
+  opts: GenerationOptions,
 ): Promise<string> {
   const t0 = Date.now();
-  console.log('[gemini-call]', JSON.stringify({ phase: 'start', model: modelName }));
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  console.log('[gemini-call]', JSON.stringify({ phase: 'start', model: modelName, json: !!opts.responseMimeType }));
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  const generationConfig: Record<string, unknown> = {
+    // Bumped 2048 → 8192 (Gemini 2.5 Flash supports it). The cap
+    // limits runaway responses but never *induces* longer output —
+    // the model emits as much as it needs, and we only pay for what
+    // it emits. The old 2048 was clipping long structured-entry
+    // polishes mid-sentence ("...used for switching to the").
+    maxOutputTokens: 8192,
+  };
+  if (opts.responseMimeType) generationConfig.responseMimeType = opts.responseMimeType;
+  if (opts.responseSchema) generationConfig.responseSchema = opts.responseSchema;
+
   const body: Record<string, unknown> = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      // Bumped 2048 → 8192 (Gemini 2.5 Flash supports it). The cap
-      // limits runaway responses but never *induces* longer output —
-      // the model emits as much as it needs, and we only pay for what
-      // it emits. The old 2048 was clipping long structured-entry
-      // polishes mid-sentence ("...used for switching to the").
-      maxOutputTokens: 8192,
-    },
+    generationConfig,
   };
 
   // Cap extended thinking on Pro models — this is the key speed lever.
   // 128 is the minimum allowed budget on Gemini 2.5 Pro. Flash models
   // don't use thinkingConfig the same way; omit for them.
   if (isProModel(modelName)) {
-    (body.generationConfig as Record<string, unknown>).thinkingConfig = {
+    generationConfig.thinkingConfig = {
       thinkingBudget: PRO_THINKING_BUDGET,
     };
   }
@@ -206,7 +221,7 @@ async function generate(
 async function callFlash(
   modelName: string,
   prompt: string,
-  timeoutMs: number,
+  opts: GenerationOptions,
 ): Promise<{ text: string; keyIndex: number }> {
   if (FLASH_KEYS.length === 0) {
     throw new Error('GEMINI_FLASH_API_KEY (and _2/_3/_4/_5 variants) are all unset');
@@ -220,7 +235,7 @@ async function callFlash(
     flashCursor = (flashCursor + 1) % Number.MAX_SAFE_INTEGER;
     const key = FLASH_KEYS[idx];
     try {
-      const text = await generate(key, modelName, prompt, timeoutMs);
+      const text = await generate(key, modelName, prompt, opts);
       if (attempt > 0) {
         // Diagnostic: succeeded on a fallover key. Helps spot when
         // the primary is being hammered.
@@ -260,7 +275,7 @@ async function callFlash(
 export async function callGeminiServer(
   modelName: string,
   prompt: string,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  opts: GenerationOptions = {},
 ): Promise<GeminiServerResult> {
   const wantsPro = isProModel(modelName);
   const hasFlash = FLASH_KEYS.length > 0;
@@ -274,7 +289,7 @@ export async function callGeminiServer(
         throw new Error(`RATE_LIMITED:Pro daily cap (${PRO_DAILY_CAP}) reached and no Flash keys configured`);
       }
       try {
-        const { text } = await callFlash(FLASH_FALLBACK_MODEL, prompt, timeoutMs);
+        const { text } = await callFlash(FLASH_FALLBACK_MODEL, prompt, opts);
         return { text, usedFallback: true, modelUsed: FLASH_FALLBACK_MODEL };
       } catch (err) {
         // If the entire Flash pool is rate-limited, both engines are gone.
@@ -286,7 +301,7 @@ export async function callGeminiServer(
       }
     }
     try {
-      const text = await generate(PRO_KEY, modelName, prompt, timeoutMs);
+      const text = await generate(PRO_KEY, modelName, prompt, opts);
       incrementProUsed();
       return { text, modelUsed: modelName };
     } catch (err) {
@@ -295,7 +310,7 @@ export async function callGeminiServer(
       const m = err instanceof Error ? err.message : String(err);
       if (m.startsWith('RATE_LIMITED:') && hasFlash) {
         try {
-          const { text } = await callFlash(FLASH_FALLBACK_MODEL, prompt, timeoutMs);
+          const { text } = await callFlash(FLASH_FALLBACK_MODEL, prompt, opts);
           return { text, usedFallback: true, modelUsed: FLASH_FALLBACK_MODEL };
         } catch (err2) {
           const m2 = err2 instanceof Error ? err2.message : String(err2);
@@ -310,7 +325,7 @@ export async function callGeminiServer(
   }
 
   // Direct flash path — round-robin handles all 3+ keys.
-  const { text } = await callFlash(modelName, prompt, timeoutMs);
+  const { text } = await callFlash(modelName, prompt, opts);
   return { text, modelUsed: modelName };
 }
 

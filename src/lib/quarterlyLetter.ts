@@ -44,7 +44,31 @@ interface EntryInput {
   content_text?: string | null;
 }
 
-export type GeminiInvoker = (model: string, prompt: string) => Promise<string>;
+export interface InvokerOptions {
+  responseMimeType?: 'application/json' | 'text/plain';
+  responseSchema?: Record<string, unknown>;
+}
+
+export type GeminiInvoker = (
+  model: string,
+  prompt: string,
+  opts?: InvokerOptions,
+) => Promise<string>;
+
+// JSON schema constraint for Gemini response — guarantees JSON.parse-
+// clean output and removes the raw-control-char failure mode that
+// silently dumped 5KB of unparsed JSON into letter_text.
+const QUARTERLY_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    themes: { type: 'array', items: { type: 'string' } },
+    arc_entry_ids: { type: 'array', items: { type: 'string' } },
+    letter: { type: 'string' },
+  },
+  required: ['themes', 'arc_entry_ids', 'letter'],
+};
+
+const MIN_LETTER_CHARS = 1500; // 600-800 words ≈ 3000+ chars; 1500 is the floor
 
 export interface BuildQuarterlyLetterInput {
   entries: EntryInput[];
@@ -126,12 +150,11 @@ function parseResponse(text: string, validIds: Set<string>): {
   letter: string;
 } {
   const cleaned = text.replace(/```json\n?|\n?```/g, '').trim();
-  let raw: RawResponse;
-  try {
-    raw = JSON.parse(cleaned) as RawResponse;
-  } catch {
-    return { themes: [], arcEntryIds: [], letter: cleaned.slice(0, 6000) };
-  }
+  // With responseMimeType='application/json' set on the Gemini call,
+  // this should always succeed. If it doesn't, the caller catches and
+  // marks the user as generate-failed — far better than silently
+  // storing 5KB of raw JSON in letter_text.
+  const raw = JSON.parse(cleaned) as RawResponse;
 
   const themes = Array.isArray(raw.themes)
     ? (raw.themes as unknown[])
@@ -147,6 +170,11 @@ function parseResponse(text: string, validIds: Set<string>): {
         .slice(0, 12)
     : [];
   const letter = typeof raw.letter === 'string' ? raw.letter.trim() : '';
+  if (letter.length < MIN_LETTER_CHARS) {
+    throw new Error(
+      `Quarterly letter too short (${letter.length} chars; need ≥${MIN_LETTER_CHARS})`,
+    );
+  }
   return { themes, arcEntryIds, letter };
 }
 
@@ -163,7 +191,10 @@ export async function buildQuarterlyLetter(
   }
 
   const prompt = buildPrompt(input);
-  const responseText = await input.callGemini(QUARTERLY_LETTER_MODEL, prompt);
+  const responseText = await input.callGemini(QUARTERLY_LETTER_MODEL, prompt, {
+    responseMimeType: 'application/json',
+    responseSchema: QUARTERLY_RESPONSE_SCHEMA,
+  });
   const validIds = new Set(input.entries.map((e) => e.id));
   const { themes, arcEntryIds, letter } = parseResponse(responseText, validIds);
 

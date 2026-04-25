@@ -22,6 +22,12 @@ import {
   gatherWeeklySignals,
   formatSignalsForPrompt,
 } from '@/lib/server/weeklySignals';
+import {
+  checkAccountAge,
+  checkActiveDays,
+  checkEntryCount,
+  ELIGIBILITY,
+} from '@/lib/server/eligibility';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,13 +36,13 @@ export const maxDuration = 60;
 // Quarterly prompts are large + responses can run 800 tokens, so
 // cap the per-run batch tighter than the weekly cron.
 const BATCH_LIMIT = 10;
-const MIN_ENTRIES = 30;
 const MIN_DAYS_SINCE_LAST_QUARTERLY = 85;
 
 interface ProfileRow {
   id: string;
   display_name: string | null;
   preferred_guide: string | null;
+  created_at: string | null;
 }
 
 interface EntryRow {
@@ -67,8 +73,12 @@ function log(tag: string, extra?: Record<string, unknown>) {
   console.log('[quarterly-letter-cron]', JSON.stringify({ tag, ts: Date.now(), ...extra }));
 }
 
-const serverInvoker = async (model: string, prompt: string): Promise<string> => {
-  const r = await callGeminiServer(model, prompt);
+const serverInvoker = async (
+  model: string,
+  prompt: string,
+  opts?: { responseMimeType?: 'application/json' | 'text/plain'; responseSchema?: Record<string, unknown> },
+): Promise<string> => {
+  const r = await callGeminiServer(model, prompt, opts ?? {});
   return r.text;
 };
 
@@ -128,6 +138,12 @@ async function processUser(
 ): Promise<{ userId: string; status: string; error?: string }> {
   const userId = profile.id;
 
+  // Eligibility — research-backed gates so we don't fire a 90-day
+  // narrative-arc letter at someone who's been around 4 days. See
+  // src/lib/server/eligibility.ts for thresholds + citations.
+  const ageCheck = checkAccountAge(profile.created_at, ELIGIBILITY.quarterly.accountAgeDays);
+  if (!ageCheck.ok) return { userId, status: ageCheck.reason! };
+
   // Idempotency #1: a row already exists for this calendar quarter.
   const { data: existing } = await admin
     .from('quarterly_letters')
@@ -176,9 +192,10 @@ async function processUser(
     return { userId, status: 'entry-fetch-failed', error: entriesErr.message };
   }
   const rows = (entries ?? []) as EntryRow[];
-  if (rows.length < MIN_ENTRIES) {
-    return { userId, status: `too-few-entries-${rows.length}` };
-  }
+  const entryCheck = checkEntryCount(rows, ELIGIBILITY.quarterly.minEntries);
+  if (!entryCheck.ok) return { userId, status: entryCheck.reason! };
+  const activeCheck = checkActiveDays(rows, ELIGIBILITY.quarterly.minActiveDays);
+  if (!activeCheck.ok) return { userId, status: activeCheck.reason! };
 
   // Same signals helper as weekly, but the prompt frames them as a
   // 90-day picture. The 7-day default of gatherWeeklySignals only
@@ -302,7 +319,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('id, display_name, preferred_guide')
+    .select('id, display_name, preferred_guide, created_at')
     .in('id', activeUserIds);
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 500 });

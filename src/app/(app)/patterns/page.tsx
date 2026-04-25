@@ -26,6 +26,7 @@ import {
   type WeeklyReflectionData,
 } from '@/lib/weeklyReflection';
 import { useJournalStore } from '@/stores/journalStore';
+import { useLettersStore, type ArchiveItem } from '@/stores/lettersStore';
 import { INTENTION_PRACTICES } from '@/lib/intentionPractices';
 import { PRESET_INTENTIONS, type IntentionCategory } from '@/lib/presetIntentions';
 import { t } from '@/lib/translations';
@@ -393,11 +394,35 @@ export default function PatternsPage() {
   const [selectedJournalDate, setSelectedJournalDate] = useState<string | null>(null);
   const entries = useJournalStore((s) => s.entries);
   const fetchEntries = useJournalStore((s) => s.fetchEntries);
+  // Letters store: surfacing the most-recent letter on /patterns is
+  // how users discover the archive. Letters are a form of pattern
+  // recognition, so this is the natural home.
+  const fetchLetters = useLettersStore((s) => s.fetchLetters);
+  const lettersHasFetched = useLettersStore((s) => s.hasFetched);
+  const weeklyLetters = useLettersStore((s) => s.letters);
+  const monthlyPatterns = useLettersStore((s) => s.patterns);
+  const quarterlyLetters = useLettersStore((s) => s.quarterlies);
 
   useEffect(() => {
     setReflection(getCachedReflection());
     fetchEntries();
-  }, [fetchEntries]);
+    if (!lettersHasFetched) fetchLetters().catch(() => {});
+  }, [fetchEntries, fetchLetters, lettersHasFetched]);
+
+  // Most-recent letter across all three kinds. Prefer unread; fall
+  // back to the most recently generated. Drives the "Latest letter"
+  // card just below the hero stat.
+  const latestLetter: ArchiveItem | null = useMemo(() => {
+    const all: ArchiveItem[] = [
+      ...weeklyLetters.map((l) => ({ kind: 'weekly' as const, ...l })),
+      ...monthlyPatterns.map((p) => ({ kind: 'monthly' as const, ...p })),
+      ...quarterlyLetters.map((q) => ({ kind: 'quarterly' as const, ...q })),
+    ];
+    if (all.length === 0) return null;
+    all.sort((a, b) => (a.generated_at < b.generated_at ? 1 : -1));
+    return all.find((i) => !i.seen_at) ?? all[0];
+  }, [weeklyLetters, monthlyPatterns, quarterlyLetters]);
+  const totalLetters = weeklyLetters.length + monthlyPatterns.length + quarterlyLetters.length;
 
   const dates30 = useMemo(() => lastNDates(30), []);
 
@@ -641,6 +666,69 @@ export default function PatternsPage() {
           </p>
         )}
       </section>
+
+      {/* ─── Latest letter from your guide ────────────────────────────
+          The discoverability surface for the /letters archive. Prefers
+          the unread item across weekly/monthly/quarterly, falls back to
+          the most-recent overall. Tap → /letters/[id] (which marks
+          seen). The "see all" link goes to /letters. Hidden when no
+          server letters exist yet — the client-generated weekly card
+          below still fills the slot. */}
+      {latestLetter && (() => {
+        const isQuarterly = latestLetter.kind === 'quarterly';
+        const isMonthly = latestLetter.kind === 'monthly';
+        const unread = !latestLetter.seen_at;
+        const glyph = isQuarterly ? '✺' : isMonthly ? '✦' : '✉';
+        const kindLabel = isQuarterly
+          ? 'Quarterly letter'
+          : isMonthly
+          ? 'Monthly pattern'
+          : 'Weekly letter';
+        const preview =
+          latestLetter.kind === 'monthly' ? latestLetter.narrative : latestLetter.letter_text;
+        const gradientClass = unread
+          ? isQuarterly
+            ? 'bg-gradient-to-br from-primary/25 via-primary/12 to-transparent border-primary/50'
+            : isMonthly
+            ? 'bg-gradient-to-br from-primary/15 via-primary/8 to-transparent border-primary/40'
+            : 'bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-primary/30'
+          : 'bg-surface border-border';
+        return (
+          <section className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <p className="text-xs uppercase tracking-wider text-text-tertiary font-semibold">
+                {unread ? 'New letter' : 'Latest letter'}
+              </p>
+              {totalLetters > 1 && (
+                <Link
+                  href="/letters"
+                  className="text-xs text-primary hover:underline"
+                >
+                  See all {totalLetters} →
+                </Link>
+              )}
+            </div>
+            <Link
+              href={`/letters/${latestLetter.id}`}
+              className={`block relative rounded-2xl border p-4 transition-colors ${gradientClass} hover:border-primary/60`}
+            >
+              {unread && (
+                <span
+                  aria-hidden
+                  className="absolute top-3 right-3 inline-block w-2.5 h-2.5 rounded-full bg-primary"
+                />
+              )}
+              <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-semibold flex items-center gap-1.5">
+                <span aria-hidden>{glyph}</span>
+                {kindLabel}
+              </p>
+              <p className="text-sm text-text-primary mt-1 line-clamp-3 pr-6">
+                {preview.slice(0, 220)}…
+              </p>
+            </Link>
+          </section>
+        );
+      })()}
 
       {/* ─── Weekly letter ───────────────────────────────────────────── */}
       {reflection ? (

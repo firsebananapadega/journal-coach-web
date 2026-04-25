@@ -42,9 +42,12 @@ export default function LettersIndexPage() {
   const fetchLetters = useLettersStore((s) => s.fetchLetters);
   const hasFetched = useLettersStore((s) => s.hasFetched);
   const loading = useLettersStore((s) => s.loading);
-  // Re-evaluate when letters/patterns change so the list re-renders.
+  // Re-evaluate when any of the three slices change so the list
+  // re-renders. Quarterlies were missing here before — quarterly
+  // detail pages worked via deep link but the list omitted them.
   const letters = useLettersStore((s) => s.letters);
   const patterns = useLettersStore((s) => s.patterns);
+  const quarterlies = useLettersStore((s) => s.quarterlies);
 
   useEffect(() => {
     if (!hasFetched) fetchLetters().catch(() => {});
@@ -54,9 +57,10 @@ export default function LettersIndexPage() {
     const merged: ArchiveItem[] = [
       ...letters.map((l) => ({ kind: 'weekly' as const, ...l })),
       ...patterns.map((p) => ({ kind: 'monthly' as const, ...p })),
+      ...quarterlies.map((q) => ({ kind: 'quarterly' as const, ...q })),
     ];
     return merged.sort((a, b) => (a.generated_at < b.generated_at ? 1 : -1));
-  }, [letters, patterns]);
+  }, [letters, patterns, quarterlies]);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, ArchiveItem[]>();

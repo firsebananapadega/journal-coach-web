@@ -1,184 +1,178 @@
-// Centralized Gemini API client with round-robin key rotation
-// Spreads load across all keys evenly, skips exhausted keys,
-// automatically retries with the next healthy key on failure
+// Client-side Gemini wrapper. Posts to /api/gemini so API keys never
+// ship in the browser bundle. The server route owns key selection,
+// rotation, the Pro daily cap, and Pro→Flash fallback.
 
-import { GoogleGenerativeAI, type GenerativeModel } from '@google/generative-ai';
+import { supabase } from './supabase';
+import { useAuthStore } from '../stores/authStore';
 
-// ── Key Discovery ──────────────────────────────────────────────────
+// Must sit below the server route maxDuration (60s) but above realistic
+// Pro-model response time (~18-22s observed). 55s gives the server room
+// to respond normally; if the server truly hangs, we release the client
+// cleanly rather than spinning forever.
+const DEFAULT_TIMEOUT_MS = 55_000;
 
-const ALL_KEYS: string[] = [
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY,
-  process.env.NEXT_PUBLIC_ALT_GEMINI_API_KEY,
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY_3,
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY_4,
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY_5,
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY_6,
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY_7,
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY_8,
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY_9,
-  process.env.NEXT_PUBLIC_GEMINI_API_KEY_10,
-].filter((k): k is string => !!k && k.length > 0);
+export type TraceFn = (label: string, meta?: Record<string, unknown>) => void;
 
-const isDev = process.env.NODE_ENV === 'development';
+export type RateLimitScope = 'pro' | 'all';
 
-if (isDev && typeof window !== 'undefined') {
-  console.log(
-    `[Gemini] ${ALL_KEYS.length} key(s) loaded:`,
-    ALL_KEYS.map((k, i) => `#${i + 1} ${k.substring(0, 8)}…`).join('  ')
-  );
-}
-
-// ── Config ─────────────────────────────────────────────────────────
-
-const DEFAULT_TIMEOUT_MS = 20_000;
-const RETRY_DELAY_MS = 2_500;
-const QUOTA_COOLDOWN_MS = 60 * 60 * 1000;
-const RATE_LIMIT_COOLDOWN_MS = 65 * 1000;
-
-// ── Per-Key State ──────────────────────────────────────────────────
-
-interface KeyState {
-  cooldownUntil: number;
-  reason: 'quota' | 'rate_limit';
-}
-
-const keyStates = new Map<string, KeyState>();
-let roundRobinIndex = 0;
-
-// ── Helpers ────────────────────────────────────────────────────────
-
-function isRateLimitError(error: unknown): boolean {
-  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  return (
-    msg.includes('429') ||
-    msg.includes('resource_exhausted') ||
-    msg.includes('rate limit') ||
-    msg.includes('quota') ||
-    msg.includes('too many requests')
-  );
-}
-
-function isQuotaExhausted(error: unknown): boolean {
-  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  return msg.includes('quota') || msg.includes('resource_exhausted');
-}
-
-function keyLabel(key: string): string {
-  const idx = ALL_KEYS.indexOf(key);
-  return `#${idx + 1} (${key.substring(0, 8)}…)`;
-}
-
-function markKeyFailed(key: string, error: unknown) {
-  const isQuota = isQuotaExhausted(error);
-  const cooldown = isQuota ? QUOTA_COOLDOWN_MS : RATE_LIMIT_COOLDOWN_MS;
-  keyStates.set(key, {
-    cooldownUntil: Date.now() + cooldown,
-    reason: isQuota ? 'quota' : 'rate_limit',
-  });
-}
-
-function markKeySuccess(key: string) {
-  if (keyStates.has(key)) {
-    keyStates.delete(key);
+export class RateLimitError extends Error {
+  scope: RateLimitScope;
+  detail: string;
+  constructor(scope: RateLimitScope, detail: string) {
+    super(`rate_limited:${scope}`);
+    this.name = 'RateLimitError';
+    this.scope = scope;
+    this.detail = detail;
   }
 }
 
-function getRotatedActiveKeys(): string[] {
-  const now = Date.now();
-  const active: string[] = [];
+export interface GeminiDetailedResult {
+  text: string;
+  usedFallback?: boolean;
+  modelUsed?: string;
+}
 
-  for (let i = 0; i < ALL_KEYS.length; i++) {
-    const idx = (roundRobinIndex + i) % ALL_KEYS.length;
-    const key = ALL_KEYS[idx];
-    const state = keyStates.get(key);
-    if (!state || state.cooldownUntil <= now) {
-      active.push(key);
+export interface CallGeminiOptions {
+  timeoutMs?: number;
+  onTrace?: TraceFn;
+  /** Forward to Gemini's responseMimeType. Use 'application/json'
+   *  when the prompt expects parseable JSON. Currently a no-op on
+   *  the client path — the /api/gemini route doesn't forward it
+   *  yet — but keeping the field so server-side invokers can share
+   *  the same GeminiInvoker signature. */
+  responseMimeType?: 'application/json' | 'text/plain';
+  responseSchema?: Record<string, unknown>;
+}
+
+// Resolve the auth header for /api/gemini. Two paths:
+//
+//   FAST PATH — read the access_token directly out of the auth store.
+//     The store hydrates on app mount and stays in sync via
+//     supabase.auth.onAuthStateChange (see authStore.ts), so the
+//     token here is the same one the SDK would return — minus the
+//     unnecessary round-trip and minus the well-documented hang where
+//     `supabase.auth.getSession()` can sit forever waiting on an
+//     in-flight refresh, a service-worker, or browser-extension
+//     contention. This is what we use 99% of the time.
+//
+//   SLOW PATH — only when the store has nothing yet (e.g. cold start
+//     before hydration). We race getSession() against a 3-second
+//     timeout so the request can never block the whole pipeline.
+//
+// Either way, we return promptly or throw a clear error. The previous
+// implementation could hang the entire guided-session pipeline at
+// "auth: getting supabase token" with no timeout.
+async function authHeader(onTrace?: TraceFn): Promise<string> {
+  const cached = useAuthStore.getState().session?.access_token;
+  if (cached) {
+    onTrace?.('auth: using cached session');
+    return `Bearer ${cached}`;
+  }
+  onTrace?.('auth: store empty, calling getSession');
+  const session = await Promise.race([
+    supabase.auth.getSession().then((r) => r.data.session),
+    new Promise<null>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('supabase.auth.getSession() timed out after 3s')),
+        3000,
+      ),
+    ),
+  ]);
+  if (!session?.access_token) {
+    throw new Error('Not signed in');
+  }
+  return `Bearer ${session.access_token}`;
+}
+
+export async function callGeminiDetailed(
+  modelName: string,
+  prompt: string,
+  optionsOrTimeout: number | CallGeminiOptions = DEFAULT_TIMEOUT_MS,
+): Promise<GeminiDetailedResult> {
+  const opts: CallGeminiOptions =
+    typeof optionsOrTimeout === 'number'
+      ? { timeoutMs: optionsOrTimeout }
+      : optionsOrTimeout;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const trace = opts.onTrace ?? (() => {});
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  trace('auth: getting supabase token');
+  let auth: string;
+  try {
+    // Pass the trace through so authHeader can report which path
+    // (cached vs slow getSession) it took. Helps future debugging.
+    auth = await authHeader(trace);
+  } catch (err) {
+    clearTimeout(timer);
+    trace('auth: failed', { err: err instanceof Error ? err.message : String(err) });
+    throw err;
+  }
+  trace('auth: ok');
+
+  trace('POST /api/gemini', { model: modelName, promptChars: prompt.length });
+  let res: Response;
+  try {
+    res = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: auth,
+      },
+      body: JSON.stringify({ model: modelName, prompt, timeoutMs }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      trace('client: aborted (timeout)', { timeoutMs });
+      throw new Error(`Gemini request timed out after ${Math.round(timeoutMs / 1000)}s`);
     }
+    trace('fetch: threw', { err: err instanceof Error ? err.message : String(err) });
+    throw err;
+  }
+  clearTimeout(timer);
+  trace('response received', { status: res.status });
+
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`Gemini request failed (${res.status}, no JSON body)`);
   }
 
-  if (active.length > 0) return active;
+  if (res.status === 429) {
+    const payload = data as { error?: string; detail?: string; scope?: string };
+    const scope: RateLimitScope = payload.scope === 'all' ? 'all' : 'pro';
+    trace('rate limited', { scope, detail: payload.detail });
+    throw new RateLimitError(scope, payload.detail || 'rate limited');
+  }
 
-  const sorted = [...ALL_KEYS].sort((a, b) => {
-    const sa = keyStates.get(a);
-    const sb = keyStates.get(b);
-    return (sa?.cooldownUntil ?? 0) - (sb?.cooldownUntil ?? 0);
+  if (!res.ok) {
+    const err = (data as { error?: string })?.error || `Gemini request failed: ${res.status}`;
+    throw new Error(err);
+  }
+
+  const result = data as GeminiDetailedResult;
+  trace('parsed json', {
+    modelUsed: result.modelUsed,
+    fallback: !!result.usedFallback,
+    textChars: result.text?.length ?? 0,
   });
-
-  keyStates.delete(sorted[0]);
-  return [sorted[0]];
-}
-
-// ── Public API ─────────────────────────────────────────────────────
-
-export function getModel(modelName: string, apiKey?: string): GenerativeModel {
-  const key = apiKey || getRotatedActiveKeys()[0];
-  if (!key) throw new Error('No Gemini API key configured');
-  return new GoogleGenerativeAI(key).getGenerativeModel({ model: modelName });
+  return result;
 }
 
 export async function callGemini(
   modelName: string,
   prompt: string,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS
+  optsOrTimeout: number | CallGeminiOptions = DEFAULT_TIMEOUT_MS,
 ): Promise<string> {
-  if (ALL_KEYS.length === 0) {
-    throw new Error('No Gemini API key configured. Add NEXT_PUBLIC_GEMINI_API_KEY to .env.local');
-  }
-
-  roundRobinIndex = (roundRobinIndex + 1) % ALL_KEYS.length;
-
-  let lastError: Error | null = null;
-
-  for (let round = 0; round < 2; round++) {
-    if (round > 0) {
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-    }
-
-    const keys = getRotatedActiveKeys();
-
-    for (const key of keys) {
-      try {
-        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: modelName });
-
-        const result = await Promise.race([
-          model.generateContent(prompt).then((r) => r.response.text().trim()),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Request timed out')), timeoutMs)
-          ),
-        ]);
-
-        markKeySuccess(key);
-        return result;
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-
-        if (isRateLimitError(err)) {
-          markKeyFailed(key, err);
-          continue;
-        }
-
-        break;
-      }
-    }
-  }
-
-  const now = Date.now();
-  const exhaustedKeys = ALL_KEYS.filter((k) => {
-    const s = keyStates.get(k);
-    return s && s.cooldownUntil > now;
-  });
-  const quotaExhausted = exhaustedKeys.filter((k) => keyStates.get(k)?.reason === 'quota');
-
-  let errorDetail: string;
-  if (quotaExhausted.length >= ALL_KEYS.length) {
-    errorDetail = `All ${ALL_KEYS.length} API keys have hit their daily quota. Wait for quota to reset.`;
-  } else if (exhaustedKeys.length >= ALL_KEYS.length) {
-    errorDetail = `All ${ALL_KEYS.length} API keys are rate-limited. Try again shortly.`;
-  } else {
-    errorDetail = lastError?.message || 'Failed to get response from Gemini';
-  }
-
-  throw new Error(errorDetail);
+  const opts: CallGeminiOptions =
+    typeof optsOrTimeout === 'number' ? { timeoutMs: optsOrTimeout } : optsOrTimeout;
+  const r = await callGeminiDetailed(modelName, prompt, opts);
+  return r.text;
 }
 
 export function parseJsonResponse<T>(text: string, fallback: T): T {

@@ -43,7 +43,38 @@ interface EntryInput {
   content_text?: string | null;
 }
 
-export type GeminiInvoker = (model: string, prompt: string) => Promise<string>;
+export interface InvokerOptions {
+  responseMimeType?: 'application/json' | 'text/plain';
+  responseSchema?: Record<string, unknown>;
+}
+
+export type GeminiInvoker = (
+  model: string,
+  prompt: string,
+  opts?: InvokerOptions,
+) => Promise<string>;
+
+const MONTHLY_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    themes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          summary: { type: 'string' },
+          entry_ids: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['name', 'summary', 'entry_ids'],
+      },
+    },
+    narrative: { type: 'string' },
+  },
+  required: ['themes', 'narrative'],
+};
+
+const MIN_NARRATIVE_CHARS = 400; // 150-220 words ≈ 800-1100 chars; 400 floor
 
 export interface BuildMonthlyPatternInput {
   entries: EntryInput[];
@@ -118,12 +149,9 @@ function parseResponse(text: string, validIds: Set<string>): {
   narrative: string;
 } {
   const cleaned = text.replace(/```json\n?|\n?```/g, '').trim();
-  let raw: RawResponse;
-  try {
-    raw = JSON.parse(cleaned) as RawResponse;
-  } catch {
-    return { themes: [], narrative: cleaned.slice(0, 2400) };
-  }
+  // JSON mode is enforced by the Gemini call; parse failure here is
+  // a real bug, not a fallback path.
+  const raw = JSON.parse(cleaned) as RawResponse;
 
   const themes: MonthlyTheme[] = [];
   if (Array.isArray(raw.themes)) {
@@ -142,6 +170,11 @@ function parseResponse(text: string, validIds: Set<string>): {
   }
 
   const narrative = typeof raw.narrative === 'string' ? raw.narrative.trim() : '';
+  if (narrative.length < MIN_NARRATIVE_CHARS) {
+    throw new Error(
+      `Monthly narrative too short (${narrative.length} chars; need ≥${MIN_NARRATIVE_CHARS})`,
+    );
+  }
   return { themes, narrative };
 }
 
@@ -159,7 +192,10 @@ export async function buildMonthlyPattern(
   }
 
   const prompt = buildPrompt(input);
-  const responseText = await input.callGemini(MONTHLY_PATTERN_MODEL, prompt);
+  const responseText = await input.callGemini(MONTHLY_PATTERN_MODEL, prompt, {
+    responseMimeType: 'application/json',
+    responseSchema: MONTHLY_RESPONSE_SCHEMA,
+  });
   const validIds = new Set(input.entries.map((e) => e.id));
   const { themes, narrative } = parseResponse(responseText, validIds);
 
