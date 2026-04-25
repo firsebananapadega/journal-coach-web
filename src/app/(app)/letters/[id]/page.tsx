@@ -31,19 +31,22 @@ export default function LetterDetailPage({ params }: { params: Promise<{ id: str
   const markSeen = useLettersStore((s) => s.markSeen);
   const letters = useLettersStore((s) => s.letters);
   const patterns = useLettersStore((s) => s.patterns);
+  const quarterlies = useLettersStore((s) => s.quarterlies);
 
   useEffect(() => {
     if (!hasFetched) fetchLetters().catch(() => {});
   }, [hasFetched, fetchLetters]);
 
-  // Resolve the item by id from either store slice. The byId helper
-  // returns ArchiveItem with a `kind` discriminator so both branches
+  // Resolve the item by id from any store slice. The byId helper
+  // returns ArchiveItem with a `kind` discriminator so each branch
   // can render correctly below.
   const item: ArchiveItem | null = (() => {
     const w = letters.find((l) => l.id === id);
     if (w) return { kind: 'weekly', ...w };
     const m = patterns.find((p) => p.id === id);
     if (m) return { kind: 'monthly', ...m };
+    const q = quarterlies.find((qq) => qq.id === id);
+    if (q) return { kind: 'quarterly', ...q };
     return null;
   })();
 
@@ -77,6 +80,19 @@ export default function LetterDetailPage({ params }: { params: Promise<{ id: str
 
   const guide = getGuideOrDefault(item.guide_id);
   const isMonthly = item.kind === 'monthly';
+  const isQuarterly = item.kind === 'quarterly';
+  const glyph = isQuarterly ? '✺' : isMonthly ? '✦' : '✉';
+  const kindLabel = isQuarterly
+    ? 'Quarterly letter'
+    : isMonthly
+    ? 'Monthly pattern'
+    : 'Weekly letter';
+  const subKey =
+    item.kind === 'monthly'
+      ? item.month_key
+      : item.kind === 'quarterly'
+      ? item.quarter_key
+      : item.week_key;
 
   return (
     <motion.article
@@ -93,9 +109,8 @@ export default function LetterDetailPage({ params }: { params: Promise<{ id: str
 
       <header className="space-y-1">
         <p className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold flex items-center gap-1.5">
-          <span aria-hidden>{isMonthly ? '✦' : '✉'}</span>
-          {isMonthly ? 'Monthly pattern' : 'Weekly letter'} from {guide.name} ·{' '}
-          {item.kind === 'monthly' ? item.month_key : item.week_key}
+          <span aria-hidden>{glyph}</span>
+          {kindLabel} from {guide.name} · {subKey}
         </p>
         <h1 className="text-lg font-bold text-text-primary">
           {formatLongDate(item.generated_at)}
@@ -138,29 +153,40 @@ export default function LetterDetailPage({ params }: { params: Promise<{ id: str
 
       <div className="bg-surface rounded-2xl border border-border p-5">
         <p className="text-[15px] text-text-primary leading-relaxed whitespace-pre-line">
-          {item.kind === 'weekly' ? item.letter_text : item.narrative}
+          {item.kind === 'monthly' ? item.narrative : item.letter_text}
         </p>
       </div>
 
-      {/* Weekly letters store themes as a flat string array; render
-          as chips. Monthly patterns put themes in the structured
-          section above instead. */}
-      {item.kind === 'weekly' && item.themes.length > 0 && (
-        <section className="space-y-2">
-          <p className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold">
-            Themes
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {item.themes.map((theme, i) => (
-              <span
-                key={i}
-                className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full"
-              >
-                {theme}
-              </span>
-            ))}
-          </div>
-        </section>
+      {/* Weekly + quarterly letters store themes as a flat string
+          array; render as chips. Monthly patterns put themes in the
+          structured section above instead. */}
+      {(item.kind === 'weekly' || item.kind === 'quarterly') &&
+        item.themes.length > 0 && (
+          <section className="space-y-2">
+            <p className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold">
+              Themes
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {item.themes.map((theme, i) => (
+                <span
+                  key={i}
+                  className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full"
+                >
+                  {theme}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+
+      {/* Quarterly letters cite the entries that drive each arc.
+          Show the count for now; Phase 4C structure-note linking
+          will turn each id into a tappable example. */}
+      {item.kind === 'quarterly' && item.arc_entry_ids.length > 0 && (
+        <p className="text-[11px] text-text-tertiary">
+          Built from {item.arc_entry_ids.length} pivotal{' '}
+          {item.arc_entry_ids.length === 1 ? 'entry' : 'entries'} this quarter.
+        </p>
       )}
     </motion.article>
   );

@@ -199,6 +199,7 @@ export default function HomePage() {
   // a server letter yet (e.g. fresh after the feature launch).
   const letters = useLettersStore((s) => s.letters);
   const patterns = useLettersStore((s) => s.patterns);
+  const quarterlies = useLettersStore((s) => s.quarterlies);
   const fetchLetters = useLettersStore((s) => s.fetchLetters);
   const markLetterSeen = useLettersStore((s) => s.markSeen);
   const [templates, setTemplates] = useState<TemplateInfo[]>(() => {
@@ -268,19 +269,21 @@ export default function HomePage() {
   const todayCompletions = completions[today] || new Set<string>();
   const activeHabits = habits.filter((h) => h.is_active);
 
-  // Most-recent archive item — interleaves weekly letters and
-  // monthly patterns by generated_at so whichever is freshest wins
-  // the spotlight. Once the user opens it, it drops to the quieter
-  // bottom card. The bottom card still always shows a weekly-letter
-  // snippet (the monthly pattern has its own /letters/[id] surface).
+  // Most-recent archive item — interleaves weekly letters, monthly
+  // patterns, and quarterly narrative-arc letters by generated_at so
+  // whichever is freshest wins the spotlight. Once the user opens
+  // it, it drops to the quieter bottom card. The bottom card still
+  // always shows a weekly-letter snippet (monthly + quarterly each
+  // have their own /letters/[id] surface).
   const latestLetter: WeeklyLetter | null = letters[0] ?? null;
   const archiveItems: ArchiveItem[] = useMemo(() => {
     const merged: ArchiveItem[] = [
       ...letters.map((l) => ({ kind: 'weekly' as const, ...l })),
       ...patterns.map((p) => ({ kind: 'monthly' as const, ...p })),
+      ...quarterlies.map((q) => ({ kind: 'quarterly' as const, ...q })),
     ];
     return merged.sort((a, b) => (a.generated_at < b.generated_at ? 1 : -1));
-  }, [letters, patterns]);
+  }, [letters, patterns, quarterlies]);
   const unreadItem: ArchiveItem | null = archiveItems.find((i) => !i.seen_at) ?? null;
 
   const templateCompletedToday = useMemo(() => {
@@ -511,45 +514,55 @@ export default function HomePage() {
         </div>
       </motion.div>
 
-      {/* Unread-item card — surfaces the latest weekly letter OR
-          monthly pattern, whichever is fresher. Tapping routes to
-          /letters/[id] (which handles both kinds) and marks seen. */}
-      {unreadItem && (
-        <Link
-          href={`/letters/${unreadItem.id}`}
-          onClick={() => markLetterSeen(unreadItem.id, unreadItem.kind)}
-          className={`block relative rounded-2xl border p-4 transition-colors ${
-            unreadItem.kind === 'monthly'
-              ? 'bg-gradient-to-br from-primary/20 via-primary/10 to-transparent border-primary/40 hover:border-primary/70'
-              : 'bg-gradient-to-br from-primary/15 via-primary/10 to-transparent border-primary/30 hover:border-primary/60'
-          }`}
-        >
-          <span
-            aria-hidden
-            className="absolute top-3 right-3 inline-block w-2.5 h-2.5 rounded-full bg-primary"
-          />
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xl" aria-hidden>
-              {unreadItem.kind === 'monthly' ? '✦' : '\u{1F48C}'}
-            </span>
-            <span className="text-[11px] uppercase tracking-widest text-primary font-bold">
-              {unreadItem.kind === 'monthly' ? 'New monthly pattern' : 'New letter'}
-            </span>
-          </div>
-          <p className="text-sm font-semibold text-text-primary">
-            {unreadItem.kind === 'monthly'
-              ? `${guide.name}: a month of patterns`
-              : `${guide.name} wrote you a letter`}
-          </p>
-          <p className="text-xs text-text-secondary mt-1 line-clamp-2">
-            {(unreadItem.kind === 'monthly'
-              ? unreadItem.narrative
-              : unreadItem.letter_text
-            ).slice(0, 160)}
-            …
-          </p>
-        </Link>
-      )}
+      {/* Unread-item card — surfaces the latest weekly letter,
+          monthly pattern, or quarterly arc, whichever is fresher.
+          Tapping routes to /letters/[id] (which handles all three
+          kinds) and marks seen. Quarterly cards get the strongest
+          treatment because they only land ~4×/year. */}
+      {unreadItem && (() => {
+        const isMonthly = unreadItem.kind === 'monthly';
+        const isQuarterly = unreadItem.kind === 'quarterly';
+        const gradientClass = isQuarterly
+          ? 'bg-gradient-to-br from-primary/30 via-primary/15 to-transparent border-primary/55 hover:border-primary/80'
+          : isMonthly
+          ? 'bg-gradient-to-br from-primary/20 via-primary/10 to-transparent border-primary/40 hover:border-primary/70'
+          : 'bg-gradient-to-br from-primary/15 via-primary/10 to-transparent border-primary/30 hover:border-primary/60';
+        const headerGlyph = isQuarterly ? '✺' : isMonthly ? '✦' : '\u{1F48C}';
+        const kindBadge = isQuarterly
+          ? 'New quarterly letter'
+          : isMonthly
+          ? 'New monthly pattern'
+          : 'New letter';
+        const titleLine = isQuarterly
+          ? `${guide.name}: a season in review`
+          : isMonthly
+          ? `${guide.name}: a month of patterns`
+          : `${guide.name} wrote you a letter`;
+        const previewText =
+          unreadItem.kind === 'monthly' ? unreadItem.narrative : unreadItem.letter_text;
+        return (
+          <Link
+            href={`/letters/${unreadItem.id}`}
+            onClick={() => markLetterSeen(unreadItem.id, unreadItem.kind)}
+            className={`block relative rounded-2xl border p-4 transition-colors ${gradientClass}`}
+          >
+            <span
+              aria-hidden
+              className="absolute top-3 right-3 inline-block w-2.5 h-2.5 rounded-full bg-primary"
+            />
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xl" aria-hidden>{headerGlyph}</span>
+              <span className="text-[11px] uppercase tracking-widest text-primary font-bold">
+                {kindBadge}
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-text-primary">{titleLine}</p>
+            <p className="text-xs text-text-secondary mt-1 line-clamp-2">
+              {previewText.slice(0, 160)}…
+            </p>
+          </Link>
+        );
+      })()}
 
       {/* Daily Pulse — morning/evening reflection prompts. The body
           & mind check-in is now the final two steps of the same flow

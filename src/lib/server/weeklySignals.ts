@@ -50,6 +50,19 @@ export interface WeeklySignals {
     /** Notebook with the most entries; null if no entries. */
     dominant: string | null;
   };
+  /** Aggregate of evening-pulse intention recall outcomes. Counts
+   *  individual intention items (not pulses), since each evening
+   *  pulse can carry multiple. Drives the "you followed through on
+   *  X of Y intentions this week" line in letters. */
+  intentions: {
+    itemsTotal: number;          // every prior_intention_items entry counted across the week
+    fully: number;
+    partially: number;
+    distracted: number;
+    not: number;
+    /** Followed-through rate = (fully + 0.5 * partially) / itemsTotal. Null when itemsTotal=0. */
+    followThroughRate: number | null;
+  };
 }
 
 const EMPTY_SIGNALS: Omit<WeeklySignals, 'windowStart' | 'windowEnd'> = {
@@ -65,6 +78,14 @@ const EMPTY_SIGNALS: Omit<WeeklySignals, 'windowStart' | 'windowEnd'> = {
   practices: { total: 0, byCategory: {} },
   tasks: { completed: 0, created: 0, completionRate: null },
   notebooks: { byName: {}, dominant: null },
+  intentions: {
+    itemsTotal: 0,
+    fully: 0,
+    partially: 0,
+    distracted: 0,
+    not: 0,
+    followThroughRate: null,
+  },
 };
 
 function isoDate(d: Date): string {
@@ -178,6 +199,13 @@ export async function gatherWeeklySignals(
     const mindVals: number[] = [];
     const bodyLabels: string[] = [];
     const mindLabels: string[] = [];
+    // Intention recall aggregates (only present on evening pulses
+    // where the user actually answered the recall step).
+    let intentionItemsTotal = 0;
+    let intentionFully = 0;
+    let intentionPartially = 0;
+    let intentionDistracted = 0;
+    let intentionNot = 0;
     for (const p of pulses) {
       const m = p.metadata ?? {};
       if (m.pulseMode === 'morning') morningCount++;
@@ -188,7 +216,29 @@ export async function gatherWeeklySignals(
       if (ms !== null) mindVals.push(ms);
       if (typeof m.body_label === 'string') bodyLabels.push(m.body_label);
       if (typeof m.mind_label === 'string') mindLabels.push(m.mind_label);
+      // Intention recall — Phase 4 schema.
+      const items = m.prior_intention_items;
+      if (Array.isArray(items)) {
+        for (const it of items) {
+          if (!it || typeof it !== 'object') continue;
+          intentionItemsTotal += 1;
+          const o = (it as { outcome?: unknown }).outcome;
+          if (o === 'fully') intentionFully += 1;
+          else if (o === 'partially') intentionPartially += 1;
+          else if (o === 'distracted') intentionDistracted += 1;
+          else if (o === 'not') intentionNot += 1;
+        }
+      }
     }
+    signals.intentions.itemsTotal = intentionItemsTotal;
+    signals.intentions.fully = intentionFully;
+    signals.intentions.partially = intentionPartially;
+    signals.intentions.distracted = intentionDistracted;
+    signals.intentions.not = intentionNot;
+    signals.intentions.followThroughRate =
+      intentionItemsTotal === 0
+        ? null
+        : (intentionFully + intentionPartially * 0.5) / intentionItemsTotal;
     const avg = (xs: number[]) =>
       xs.length === 0 ? null : Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10;
     signals.pulses.morningCount = morningCount;
@@ -307,6 +357,26 @@ export function formatSignalsForPrompt(s: WeeklySignals): string {
         : ` (${Math.round(s.tasks.completionRate * 100)}%)`;
     lines.push(
       `- Tasks: ${s.tasks.completed} of ${s.tasks.created} completed${pct}.`,
+    );
+  }
+
+  // Intention follow-through — only when the user actually used the
+  // evening recall (itemsTotal > 0). Reports the count split + the
+  // weighted follow-through rate so the letter can ground a
+  // sentence like "you followed through on 4 of 7 morning intentions
+  // this week."
+  if (s.intentions.itemsTotal > 0) {
+    const pct =
+      s.intentions.followThroughRate === null
+        ? ''
+        : ` (${Math.round(s.intentions.followThroughRate * 100)}% follow-through)`;
+    const splitParts: string[] = [];
+    if (s.intentions.fully > 0) splitParts.push(`${s.intentions.fully} fully`);
+    if (s.intentions.partially > 0) splitParts.push(`${s.intentions.partially} partial`);
+    if (s.intentions.distracted > 0) splitParts.push(`${s.intentions.distracted} drifted`);
+    if (s.intentions.not > 0) splitParts.push(`${s.intentions.not} not at all`);
+    lines.push(
+      `- Intention follow-through: ${s.intentions.itemsTotal} morning intention(s) reviewed${pct}; ${splitParts.join(', ')}.`,
     );
   }
 

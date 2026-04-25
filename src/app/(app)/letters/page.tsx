@@ -113,21 +113,34 @@ export default function LettersIndexPage() {
             {list.map((item) => {
               const unread = !item.seen_at;
               const isMonthly = item.kind === 'monthly';
+              const isQuarterly = item.kind === 'quarterly';
               const preview =
                 item.kind === 'monthly' ? item.narrative : item.letter_text;
               const subKey =
-                item.kind === 'monthly' ? item.month_key : item.week_key;
+                item.kind === 'monthly'
+                  ? item.month_key
+                  : item.kind === 'quarterly'
+                  ? item.quarter_key
+                  : item.week_key;
               const themeChips: string[] =
                 item.kind === 'monthly'
                   ? item.themes.slice(0, 4).map((th) => th.name)
                   : item.themes.slice(0, 4);
+              const glyph = isQuarterly ? '✺' : isMonthly ? '✦' : '✉';
+              const kindLabel = isQuarterly
+                ? 'Quarterly letter'
+                : isMonthly
+                ? 'Monthly pattern'
+                : 'Weekly letter';
               return (
                 <li key={item.id}>
                   <Link
                     href={`/letters/${item.id}`}
                     className={`block relative rounded-2xl border p-4 transition-colors ${
                       unread
-                        ? isMonthly
+                        ? isQuarterly
+                          ? 'bg-gradient-to-br from-primary/25 via-primary/12 to-transparent border-primary/50 hover:border-primary/80'
+                          : isMonthly
                           ? 'bg-gradient-to-br from-primary/15 via-primary/8 to-transparent border-primary/40 hover:border-primary/70'
                           : 'bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-primary/30 hover:border-primary/60'
                         : 'bg-surface border-border hover:border-primary/40'
@@ -140,9 +153,8 @@ export default function LettersIndexPage() {
                       />
                     )}
                     <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-semibold flex items-center gap-1.5">
-                      <span aria-hidden>{isMonthly ? '✦' : '✉'}</span>
-                      {isMonthly ? 'Monthly pattern' : 'Weekly letter'} ·{' '}
-                      {formatItemDate(item.generated_at)} · {subKey}
+                      <span aria-hidden>{glyph}</span>
+                      {kindLabel} · {formatItemDate(item.generated_at)} · {subKey}
                     </p>
                     <p className="text-sm text-text-primary mt-1 line-clamp-2 pr-6">
                       {preview.slice(0, 200)}…

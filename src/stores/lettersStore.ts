@@ -45,23 +45,39 @@ export interface MonthlyPattern {
   delivered_via: string[];
 }
 
-/** A discriminated union so /letters can render either kind. The
+export interface QuarterlyLetter {
+  id: string;
+  user_id: string;
+  quarter_key: string;         // "2026-Q2"
+  guide_id: string;
+  letter_text: string;
+  themes: string[];
+  arc_entry_ids: string[];
+  model: string;
+  generated_at: string;
+  seen_at: string | null;
+  delivered_via: string[];
+}
+
+/** A discriminated union so /letters can render any kind. The
  *  `kind` field disambiguates at runtime; pattern-matching on it is
- *  exhaustive in TypeScript via `never`. */
+ *  exhaustive via `never` for TS. */
 export type ArchiveItem =
   | ({ kind: 'weekly' } & WeeklyLetter)
-  | ({ kind: 'monthly' } & MonthlyPattern);
+  | ({ kind: 'monthly' } & MonthlyPattern)
+  | ({ kind: 'quarterly' } & QuarterlyLetter);
 
 interface LettersState {
   letters: WeeklyLetter[];
   patterns: MonthlyPattern[];
+  quarterlies: QuarterlyLetter[];
   loading: boolean;
   hasFetched: boolean;
   error: string | null;
   fetchLetters: () => Promise<void>;
-  markSeen: (id: string, kind?: 'weekly' | 'monthly') => Promise<void>;
+  markSeen: (id: string, kind?: 'weekly' | 'monthly' | 'quarterly') => Promise<void>;
   reset: () => void;
-  /** Derived — the most recent unread item across both kinds. */
+  /** Derived — the most recent unread item across all kinds. */
   unread: () => ArchiveItem | null;
   byId: (id: string) => ArchiveItem | null;
   /** All archive items, sorted by generated_at desc. */
@@ -71,6 +87,7 @@ interface LettersState {
 export const useLettersStore = create<LettersState>((set, get) => ({
   letters: [],
   patterns: [],
+  quarterlies: [],
   loading: false,
   hasFetched: false,
   error: null,
@@ -84,9 +101,9 @@ export const useLettersStore = create<LettersState>((set, get) => ({
         'auth.getUser',
       );
       if (!user) throw new Error('Not signed in');
-      // Two parallel reads. Either failing surfaces — both kinds are
-      // independently useful, so we don't gate one on the other.
-      const [lettersRes, patternsRes] = await Promise.all([
+      // Three parallel reads. Any failing surfaces — kinds are
+      // independent so we don't gate one on another.
+      const [lettersRes, patternsRes, quarterliesRes] = await Promise.all([
         withTimeout(
           supabase
             .from('weekly_letters')
@@ -105,12 +122,23 @@ export const useLettersStore = create<LettersState>((set, get) => ({
           READ_MS,
           'fetchLetters.monthly',
         ),
+        withTimeout(
+          supabase
+            .from('quarterly_letters')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('generated_at', { ascending: false }),
+          READ_MS,
+          'fetchLetters.quarterly',
+        ),
       ]);
       if (lettersRes.error) throw lettersRes.error;
       if (patternsRes.error) throw patternsRes.error;
+      if (quarterliesRes.error) throw quarterliesRes.error;
       set({
         letters: (lettersRes.data as WeeklyLetter[]) ?? [],
         patterns: (patternsRes.data as MonthlyPattern[]) ?? [],
+        quarterlies: (quarterliesRes.data as QuarterlyLetter[]) ?? [],
       });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to fetch letters' });
@@ -119,15 +147,17 @@ export const useLettersStore = create<LettersState>((set, get) => ({
     }
   },
 
-  markSeen: async (id: string, kind?: 'weekly' | 'monthly') => {
+  markSeen: async (id: string, kind?: 'weekly' | 'monthly' | 'quarterly') => {
     // Determine which table the id belongs to. `kind` is preferred
     // when supplied (avoids a state lookup); otherwise we infer.
-    const inferredKind: 'weekly' | 'monthly' | null =
+    const inferredKind: 'weekly' | 'monthly' | 'quarterly' | null =
       kind ??
       (get().letters.some((l) => l.id === id)
         ? 'weekly'
         : get().patterns.some((p) => p.id === id)
         ? 'monthly'
+        : get().quarterlies.some((q) => q.id === id)
+        ? 'quarterly'
         : null);
     if (!inferredKind) return;
 
@@ -158,39 +188,66 @@ export const useLettersStore = create<LettersState>((set, get) => ({
       return;
     }
 
-    // monthly
-    const cur = get().patterns.find((p) => p.id === id);
+    if (inferredKind === 'monthly') {
+      const cur = get().patterns.find((p) => p.id === id);
+      if (!cur || cur.seen_at) return;
+      set({
+        patterns: get().patterns.map((p) =>
+          p.id === id ? { ...p, seen_at: seenAt } : p,
+        ),
+      });
+      try {
+        const { error } = await withTimeout(
+          supabase.from('monthly_patterns').update({ seen_at: seenAt }).eq('id', id),
+          WRITE_MS,
+          'markSeen.monthly',
+        );
+        if (error) throw error;
+      } catch (err) {
+        set({
+          patterns: get().patterns.map((p) =>
+            p.id === id ? { ...p, seen_at: null } : p,
+          ),
+          error: err instanceof Error ? err.message : 'Failed to mark pattern seen',
+        });
+      }
+      return;
+    }
+
+    // quarterly
+    const cur = get().quarterlies.find((q) => q.id === id);
     if (!cur || cur.seen_at) return;
     set({
-      patterns: get().patterns.map((p) =>
-        p.id === id ? { ...p, seen_at: seenAt } : p,
+      quarterlies: get().quarterlies.map((q) =>
+        q.id === id ? { ...q, seen_at: seenAt } : q,
       ),
     });
     try {
       const { error } = await withTimeout(
-        supabase.from('monthly_patterns').update({ seen_at: seenAt }).eq('id', id),
+        supabase.from('quarterly_letters').update({ seen_at: seenAt }).eq('id', id),
         WRITE_MS,
-        'markSeen.monthly',
+        'markSeen.quarterly',
       );
       if (error) throw error;
     } catch (err) {
       set({
-        patterns: get().patterns.map((p) =>
-          p.id === id ? { ...p, seen_at: null } : p,
+        quarterlies: get().quarterlies.map((q) =>
+          q.id === id ? { ...q, seen_at: null } : q,
         ),
-        error: err instanceof Error ? err.message : 'Failed to mark pattern seen',
+        error: err instanceof Error ? err.message : 'Failed to mark quarterly seen',
       });
     }
   },
 
   reset: () =>
-    set({ letters: [], patterns: [], loading: false, hasFetched: false, error: null }),
+    set({ letters: [], patterns: [], quarterlies: [], loading: false, hasFetched: false, error: null }),
 
   allItems: () => {
-    const { letters, patterns } = get();
+    const { letters, patterns, quarterlies } = get();
     const items: ArchiveItem[] = [
       ...letters.map((l) => ({ kind: 'weekly' as const, ...l })),
       ...patterns.map((p) => ({ kind: 'monthly' as const, ...p })),
+      ...quarterlies.map((q) => ({ kind: 'quarterly' as const, ...q })),
     ];
     return items.sort((a, b) =>
       a.generated_at < b.generated_at ? 1 : -1,

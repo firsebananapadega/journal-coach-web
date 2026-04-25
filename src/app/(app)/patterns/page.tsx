@@ -30,6 +30,7 @@ import { INTENTION_PRACTICES } from '@/lib/intentionPractices';
 import { PRESET_INTENTIONS, type IntentionCategory } from '@/lib/presetIntentions';
 import { t } from '@/lib/translations';
 import { toLocalDateStr } from '@/lib/dateUtils';
+import { computeFindings } from '@/lib/correlations';
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -506,6 +507,35 @@ export default function PatternsPage() {
     [allPracticeDates],
   );
 
+  // Phase 5 — patterns I noticed (deterministic correlations) +
+  // intention follow-through aggregate. Both are pure derivations
+  // over `entries`; no network calls.
+  const findings = useMemo(() => computeFindings(entries), [entries]);
+  const intentionAggregate = useMemo(() => {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    let total = 0;
+    let fully = 0;
+    let partially = 0;
+    let drifted = 0;
+    for (const e of entries) {
+      if (e.entry_type !== 'pulse') continue;
+      if (new Date(e.created_at).getTime() < cutoff) continue;
+      const items = (e.metadata as Record<string, unknown> | null)?.prior_intention_items;
+      if (!Array.isArray(items)) continue;
+      for (const it of items) {
+        if (!it || typeof it !== 'object') continue;
+        total += 1;
+        const o = (it as { outcome?: unknown }).outcome;
+        if (o === 'fully') fully += 1;
+        else if (o === 'partially') partially += 1;
+        else if (o === 'distracted' || o === 'not') drifted += 1;
+      }
+    }
+    if (total === 0) return null;
+    const rate = (fully + partially * 0.5) / total;
+    return { total, fully, partially, drifted, rate };
+  }, [entries]);
+
   // Consistency phrasing — "X of last 7 days" instead of streak count.
   // Research from quantified-self + Duolingo retention work shows hard
   // streaks shame the user on a missed day and can drive abandonment;
@@ -638,6 +668,68 @@ export default function PatternsPage() {
           <p className="text-xs text-text-tertiary leading-snug">
             Journal for a few days and a weekly reflection will land here every Sunday.
           </p>
+        </section>
+      )}
+
+      {/* ─── Patterns I noticed (correlations) ───────────────────────
+          Deterministic findings over the last 30 days. Surfaces 1-3
+          one-sentence statements only when the data crosses a
+          minimum-effect threshold (so a single weird day can't
+          drive a "finding"). Section is hidden entirely when no
+          findings clear the bar — empty space beats meaningless
+          space. */}
+      {findings.length > 0 && (
+        <section className="bg-surface rounded-2xl border border-border p-4 space-y-3">
+          <h2 className="text-sm font-semibold text-text-primary">Patterns I noticed</h2>
+          <ul className="space-y-2.5">
+            {findings.map((f, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="text-primary mt-0.5 shrink-0" aria-hidden>✦</span>
+                <span className="text-[14px] text-text-primary leading-snug">{f.text}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[10px] text-text-tertiary leading-snug">
+            Based on the last 30 days. New findings appear as more days accumulate on each side of a comparison.
+          </p>
+        </section>
+      )}
+
+      {/* ─── Intention follow-through (last 30 days) ──────────────── */}
+      {intentionAggregate && (
+        <section className="bg-surface rounded-2xl border border-border p-4 space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-text-primary">Intention follow-through</h2>
+            <p className="text-[11px] text-text-tertiary mt-0.5">
+              Last 30 days of evening recall.
+            </p>
+          </div>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold text-text-primary tabular-nums">
+                {Math.round(intentionAggregate.rate * 100)}%
+              </span>
+              <span className="text-xs text-text-secondary">followed through</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-success/15 text-success font-medium">
+                ✓ {intentionAggregate.fully} fully
+              </span>
+              {intentionAggregate.partially > 0 && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
+                  ~ {intentionAggregate.partially} partial
+                </span>
+              )}
+              {intentionAggregate.drifted > 0 && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface-elevated text-text-secondary font-medium">
+                  ⤳ {intentionAggregate.drifted} drifted
+                </span>
+              )}
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface-elevated text-text-tertiary">
+                {intentionAggregate.total} total
+              </span>
+            </div>
+          </div>
         </section>
       )}
 

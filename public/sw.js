@@ -20,10 +20,11 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ── Web Push handler ─────────────────────────────────────────────
-// Two payload kinds travel through this pipe today:
+// Three archive payload kinds + reminders travel through this pipe:
 //   * Reminders — { title, body, data: { task_id, snooze_token, done_token } }
-//   * Weekly letters — { kind: 'weekly_letter', title, body,
-//                         data: { letter_id, url } }
+//   * Weekly letters — { kind: 'weekly_letter', data: { letter_id, url } }
+//   * Monthly patterns — { kind: 'monthly_pattern', data: { pattern_id, url } }
+//   * Quarterly letters — { kind: 'quarterly_letter', data: { quarterly_id, url } }
 // iOS Safari and Chrome Android BOTH require every push to show a
 // user-visible notification. Never skip showNotification() or the
 // OS may revoke permission.
@@ -43,11 +44,12 @@ self.addEventListener('push', (event) => {
 
   const { title, body, data, kind } = payload;
 
-  // Letters / monthly patterns don't get action buttons — there's
-  // nothing to snooze or mark done. One-tap open only.
+  // Letters / monthly patterns / quarterly letters don't get action
+  // buttons — there's nothing to snooze or mark done. One-tap open.
   const isLetter = kind === 'weekly_letter';
   const isPattern = kind === 'monthly_pattern';
-  const isArchiveItem = isLetter || isPattern;
+  const isQuarterly = kind === 'quarterly_letter';
+  const isArchiveItem = isLetter || isPattern || isQuarterly;
   const actions = isArchiveItem
     ? []
     : [
@@ -62,6 +64,8 @@ self.addEventListener('push', (event) => {
     tag = data && data.letter_id ? `letter-${data.letter_id}` : 'weekly-letter';
   } else if (isPattern) {
     tag = data && data.pattern_id ? `pattern-${data.pattern_id}` : 'monthly-pattern';
+  } else if (isQuarterly) {
+    tag = data && data.quarterly_id ? `quarterly-${data.quarterly_id}` : 'quarterly-letter';
   } else if (data && data.task_id) {
     tag = `task-${data.task_id}`;
   }
@@ -70,6 +74,8 @@ self.addEventListener('push', (event) => {
     ? 'New letter'
     : isPattern
     ? 'Monthly pattern'
+    : isQuarterly
+    ? 'Quarterly letter'
     : 'Reminder';
 
   event.waitUntil(
@@ -93,14 +99,15 @@ self.addEventListener('notificationclick', (event) => {
   const taskId = data.task_id;
   const isLetter = data.kind === 'weekly_letter';
   const isPattern = data.kind === 'monthly_pattern';
+  const isQuarterly = data.kind === 'quarterly_letter';
 
   const handle = async () => {
-    // Letters and monthly patterns have no actions — any tap opens
-    // the archive (or the specific item if we know its id). This
-    // branch runs before the reminder action branches so archive
-    // taps never accidentally fall through.
-    if (isLetter || isPattern) {
-      const itemId = data.letter_id || data.pattern_id;
+    // Letters, monthly patterns, and quarterly letters have no
+    // actions — any tap opens the archive (or the specific item if
+    // we know its id). This branch runs before the reminder action
+    // branches so archive taps never accidentally fall through.
+    if (isLetter || isPattern || isQuarterly) {
+      const itemId = data.letter_id || data.pattern_id || data.quarterly_id;
       const target = itemId
         ? `/letters/${itemId}`
         : (data.url || '/letters');
