@@ -18,6 +18,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
+import { useLettersStore, type WeeklyLetter } from '@/stores/lettersStore';
 import { getTimeOfDay } from '@/lib/guidanceEngine';
 import { getGuideOrDefault } from '@/lib/guideConfigs';
 import { toLocalDateStr, entryDateStr } from '@/lib/dateUtils';
@@ -35,6 +36,9 @@ import DailyPulseCard from '@/components/DailyPulseCard';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import GuideMascot from '@/components/mascot/GuideMascot';
+import JaneMascot from '@/components/mascot/JaneMascot';
+import Mascot from '@/components/mascot/Mascot';
+import type { GuideId } from '@/lib/guideConfigs';
 import { fadeUp, prefersReducedMotion } from '@/lib/motionVariants';
 
 interface TemplateInfo {
@@ -47,7 +51,10 @@ interface TemplateInfo {
 
 interface BubbleItem {
   id: string;
-  icon: string | { type: 'avatar'; src: string; alt: string };
+  icon:
+    | string
+    | { type: 'avatar'; src: string; alt: string }
+    | { type: 'mascot'; guide: GuideId | 'jane' };
   label: string;
   href: string;
   done?: boolean;
@@ -83,7 +90,7 @@ function BubbleContent({ item, editMode, isDragging: dragging }: { item: BubbleI
       >
         {typeof item.icon === 'string' ? (
           <span className="text-3xl">{item.icon}</span>
-        ) : (
+        ) : item.icon.type === 'avatar' ? (
           <Image
             src={item.icon.src}
             alt={item.icon.alt}
@@ -91,6 +98,10 @@ function BubbleContent({ item, editMode, isDragging: dragging }: { item: BubbleI
             height={56}
             className="rounded-full object-cover w-full h-full"
           />
+        ) : item.icon.guide === 'jane' ? (
+          <JaneMascot fill pose="idle" />
+        ) : (
+          <Mascot guide={item.icon.guide} pose="idle" fill />
         )}
       </div>
       <span className="text-[11px] text-text-primary text-center leading-tight line-clamp-2">
@@ -182,6 +193,13 @@ export default function HomePage() {
   const profile = useAuthStore((s) => s.profile);
   const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
   const { entries, fetchEntries } = useJournalStore();
+  // Server-delivered weekly letters. The cron at /api/cron/generate-
+  // weekly-letters writes rows; we read them here. Falls back to the
+  // client-side generated reflection for users who haven't received
+  // a server letter yet (e.g. fresh after the feature launch).
+  const letters = useLettersStore((s) => s.letters);
+  const fetchLetters = useLettersStore((s) => s.fetchLetters);
+  const markLetterSeen = useLettersStore((s) => s.markSeen);
   const [templates, setTemplates] = useState<TemplateInfo[]>(() => {
     // Load cached templates for instant display while Supabase fetches fresh data
     if (typeof window === 'undefined') return [];
@@ -198,19 +216,6 @@ export default function HomePage() {
       if (stored) return JSON.parse(stored);
     } catch {}
     return [];
-  });
-  // Free-thought bubble is the only optional bubble now. The guide
-  // bubble was removed entirely once the Journal-wall center button
-  // started showing the user's chosen guide directly. This default
-  // is true so existing users still see Free Thought; opt-out lives
-  // in /settings.
-  const [showFreeThoughtBubble, setShowFreeThoughtBubble] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    try {
-      return localStorage.getItem('show_free_thought_bubble') !== 'false';
-    } catch {
-      return true;
-    }
   });
   const [editMode, setEditMode] = useState(false);
   const [dataReady, setDataReady] = useState(() => {
@@ -262,7 +267,13 @@ export default function HomePage() {
   const todayCompletions = completions[today] || new Set<string>();
   const activeHabits = habits.filter((h) => h.is_active);
 
-  const pulseCount = useMemo(() => entries.filter((e) => e.entry_type === 'pulse').length, [entries]);
+  // Most-recent letter across all weeks (letters are pre-sorted
+  // descending by generated_at in the store).
+  const latestLetter: WeeklyLetter | null = letters[0] ?? null;
+  // Surface only when the user hasn't opened it yet — that's the
+  // "Ben left you a letter" moment. After it's seen, the letter moves
+  // to the quieter archive pill below.
+  const unreadLetter = latestLetter && !latestLetter.seen_at ? latestLetter : null;
 
   const templateCompletedToday = useMemo(() => {
     const completed = new Set<string>();
@@ -279,41 +290,26 @@ export default function HomePage() {
   const allItems = useMemo<BubbleItem[]>(() => {
     const items: BubbleItem[] = [];
 
-    // Guided session with the user's chosen guide — moved off the
-    // Journal-wall center button (which is now the book / writing
-    // surface) into a Pulse bubble. Icon is the guide's own avatar
-    // so the bubble feels like tapping the guide, not a generic
-    // chat glyph. Bodhi's avatar is still a JPG; others are PNGs.
-    const guideAvatarExt = guide.id === 'bodhi' ? 'jpg' : 'png';
+    // Guided session with the user's chosen guide — the bubble renders
+    // the guide's own SVG mascot (not a flat PNG avatar) so the figure
+    // reads as the living character the user chose during onboarding.
     items.push({
       id: '__guided__',
-      icon: {
-        type: 'avatar',
-        src: `/avatars/${guide.name}.${guideAvatarExt}`,
-        alt: guide.name,
-      },
+      icon: { type: 'mascot', guide: guide.id as GuideId },
       label: t('home.guidedSession'),
       href: '/guided',
     });
 
-    // Ask Jane — bare Gemini Q&A, no persona. Ephemeral chat surface.
+    // Ask Jane — bare Gemini Q&A. Jane has her own SVG mascot (see
+    // /components/mascot/bodies/JaneBody.tsx); using it in the bubble
+    // turns "Ask Jane" into a recognizable character instead of an
+    // abstract ✨ sparkle.
     items.push({
       id: '__askjane__',
-      icon: '✨', // ✨ sparkles
+      icon: { type: 'mascot', guide: 'jane' },
       label: t('home.askJane'),
       href: '/ask',
     });
-
-    if (showFreeThoughtBubble) {
-      items.push({
-        id: '__voice__',
-        // Open book — replaces the old microphone emoji per user
-        // feedback ("more like a beautiful book").
-        icon: '\uD83D\uDCD6',
-        label: t('home.freeThought'),
-        href: '/voice',
-      });
-    }
 
     const locale = getLocale();
     for (const tmpl of templates.filter((tp) => enabledIds.includes(tp.id))) {
@@ -327,7 +323,7 @@ export default function HomePage() {
     }
 
     return items;
-  }, [showFreeThoughtBubble, templates, enabledIds, templateCompletedToday]);
+  }, [templates, enabledIds, templateCompletedToday]);
 
   // Build a map from item ID to BubbleItem for quick lookup
   const itemMap = useMemo(() => new Map(allItems.map((item) => [item.id, item])), [allItems]);
@@ -417,9 +413,6 @@ export default function HomePage() {
     fetchCompletions(today, today);
     fetchEntries();
 
-    const ftPref = typeof window !== 'undefined' ? localStorage.getItem('show_free_thought_bubble') : null;
-    setShowFreeThoughtBubble(ftPref !== 'false');
-
     const stored = typeof window !== 'undefined' ? localStorage.getItem('enabled_template_ids') : null;
     const ids = stored ? (JSON.parse(stored) as string[]) : [];
     setEnabledIds(ids);
@@ -443,6 +436,10 @@ export default function HomePage() {
     const cached = getCachedReflection();
     if (cached) setReflection(cached);
 
+    // Fire the weekly-letters fetch alongside templates. Silent fail
+    // is fine — we fall back to the client-generated reflection.
+    fetchLetters();
+
     supabase
       .from('templates')
       .select('id, name, icon, description, category')
@@ -456,7 +453,7 @@ export default function HomePage() {
         }
         setDataReady(true);
       });
-  }, [fetchHabits, fetchCompletions, fetchEntries, today]);
+  }, [fetchHabits, fetchCompletions, fetchEntries, fetchLetters, today]);
 
   useEffect(() => {
     loadData();
@@ -497,22 +494,40 @@ export default function HomePage() {
         </div>
       </motion.div>
 
+      {/* Unread weekly-letter card — the guide just wrote, surface it
+          prominently. Mounts above the Daily Pulse so the user doesn't
+          miss it. Tapping routes to /letters/[id] so the archive is
+          the canonical read surface. */}
+      {unreadLetter && (
+        <Link
+          href={`/letters/${unreadLetter.id}`}
+          onClick={() => markLetterSeen(unreadLetter.id)}
+          className="block relative bg-gradient-to-br from-primary/15 via-primary/10 to-transparent border border-primary/30 rounded-2xl p-4 hover:border-primary/60 transition-colors"
+        >
+          <span
+            aria-hidden
+            className="absolute top-3 right-3 inline-block w-2.5 h-2.5 rounded-full bg-primary"
+          />
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl" role="img" aria-label="letter">&#128140;</span>
+            <span className="text-[11px] uppercase tracking-widest text-primary font-bold">
+              {t('letter.newBadge') !== 'letter.newBadge' ? t('letter.newBadge') : 'New letter'}
+            </span>
+          </div>
+          <p className="text-sm font-semibold text-text-primary">
+            {guide.name} {t('letter.wroteYou') !== 'letter.wroteYou' ? t('letter.wroteYou') : 'wrote you a letter'}
+          </p>
+          <p className="text-xs text-text-secondary mt-1 line-clamp-2">
+            {unreadLetter.letter_text.slice(0, 160)}…
+          </p>
+        </Link>
+      )}
+
       {/* Daily Pulse — morning/evening reflection prompts. The body
           & mind check-in is now the final two steps of the same flow
           (one question per screen) so users get a single contained
           ritual instead of a separate always-visible card. */}
       <DailyPulseCard entries={entries} />
-
-      {/* Patterns link — after 7+ pulses */}
-      {pulseCount >= 7 && (
-        <Link
-          href="/pulse"
-          className="flex items-center justify-between bg-surface/50 rounded-xl border border-border px-4 py-2.5 hover:border-primary/30 transition-colors"
-        >
-          <span className="text-sm text-text-secondary">{t('pulse.viewPatterns')}</span>
-          <span className="text-text-tertiary">→</span>
-        </Link>
-      )}
 
       {/* Drag-and-drop bubble grid — trims trailing empty rows unless editing */}
       <DndContext
@@ -565,10 +580,27 @@ export default function HomePage() {
         <p className="text-xs text-text-tertiary text-center">{t('home.dragHint')}</p>
       )}
 
-      {/* Weekly Reflection */}
-      {reflection && (
-        <WeeklyReflectionCard reflection={reflection} guideName={guide.name} />
-      )}
+      {/* Weekly reflection — prefer the server-delivered letter over
+          the legacy client-generated one. We only show the bottom
+          card once the user has opened (or there's no unread); while
+          unread, the hero card above owns the spotlight. */}
+      {latestLetter && latestLetter.seen_at ? (
+        <WeeklyReflectionCard
+          reflection={{
+            id: latestLetter.id,
+            letter: latestLetter.letter_text,
+            themes: latestLetter.themes,
+            seen_at: latestLetter.seen_at,
+          }}
+          guideName={guide.name}
+          onSeen={(id) => markLetterSeen(id)}
+        />
+      ) : !unreadLetter && reflection ? (
+        <WeeklyReflectionCard
+          reflection={{ letter: reflection.letter, themes: reflection.themes }}
+          guideName={guide.name}
+        />
+      ) : null}
 
       {/* Habits moved to Tasks tab */}
     </div>

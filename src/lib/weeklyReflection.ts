@@ -1,3 +1,20 @@
+// Weekly letter from the guide.
+//
+// Two call paths share this file:
+//   * CLIENT — `generateWeeklyReflection(...)` is the legacy client-side
+//     generator. It hits `/api/gemini` (user-auth'd) and caches the
+//     result in localStorage. Kept so the on-demand /patterns path
+//     still works for users whose device predates push delivery.
+//   * SERVER — `buildWeeklyLetter({ entries, userName, guideName,
+//     locale, callGemini })` is a pure function that takes a caller-
+//     supplied Gemini invoker. The weekly cron route at
+//     /api/cron/generate-weekly-letters passes `callGeminiServer` so
+//     the letter can be generated without an end-user JWT.
+//
+// The canonical storage location is the `weekly_letters` table — see
+// supabase/migrations/20260428_weekly_letters.sql. localStorage is now
+// a soft cache for the client path; DB is the source of truth.
+
 import { callGemini } from '@/lib/geminiClient';
 import { getLanguage, getLocale } from '@/lib/language';
 
@@ -28,20 +45,37 @@ interface EntryInput {
   content_text?: string | null;
 }
 
-export async function generateWeeklyReflection(
+/**
+ * Generic caller signature compatible with both `callGemini`
+ * (client, user-auth'd via /api/gemini) and `callGeminiServer`
+ * (server, API-key'd via REST).
+ */
+export type GeminiInvoker = (model: string, prompt: string) => Promise<string>;
+
+export interface BuildWeeklyLetterInput {
+  entries: EntryInput[];
+  userName: string;
+  guideName: string;
+  /** 'en' | 'es' — Spanish triggers Mexican Spanish post-pass. */
+  locale?: string;
+  /** Override when running server-side; defaults to the client caller. */
+  callGemini?: GeminiInvoker;
+  /** Optional — pin the week_key (cron passes the exact key it's generating for). */
+  weekKey?: string;
+  /** Dateformat locale for entry date stamps inside the prompt. */
+  dateLocale?: string;
+}
+
+const DEFAULT_MODEL = 'gemini-2.0-flash';
+
+function buildPrompt(
   entries: EntryInput[],
   userName: string,
-  guideName: string
-): Promise<WeeklyReflectionData> {
-  if (entries.length < 3) {
-    throw new Error('Need at least 3 entries to generate a weekly reflection');
-  }
-
-  const weekKey = getWeekKey();
-
-  // Build entry summaries
+  guideName: string,
+  dateLocale: string,
+): { letterPrompt: string; themesPrompt: string } {
   const summaries = entries.map((e) => {
-    const date = new Date(e.created_at).toLocaleDateString(getLanguage(), {
+    const date = new Date(e.created_at).toLocaleDateString(dateLocale, {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -51,56 +85,113 @@ export async function generateWeeklyReflection(
     return `- ${date} | mood: ${mood} | type: ${e.entry_type}\n  "${snippet}"`;
   });
 
-  const langInstruction = getLocale() === 'es'
+  const summaryBlock = summaries.join('\n\n');
+  const langHint = dateLocale === 'es-MX' || dateLocale === 'es'
     ? '\n- Write the entire letter in Mexican Spanish (español mexicano). Use "tú" form. Never use Spain Spanish vocabulary.'
+    : '';
+  const themesLang = dateLocale === 'es-MX' || dateLocale === 'es'
+    ? ' Return the themes in Mexican Spanish.'
     : '';
 
   const letterPrompt = `You are ${guideName}, a warm and encouraging journaling guide. Write a personal weekly reflection letter to ${userName || 'your journaler'}.
 
 Here are their journal entries from the past week:
-${summaries.join('\n\n')}
+${summaryBlock}
 
 Instructions:
 - Write a warm, personal letter identifying patterns and growth you notice
 - Sign the letter as ${guideName}
 - End with one reflective question
 - Keep under 200 words
-- Do NOT use markdown formatting, just plain text with line breaks${langInstruction}`;
+- Do NOT use markdown formatting, just plain text with line breaks${langHint}`;
 
-  const themesLang = getLocale() === 'es' ? ' Return the themes in Mexican Spanish.' : '';
   const themesPrompt = `Extract 3-5 key themes (single words or short phrases) from these journal entries. Return ONLY a JSON array of strings, nothing else.${themesLang}
 
 Entries:
-${summaries.join('\n\n')}`;
+${summaryBlock}`;
 
-  // Run both in parallel
-  const [letterText, themesText] = await Promise.all([
-    callGemini('gemini-2.0-flash', letterPrompt),
-    callGemini('gemini-2.0-flash', themesPrompt),
-  ]);
+  return { letterPrompt, themesPrompt };
+}
 
-  // Parse themes
-  let themes: string[] = [];
+function parseThemes(text: string): string[] {
   try {
-    const cleaned = themesText.replace(/```json\n?|\n?```/g, '').trim();
-    themes = JSON.parse(cleaned);
-    if (!Array.isArray(themes)) themes = [];
+    const cleaned = text.replace(/```json\n?|\n?```/g, '').trim();
+    const arr = JSON.parse(cleaned);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
   } catch {
-    themes = [];
+    return [];
+  }
+}
+
+/**
+ * Pure letter generator — no side effects. Safe to call from the
+ * server cron (passing `callGeminiServer`) or from the client path
+ * (passing the default `callGemini` that goes through /api/gemini).
+ */
+export async function buildWeeklyLetter(
+  input: BuildWeeklyLetterInput,
+): Promise<WeeklyReflectionData> {
+  const {
+    entries,
+    userName,
+    guideName,
+    locale = 'en',
+    weekKey = getWeekKey(),
+  } = input;
+  if (entries.length < 3) {
+    throw new Error('Need at least 3 entries to generate a weekly reflection');
   }
 
-  const reflection: WeeklyReflectionData = {
+  const invoker = input.callGemini ?? callGemini;
+  const dateLocale = input.dateLocale ?? (locale === 'es' ? 'es-MX' : 'en-US');
+  const { letterPrompt, themesPrompt } = buildPrompt(
+    entries,
+    userName,
+    guideName,
+    dateLocale,
+  );
+
+  const [letterText, themesText] = await Promise.all([
+    invoker(DEFAULT_MODEL, letterPrompt),
+    invoker(DEFAULT_MODEL, themesPrompt),
+  ]);
+
+  return {
     weekKey,
     letter: letterText,
-    themes,
+    themes: parseThemes(themesText),
     generatedAt: new Date().toISOString(),
   };
+}
 
-  // Cache it
+/** Model name used by `buildWeeklyLetter`. Exposed so the cron can
+ *  record it in `weekly_letters.model`. */
+export const WEEKLY_LETTER_MODEL = DEFAULT_MODEL;
+
+/**
+ * Legacy client-side generator. Kept for the on-demand /patterns path
+ * so long-standing users don't lose their in-browser letters while
+ * the server cron rolls out. Writes to localStorage. Prefer the DB
+ * source when it exists.
+ */
+export async function generateWeeklyReflection(
+  entries: EntryInput[],
+  userName: string,
+  guideName: string,
+): Promise<WeeklyReflectionData> {
+  const reflection = await buildWeeklyLetter({
+    entries,
+    userName,
+    guideName,
+    locale: getLocale(),
+    dateLocale: getLanguage(),
+  });
+
   if (typeof window !== 'undefined') {
     localStorage.setItem(
-      `weekly_reflection_${weekKey}`,
-      JSON.stringify(reflection)
+      `weekly_reflection_${reflection.weekKey}`,
+      JSON.stringify(reflection),
     );
   }
 

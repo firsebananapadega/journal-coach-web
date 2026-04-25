@@ -20,8 +20,10 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ── Web Push handler ─────────────────────────────────────────────
-// The edge function POSTs a payload like:
-//   { title, body, data: { task_id, snooze_token, done_token } }
+// Two payload kinds travel through this pipe today:
+//   * Reminders — { title, body, data: { task_id, snooze_token, done_token } }
+//   * Weekly letters — { kind: 'weekly_letter', title, body,
+//                         data: { letter_id, url } }
 // iOS Safari and Chrome Android BOTH require every push to show a
 // user-visible notification. Never skip showNotification() or the
 // OS may revoke permission.
@@ -39,19 +41,31 @@ self.addEventListener('push', (event) => {
     } catch {}
   }
 
-  const { title, body, data } = payload;
-  const actions = [
-    { action: 'snooze10', title: 'Snooze 10 min' },
-    { action: 'done', title: 'Done' },
-  ];
+  const { title, body, data, kind } = payload;
+
+  // Weekly letters don't get action buttons — a letter isn't
+  // snooze-able and there's nothing to mark done. One-tap open only.
+  const isLetter = kind === 'weekly_letter';
+  const actions = isLetter
+    ? []
+    : [
+        { action: 'snooze10', title: 'Snooze 10 min' },
+        { action: 'done', title: 'Done' },
+      ];
+
+  // Coalesce notifications by a deterministic tag so a second fire
+  // replaces the first instead of stacking.
+  const tag = isLetter
+    ? (data && data.letter_id ? `letter-${data.letter_id}` : 'weekly-letter')
+    : (data && data.task_id ? `task-${data.task_id}` : undefined);
 
   event.waitUntil(
-    self.registration.showNotification(title || 'Reminder', {
+    self.registration.showNotification(title || (isLetter ? 'New letter' : 'Reminder'), {
       body: body || '',
       icon: '/icon',
       badge: '/icon',
-      tag: data && data.task_id ? `task-${data.task_id}` : undefined,
-      data: data || {},
+      tag,
+      data: { ...(data || {}), kind },
       actions,
       requireInteraction: false,
     })
@@ -64,8 +78,38 @@ self.addEventListener('notificationclick', (event) => {
   const action = event.action;
   const data = event.notification.data || {};
   const taskId = data.task_id;
+  const isLetter = data.kind === 'weekly_letter';
 
   const handle = async () => {
+    // Weekly letter notifications have no actions — any tap opens the
+    // letter archive (or the specific letter if we know its id). This
+    // branch runs before the reminder action branches so letter taps
+    // never accidentally fall through.
+    if (isLetter) {
+      const target = data.letter_id
+        ? `/letters/${data.letter_id}`
+        : (data.url || '/letters');
+      const winClients = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      for (const c of winClients) {
+        if (c.url.includes('/letters') && 'focus' in c) {
+          if ('navigate' in c) {
+            try { await c.navigate(target); } catch {}
+          }
+          return c.focus();
+        }
+      }
+      if (winClients[0] && 'navigate' in winClients[0]) {
+        try {
+          await winClients[0].navigate(target);
+          return winClients[0].focus();
+        } catch {}
+      }
+      return self.clients.openWindow(target);
+    }
+
     // Action taps don't need to focus the app — the backend call is
     // enough. Plain taps (no action) open the app focused on the
     // relevant entry point.
