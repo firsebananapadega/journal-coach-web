@@ -67,6 +67,18 @@ create policy quarterly_letters_update_own on public.quarterly_letters
 -- pg_cron — 1st of each month at 23:30 UTC
 -- ──────────────────────────────────────────────────────────────────
 
+-- Bearer lives in Supabase Vault (cron_quarterly_letter_secret) and is
+-- read at fire-time. Seed once on a fresh environment via:
+--   select vault.create_secret('<new-bearer>', 'cron_quarterly_letter_secret',
+--     'Bearer for /api/cron/generate-quarterly-letters');
+
+do $$
+begin
+  if not exists (select 1 from vault.secrets where name = 'cron_quarterly_letter_secret') then
+    raise exception 'Vault secret "cron_quarterly_letter_secret" missing. Seed it before applying this migration.';
+  end if;
+end$$;
+
 do $$
 begin
   if exists (select 1 from cron.job where jobname = 'generate-quarterly-letters') then
@@ -82,7 +94,7 @@ select cron.schedule(
     url := 'https://journal-coach-web.vercel.app/api/cron/generate-quarterly-letters',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer 59281af3a462da5a4d677b7980130979ae36daae58e99b4fcc3d5450533bda45'
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_quarterly_letter_secret')
     ),
     body := jsonb_build_object('source', 'pg_cron', 'fired_at', now()::text)
   );

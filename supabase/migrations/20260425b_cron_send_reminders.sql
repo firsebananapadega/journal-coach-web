@@ -7,12 +7,23 @@
 -- aren't set yet, the route 401s / 500s silently and the cron tries
 -- again next minute. So deploy order is:
 --   1. set Vercel env vars
---   2. run this migration
+--   2. seed the Vault secret (see guard below)
+--   3. run this migration
 --
--- The URL + secret are embedded here because Supabase's postgres
--- role can't ALTER DATABASE SET custom GUCs. Rotate by re-running
--- this migration with the new values (the DO block at the top will
--- unschedule the old job first).
+-- The Bearer token lives in Supabase Vault (cron_reminder_secret)
+-- and is read at fire-time via vault.decrypted_secrets. To rotate,
+-- update the Vault entry — no migration change needed.
+--
+-- Seeding (one-time, on a fresh environment):
+--   select vault.create_secret('<new-bearer>', 'cron_reminder_secret',
+--     'Bearer for /api/cron/send-reminders');
+
+do $$
+begin
+  if not exists (select 1 from vault.secrets where name = 'cron_reminder_secret') then
+    raise exception 'Vault secret "cron_reminder_secret" missing. Seed it before applying this migration.';
+  end if;
+end$$;
 
 do $$
 begin
@@ -29,7 +40,7 @@ select cron.schedule(
     url := 'https://journal-coach-web.vercel.app/api/cron/send-reminders',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer 7a9c3e5f1b7d9a2c4e6f8b3d5a7c9e1f3b5d7a9c2e4f6b8d1a3c5e7f9b2d4a6'
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_reminder_secret')
     ),
     body := jsonb_build_object('source', 'pg_cron', 'fired_at', now()::text)
   );

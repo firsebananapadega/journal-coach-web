@@ -56,6 +56,18 @@ create policy monthly_patterns_update_own on public.monthly_patterns
 --    (≈ 6 PM ET, 3 PM PT, late afternoon Europe).
 -- ──────────────────────────────────────────────────────────────────
 
+-- Bearer lives in Supabase Vault (cron_monthly_pattern_secret) and is
+-- read at fire-time. Seed once on a fresh environment via:
+--   select vault.create_secret('<new-bearer>', 'cron_monthly_pattern_secret',
+--     'Bearer for /api/cron/generate-monthly-patterns');
+
+do $$
+begin
+  if not exists (select 1 from vault.secrets where name = 'cron_monthly_pattern_secret') then
+    raise exception 'Vault secret "cron_monthly_pattern_secret" missing. Seed it before applying this migration.';
+  end if;
+end$$;
+
 do $$
 begin
   if exists (select 1 from cron.job where jobname = 'generate-monthly-patterns') then
@@ -71,7 +83,7 @@ select cron.schedule(
     url := 'https://journal-coach-web.vercel.app/api/cron/generate-monthly-patterns',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ca630adcfeba1a3110d629f072e30152f8f13f1da12f3c265221664821ce6254'
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_monthly_pattern_secret')
     ),
     body := jsonb_build_object('source', 'pg_cron', 'fired_at', now()::text)
   );

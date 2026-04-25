@@ -70,6 +70,18 @@ create policy weekly_letters_update_own on public.weekly_letters
 --    20260425_reminders.sql.
 -- ──────────────────────────────────────────────────────────────────
 
+-- Bearer lives in Supabase Vault (cron_weekly_letter_secret) and is
+-- read at fire-time. Seed once on a fresh environment via:
+--   select vault.create_secret('<new-bearer>', 'cron_weekly_letter_secret',
+--     'Bearer for /api/cron/generate-weekly-letters');
+
+do $$
+begin
+  if not exists (select 1 from vault.secrets where name = 'cron_weekly_letter_secret') then
+    raise exception 'Vault secret "cron_weekly_letter_secret" missing. Seed it before applying this migration.';
+  end if;
+end$$;
+
 do $$
 begin
   if exists (select 1 from cron.job where jobname = 'generate-weekly-letters') then
@@ -85,7 +97,7 @@ select cron.schedule(
     url := 'https://journal-coach-web.vercel.app/api/cron/generate-weekly-letters',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer 44c72ad5a340a52582459b5aaa6182623451ce1e62e06241ace0e9bc1d0acf89'
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_weekly_letter_secret')
     ),
     body := jsonb_build_object('source', 'pg_cron', 'fired_at', now()::text)
   );
