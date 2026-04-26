@@ -1,17 +1,21 @@
 'use client';
 
 // Generic horizontal carousel for the install walkthrough.
-// Renders one slide at a time, swipeable left/right via Framer drag,
-// with dot indicators + back/next chevrons + an "I added it" final CTA.
+// Now uses CSS scroll-snap with adjacent-slide peek so the user
+// can SEE there's more to swipe — solves the prior bug where a
+// full-width single-slide layout made it ambiguous whether the
+// view was a carousel at all.
+//
+// Layout: a horizontally scrollable track with each slide sized at
+// ~85% of the viewport width and snap-center alignment. The 7-8%
+// of the next/previous slide that bleeds in on each side is the
+// "peek" affordance.
 //
 // Slide shape:
 //   { id, Illustration: React.FC, caption, imageSrc? }
-// If a slide provides imageSrc, that image is shown instead of the
-// Illustration component — makes it trivial for the user to drop in
-// real PNG screenshots later.
 
-import { useCallback, useEffect, useState } from 'react';
-import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { motion } from 'framer-motion';
 import { t } from '@/lib/translations';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 
@@ -26,9 +30,6 @@ interface Props {
   slides: InstallSlide[];
   onDone: () => void;
   onSkip: () => void;
-  // Optional action button shown on the final slide (used by the
-  // Android "prompt" variant, which overrides the "I added it"
-  // flow with a real native prompt trigger).
   finalCta?: {
     label: string;
     onClick: () => void | Promise<void>;
@@ -36,28 +37,36 @@ interface Props {
   };
 }
 
-const SWIPE_THRESHOLD = 60;
+export default function InstallCarousel({ slides }: Props) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
 
-export default function InstallCarousel({ slides, onDone, onSkip, finalCta }: Props) {
-  const [index, setIndex] = useState(0);
-  const [direction, setDirection] = useState(1);
+  const goto = useCallback((next: number) => {
+    const target = slideRefs.current[next];
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, []);
 
-  const last = slides.length - 1;
-  const active = slides[Math.min(index, last)];
-
-  const goto = useCallback(
-    (next: number) => {
-      if (next < 0 || next > last) return;
-      setDirection(next > index ? 1 : -1);
-      setIndex(next);
-    },
-    [index, last]
-  );
-
-  const onDragEnd = (_e: unknown, info: PanInfo) => {
-    if (info.offset.x < -SWIPE_THRESHOLD) goto(Math.min(index + 1, last));
-    else if (info.offset.x > SWIPE_THRESHOLD) goto(Math.max(index - 1, 0));
-  };
+  // Track which slide is centered. IntersectionObserver fires
+  // whenever a slide crosses the threshold of the track viewport.
+  useEffect(() => {
+    if (!trackRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && e.intersectionRatio > 0.6) {
+            const idx = Number((e.target as HTMLElement).dataset.slideIndex ?? -1);
+            if (idx >= 0) setActiveIndex(idx);
+          }
+        }
+      },
+      { root: trackRef.current, threshold: [0.6, 0.9] },
+    );
+    slideRefs.current.forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [slides.length]);
 
   // Preload imageSrc assets so the slide flip doesn't flash.
   useEffect(() => {
@@ -69,64 +78,60 @@ export default function InstallCarousel({ slides, onDone, onSkip, finalCta }: Pr
     });
   }, [slides]);
 
-  const isLast = index === last;
-  const Illustration = active.Illustration;
-
   return (
     <div className="flex flex-col items-center w-full">
-      {/* Slide viewport */}
-      <div className="relative w-full max-w-[260px] overflow-hidden" style={{ height: 460 }}>
-        <AnimatePresence custom={direction} initial={false} mode="wait">
-          <motion.div
-            key={active.id}
-            custom={direction}
-            drag={slides.length > 1 ? 'x' : false}
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.18}
-            onDragEnd={onDragEnd}
-            initial={prefersReducedMotion ? undefined : { x: direction > 0 ? 80 : -80, opacity: 0 }}
-            animate={prefersReducedMotion ? undefined : { x: 0, opacity: 1 }}
-            exit={prefersReducedMotion ? undefined : { x: direction > 0 ? -80 : 80, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-            className="absolute inset-0 flex flex-col items-center"
+      {/* Scrollable track. The container itself is full width; each
+          slide is ~82% wide with horizontal padding so the
+          snap-centered slide leaves the next/prev partially visible. */}
+      <div
+        ref={trackRef}
+        className="w-full overflow-x-auto snap-x snap-mandatory flex gap-3 px-[9%] no-scrollbar"
+        style={{
+          scrollbarWidth: 'none',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        {slides.map((s, i) => (
+          <div
+            key={s.id}
+            ref={(el) => { slideRefs.current[i] = el; }}
+            data-slide-index={i}
+            className="snap-center shrink-0 w-[82%] flex flex-col items-center"
           >
-            {/* Step badge top-right */}
             <div className="self-end mr-1 mb-1 text-[10px] font-semibold text-text-tertiary tracking-wide">
-              {index + 1} / {slides.length}
+              {i + 1} / {slides.length}
             </div>
-            {/* Illustration or user-provided image */}
-            <div className="flex items-center justify-center" style={{ height: 400, width: '100%' }}>
-              {active.imageSrc ? (
+            <div
+              className="flex items-center justify-center w-full"
+              style={{ height: 400 }}
+            >
+              {s.imageSrc ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={active.imageSrc}
-                  alt={active.caption}
+                  src={s.imageSrc}
+                  alt={s.caption}
                   className="max-h-full max-w-full object-contain"
                   draggable={false}
                 />
               ) : (
-                <Illustration />
+                <s.Illustration />
               )}
             </div>
-          </motion.div>
-        </AnimatePresence>
+            <p className="text-sm font-medium text-text-primary text-center mt-2 px-3 min-h-[2.5em]">
+              {s.caption}
+            </p>
+          </div>
+        ))}
       </div>
 
-      {/* Caption */}
-      <AnimatePresence mode="wait">
-        <motion.p
-          key={active.id}
-          initial={prefersReducedMotion ? undefined : { opacity: 0, y: 4 }}
-          animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-          exit={prefersReducedMotion ? undefined : { opacity: 0, y: -4 }}
-          transition={{ duration: 0.24, ease: 'easeOut' }}
-          className="text-sm font-medium text-text-primary text-center mt-2 px-3"
-        >
-          {active.caption}
-        </motion.p>
-      </AnimatePresence>
+      {/* Hide the native scrollbar across browsers. */}
+      <style jsx>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
 
-      {/* Dots indicator */}
+      {/* Dots indicator — sync to the centered slide. */}
       {slides.length > 1 && (
         <div className="flex gap-1.5 mt-3">
           {slides.map((s, i) => (
@@ -136,41 +141,22 @@ export default function InstallCarousel({ slides, onDone, onSkip, finalCta }: Pr
               aria-label={`Go to step ${i + 1}`}
               onClick={() => goto(i)}
               className={`h-1.5 rounded-full transition-all ${
-                i === index ? 'w-6 bg-primary' : 'w-1.5 bg-border hover:bg-text-tertiary'
+                i === activeIndex ? 'w-6 bg-primary' : 'w-1.5 bg-border hover:bg-text-tertiary'
               }`}
             />
           ))}
-        </div>
-      )}
-
-      {/* Nav buttons inline (chevrons) — only when not on terminal slide */}
-      {slides.length > 1 && !isLast && (
-        <div className="flex items-center gap-4 mt-4">
-          <button
-            type="button"
-            onClick={() => goto(index - 1)}
-            disabled={index === 0}
-            className="text-xs text-text-tertiary hover:text-text-secondary disabled:opacity-30"
-          >
-            ← {t('common.back')}
-          </button>
-          <button
-            type="button"
-            onClick={() => goto(index + 1)}
-            className="text-xs font-semibold text-primary hover:text-primary-dark"
-          >
-            {t('common.next')} →
-          </button>
         </div>
       )}
     </div>
   );
 }
 
-// Re-export for InstallStep to render the final action area.
-// Kept at module level to make the InstallStep dispatcher simpler.
+// Final action area below the carousel. The "I added it" CTA was
+// removed per user feedback ("if I really added it, I'd open from
+// the home screen — not click a button here"). On Android with a
+// finalCta we still render the native-prompt button. On iOS we
+// only render Skip.
 export function InstallCarouselFinalActions({
-  onDone,
   onSkip,
   finalCta,
 }: {
@@ -184,7 +170,7 @@ export function InstallCarouselFinalActions({
 }) {
   return (
     <div className="flex flex-col items-center gap-2 w-full">
-      {finalCta ? (
+      {finalCta && (
         <motion.button
           type="button"
           whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
@@ -194,20 +180,11 @@ export function InstallCarouselFinalActions({
         >
           {finalCta.busy ? t('common.loading') : finalCta.label}
         </motion.button>
-      ) : (
-        <motion.button
-          type="button"
-          whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
-          onClick={onDone}
-          className="w-full max-w-md py-3.5 bg-primary text-white font-semibold rounded-2xl shadow-warm-md hover:bg-primary-dark transition-colors"
-        >
-          {t('onboarding.install.added')}
-        </motion.button>
       )}
       <button
         type="button"
         onClick={onSkip}
-        className="text-xs text-text-tertiary hover:text-text-secondary py-1"
+        className="text-sm text-text-tertiary hover:text-text-secondary py-2"
       >
         {t('onboarding.install.skip')}
       </button>

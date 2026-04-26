@@ -35,11 +35,19 @@ interface Props {
   guide: GuideId;
   onInstalled: () => void;
   onSkip: () => void;
+  /** Sub-view of the install step. Lifted to the parent so the
+   *  page-level Back button can flip carousel → overview without
+   *  exiting the step entirely. When omitted, the step manages
+   *  its own state (legacy fallback). */
+  view?: 'overview' | 'carousel';
+  onViewChange?: (next: 'overview' | 'carousel') => void;
 }
 
-export default function InstallStep({ guide, onInstalled, onSkip }: Props) {
+export default function InstallStep({ guide, onInstalled, onSkip, view: viewProp, onViewChange }: Props) {
   const { platform, canPrompt, promptInstall } = usePwaInstall();
-  const [view, setView] = useState<'overview' | 'carousel'>('overview');
+  const [internalView, setInternalView] = useState<'overview' | 'carousel'>('overview');
+  const view = viewProp ?? internalView;
+  const setView = onViewChange ?? setInternalView;
 
   // Auto-skip desktop / already-installed — no useful UI here. The
   // user explicitly asked for the install step to NOT show when the
@@ -99,7 +107,6 @@ export default function InstallStep({ guide, onInstalled, onSkip }: Props) {
       ) : (
         <CarouselView
           slides={slides}
-          onBack={() => setView('overview')}
           onInstalled={onInstalled}
           onSkip={onSkip}
           finalCta={finalCta}
@@ -145,21 +152,24 @@ function OverviewView({
         <h1 className="text-3xl font-bold text-text-primary text-center leading-tight">
           Add me to your home screen
         </h1>
-        <p className="text-base text-text-secondary text-center mt-3 mb-8 leading-snug">
+        <p className="text-base text-text-secondary text-center mt-3 mb-10 leading-snug">
           Just three easy steps — feels like a real app, opens
           instantly, and your reminders work better.
         </p>
 
-        <ol className="space-y-4 mb-8">
+        {/* Vertically stacked, centered steps. No card containers
+            (the previous version made each step look like a tappable
+            button — it isn't). Numbered circle on top, single line
+            of explanatory text below, generous spacing between. */}
+        <ol className="space-y-7 mb-6">
           {steps.map((step, i) => (
-            <li
-              key={i}
-              className="flex items-start gap-4 bg-surface/70 backdrop-blur border border-border rounded-2xl p-4"
-            >
-              <span className="flex-shrink-0 w-9 h-9 rounded-full bg-primary/15 text-primary text-base font-bold flex items-center justify-center">
+            <li key={i} className="flex flex-col items-center text-center">
+              <span className="w-11 h-11 rounded-full bg-primary/15 text-primary text-lg font-bold flex items-center justify-center mb-3 ring-1 ring-primary/30">
                 {i + 1}
               </span>
-              <p className="text-sm text-text-primary leading-relaxed pt-1.5">{step}</p>
+              <p className="text-[15px] text-text-primary leading-relaxed max-w-[18rem]">
+                {step}
+              </p>
             </li>
           ))}
         </ol>
@@ -196,33 +206,25 @@ function OverviewView({
 
 function CarouselView({
   slides,
-  onBack,
   onInstalled,
   onSkip,
   finalCta,
 }: {
   slides: InstallSlide[];
-  onBack: () => void;
   onInstalled: () => void;
   onSkip: () => void;
   finalCta?: { label: string; onClick: () => Promise<void>; busy?: boolean };
 }) {
+  // No in-view Back button — the page-level Back at top:left of the
+  // onboarding shell is the single back affordance. Two backs felt
+  // redundant per user feedback.
   return (
     <>
       <div
-        className="relative z-10 flex-1 overflow-y-auto px-6"
-        style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+        className="relative z-10 flex-1 overflow-y-auto px-2"
+        style={{ paddingTop: 'max(3.5rem, env(safe-area-inset-top))' }}
       >
-        <div className="max-w-md w-full mx-auto">
-          <button
-            type="button"
-            onClick={onBack}
-            className="mb-3 text-sm text-text-tertiary hover:text-text-secondary inline-flex items-center gap-1"
-            aria-label="Back to overview"
-          >
-            <span aria-hidden>←</span>
-            <span>Back</span>
-          </button>
+        <div className="w-full">
           <InstallCarousel slides={slides} onDone={onInstalled} onSkip={onSkip} />
         </div>
       </div>

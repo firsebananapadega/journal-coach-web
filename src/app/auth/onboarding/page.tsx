@@ -36,6 +36,10 @@ export default function OnboardingPage() {
   const [guide, setGuide] = useState<GuideId>('ben');
   const [primaryUse, setPrimaryUse] = useState<PrimaryUse | null>(null);
   const [stepKey, setStepKey] = useState<StepKey>('welcome');
+  // Install step has a sub-view (overview vs carousel). Lifted here
+  // so the page-level Back can collapse carousel → overview before
+  // it falls through to "go to previous step."
+  const [installView, setInstallView] = useState<'overview' | 'carousel'>('overview');
   const [error, setError] = useState('');
 
   // Recompute the active flow whenever the user's primary-use pick
@@ -57,6 +61,13 @@ export default function OnboardingPage() {
   };
   const back = () => {
     setError('');
+    // Context-aware back: if we're on the install step's carousel
+    // sub-view, collapse back to its overview before stepping
+    // out of the install step entirely.
+    if (stepKey === 'install' && installView === 'carousel') {
+      setInstallView('overview');
+      return;
+    }
     const prevStep = flow[Math.max(0, stepIndex - 1)];
     if (prevStep) setStepKey(prevStep);
   };
@@ -151,6 +162,8 @@ export default function OnboardingPage() {
               guide={guide}
               onInstalled={handleInstalled}
               onSkip={handleInstallSkip}
+              view={installView}
+              onViewChange={setInstallView}
             />
           )}
           {stepKey === 'name' && (
@@ -170,12 +183,14 @@ export default function OnboardingPage() {
         <motion.button
           initial={prefersReducedMotion ? undefined : { opacity: 0 }}
           animate={prefersReducedMotion ? undefined : { opacity: 1 }}
-          whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
+          whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
           onClick={back}
-          className="fixed top-3 left-4 z-30 text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+          className="fixed top-3 left-4 z-30 inline-flex items-center gap-1.5 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors px-3.5 py-2 rounded-full bg-surface/70 backdrop-blur border border-border shadow-warm-sm"
           style={{ marginTop: 'env(safe-area-inset-top)' }}
+          aria-label="Back"
         >
-          ← Back
+          <span aria-hidden className="text-base leading-none">←</span>
+          <span>Back</span>
         </motion.button>
       )}
     </div>
