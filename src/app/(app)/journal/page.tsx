@@ -37,6 +37,12 @@ export default function JournalWritingPage() {
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const startTime = useRef(Date.now());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Auto-start mic on /journal mount. Default OFF (per user) — the
+  // writing surface should open keyboard-first; voice is opt-in via
+  // the gear toggle. Stored separately from /voice's preference so
+  // the two surfaces stay independent.
+  const [autoMic, setAutoMic] = useState<boolean>(false);
 
   const { isListening, toggle, micButtonProps } = useSelectionAwareMic({
     textareaRef,
@@ -46,7 +52,34 @@ export default function JournalWritingPage() {
   });
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem('journal.autoMic');
+    // Default OFF — only enable when explicitly persisted as '1'.
+    if (raw === '1') setAutoMic(true);
+  }, []);
+
+  const persistAutoMic = (next: boolean) => {
+    setAutoMic(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('journal.autoMic', next ? '1' : '0');
+    }
+  };
+
+  useEffect(() => {
+    if (autoMic) {
+      // Brief delay so the page has painted before the permission
+      // prompt could fire — keeps the UI from flashing.
+      const id = window.setTimeout(() => {
+        void toggle();
+      }, 120);
+      return () => window.clearTimeout(id);
+    }
+    // Default path: keyboard-first, focus the textarea.
     textareaRef.current?.focus();
+    // Run-once on mount; don't re-trigger when autoMic toggles
+    // mid-session — that would auto-start the mic the moment the
+    // user flips the toggle in settings, which feels surprising.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-grow textarea so the page scrolls as the entry grows.
@@ -90,7 +123,17 @@ export default function JournalWritingPage() {
         <span className="text-xs font-medium text-text-tertiary uppercase tracking-widest">
           {formatDayHeader()}
         </span>
-        <span className="w-10" />
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="w-10 h-10 -mr-2 flex items-center justify-center text-text-tertiary hover:text-text-secondary"
+          aria-label="Journal settings"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
       </div>
 
       {/* Writing surface — borderless textarea, feels like paper.
@@ -191,6 +234,73 @@ export default function JournalWritingPage() {
           );
         }}
       />
+
+      {/* Journal settings sheet — opened by the gear in the header.
+          One toggle for now: auto-start microphone. Persists to
+          localStorage; takes effect on the NEXT open of /journal so
+          flipping the toggle mid-session doesn't surprise-start
+          the mic. */}
+      {settingsOpen && (
+        <>
+          <motion.div
+            initial={prefersReducedMotion ? undefined : { opacity: 0 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/40"
+            onClick={() => setSettingsOpen(false)}
+          />
+          <motion.div
+            initial={prefersReducedMotion ? undefined : { y: '100%' }}
+            animate={prefersReducedMotion ? undefined : { y: 0 }}
+            exit={prefersReducedMotion ? undefined : { y: '100%' }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            className="fixed inset-x-0 bottom-0 z-[70] bg-bg rounded-t-3xl shadow-warm-xl"
+            style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+          >
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-border" />
+            </div>
+            <div className="px-5 py-3 flex items-center justify-between border-b border-border">
+              <h2 className="text-base font-bold text-text-primary">Journal settings</h2>
+              <button
+                onClick={() => setSettingsOpen(false)}
+                className="text-text-secondary text-lg w-9 h-9 flex items-center justify-center"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">
+                    Auto-start microphone
+                  </p>
+                  <p className="text-xs text-text-tertiary leading-snug mt-0.5">
+                    {autoMic
+                      ? 'Mic starts listening as soon as you open Journal.'
+                      : 'Journal opens with the keyboard ready to type.'}
+                  </p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={autoMic}
+                  onClick={() => persistAutoMic(!autoMic)}
+                  className={`relative w-12 h-7 rounded-full transition-colors flex-shrink-0 ${
+                    autoMic ? 'bg-primary' : 'bg-border'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                      autoMic ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
     </div>
   );
 }

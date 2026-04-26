@@ -660,22 +660,13 @@ export default function HomePage() {
         <p className="text-xs text-text-tertiary text-center">{t('home.dragHint')}</p>
       )}
 
-      {/* Weekly reflection — prefer the server-delivered letter over
-          the legacy client-generated one. We only show the bottom
-          card once the user has opened (or there's no unread); while
-          unread, the hero card above owns the spotlight. */}
-      {latestLetter && latestLetter.seen_at ? (
-        <WeeklyReflectionCard
-          reflection={{
-            id: latestLetter.id,
-            letter: latestLetter.letter_text,
-            themes: latestLetter.themes,
-            seen_at: latestLetter.seen_at,
-          }}
-          guideName={guide.name}
-          onSeen={(id) => markLetterSeen(id)}
-        />
-      ) : !unreadItem && reflection ? (
+      {/* Weekly reflection — once a server-delivered letter has been
+          marked seen, it stops showing on /home. The user can always
+          re-read it from /letters; cluttering /home with a letter
+          they've already opened buries the day's actual ritual.
+          The client-cached fallback below only renders when no
+          server letter exists at all (legacy users pre-cron). */}
+      {!unreadItem && !latestLetter && reflection ? (
         <WeeklyReflectionCard
           reflection={{ letter: reflection.letter, themes: reflection.themes }}
           guideName={guide.name}
