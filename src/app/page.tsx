@@ -15,7 +15,10 @@ const TASKS_PATHS: Record<string, string> = {
   groceries: '/groceries',
 };
 const JOURNAL_PATHS: Record<string, string> = {
-  pulse: '/pulse',
+  // The pulse-tab destination is /home, not /pulse — /pulse is the
+  // legacy analytics view. WallNav routes the pulse tab to /home, so
+  // the redirect must match.
+  pulse: '/home',
   notebooks: '/notebooks',
   journal: '/journal',
   intentions: '/intentions',

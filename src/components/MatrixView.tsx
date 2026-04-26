@@ -44,19 +44,30 @@ export interface MatrixTask {
   text: string;
   urgent?: boolean;
   important?: boolean;
+  /** True once the user has explicitly placed this into ANY quadrant
+   *  (Q1/Q2/Q3/Q4). Distinguishes Q4 (Drop) from Unsorted — both
+   *  have urgent=false + important=false. */
+  triaged?: boolean;
   completed: boolean;
 }
 
 type QuadrantId = 'q1' | 'q2' | 'q3' | 'q4' | 'unsorted';
 
-const QUADRANT_FLAGS: Record<QuadrantId, { urgent: boolean; important: boolean }> = {
-  q1: { urgent: true, important: true },
-  q2: { urgent: false, important: true },
-  q3: { urgent: true, important: false },
-  q4: { urgent: false, important: false },
-  // Unsorted uses the same flags as q4 (both false) but is a separate
-  // visual bucket so the user can keep a "triage later" pile.
-  unsorted: { urgent: false, important: false },
+interface QuadrantFlags {
+  urgent: boolean;
+  important: boolean;
+  triaged: boolean;
+}
+
+const QUADRANT_FLAGS: Record<QuadrantId, QuadrantFlags> = {
+  q1: { urgent: true, important: true, triaged: true },
+  q2: { urgent: false, important: true, triaged: true },
+  q3: { urgent: true, important: false, triaged: true },
+  q4: { urgent: false, important: false, triaged: true },
+  // Unsorted is the only state where triaged=false. That's the bit
+  // that disambiguates it from Q4: both have urgent=false +
+  // important=false, but only Unsorted has triaged=false.
+  unsorted: { urgent: false, important: false, triaged: false },
 };
 
 interface QuadrantStyle {
@@ -108,7 +119,11 @@ const QUADRANT_STYLES: Record<QuadrantId, QuadrantStyle> = {
 function quadrantOf(item: MatrixTask): QuadrantId {
   const u = !!item.urgent;
   const i = !!item.important;
-  if (!u && !i) return 'unsorted';
+  // Untriaged + neither flag = the "haven't sorted this yet" pile.
+  // Anything triaged falls into Q1/Q2/Q3/Q4 by its flag combo —
+  // Q4 (Drop) is the explicit "neither urgent nor important AND
+  // I've decided that on purpose" state.
+  if (!item.triaged && !u && !i) return 'unsorted';
   if (u && i) return 'q1';
   if (!u && i) return 'q2';
   if (u && !i) return 'q3';
@@ -218,9 +233,11 @@ interface MatrixViewProps {
   onTapTask: (item: MatrixTask) => void;
   // Fires after a successful drag-drop between quadrants. Callers
   // wire this to priorityStore.setQuadrant / taskStore.setQuadrant.
+  // `triaged` flips false → true when dropped into Q1/Q2/Q3/Q4 and
+  // back to false when dropped into Unsorted.
   onSetFlags?: (
     id: string,
-    flags: { urgent: boolean; important: boolean },
+    flags: { urgent: boolean; important: boolean; triaged: boolean },
   ) => void;
 }
 
@@ -267,8 +284,13 @@ export function MatrixView({ items, onTapTask, onSetFlags }: MatrixViewProps) {
     if (!flags) return;
     const current = items.find((i) => i.id === active.id);
     if (!current) return;
-    // No-op when dropped on the same quadrant it was already in.
-    if (!!current.urgent === flags.urgent && !!current.important === flags.important) {
+    // No-op when dropped on the same quadrant it was already in
+    // (urgent + important + triaged all match).
+    if (
+      !!current.urgent === flags.urgent &&
+      !!current.important === flags.important &&
+      !!current.triaged === flags.triaged
+    ) {
       return;
     }
     onSetFlags?.(active.id as string, flags);

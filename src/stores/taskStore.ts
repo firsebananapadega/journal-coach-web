@@ -22,6 +22,11 @@ export interface Task {
   time: string | null;
   urgent: boolean;
   important: boolean;
+  /** True once the user has explicitly placed this task into ANY
+   *  Eisenhower quadrant (Q1/Q2/Q3/Q4). False = Unsorted. Lets Q4
+   *  (Drop) be visually distinct from Unsorted, which both have
+   *  urgent=false + important=false. Default false. */
+  triaged: boolean;
   completed: boolean;
   sort_order: number;
   notes: string | null;
@@ -53,7 +58,10 @@ interface TaskState {
   }) => Promise<Task | null>;
   updateTask: (id: string, patch: Partial<Omit<Task, 'id' | 'user_id' | 'created_at' | 'updated_at'>>) => Promise<void>;
   toggleComplete: (id: string) => Promise<void>;
-  setQuadrant: (id: string, flags: { urgent?: boolean; important?: boolean }) => Promise<void>;
+  setQuadrant: (
+    id: string,
+    flags: { urgent?: boolean; important?: boolean; triaged?: boolean },
+  ) => Promise<void>;
   removeTask: (id: string) => Promise<void>;
   // Batch re-ordering: pass the NEW sequence of task ids (for a
   // specific subgroup the caller cares about — a day, a list, etc).
@@ -168,6 +176,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     return get().updateTask(id, {
       urgent: flags.urgent ?? target.urgent,
       important: flags.important ?? target.important,
+      triaged: flags.triaged ?? target.triaged,
     });
   },
 
