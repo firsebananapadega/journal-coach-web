@@ -59,13 +59,21 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 }
 
 function GlowRing({ cx, cy, r }: { cx: number; cy: number; r: number }) {
+  // Two-layer pulse: a wide soft halo + a tighter inner halo, then a
+  // sharp accent ring. Bigger + brighter than the prior pass per
+  // user feedback ("can be even more pronounced on that specific
+  // button").
   return (
     <g>
-      <circle cx={cx} cy={cy} r={r + 6} fill={GLOW} opacity="0.6">
-        <animate attributeName="opacity" values="0.2;0.75;0.2" dur="2s" repeatCount="indefinite" />
-        <animate attributeName="r" values={`${r + 4};${r + 10};${r + 4}`} dur="2s" repeatCount="indefinite" />
+      <circle cx={cx} cy={cy} r={r + 12} fill={GLOW} opacity="0.55">
+        <animate attributeName="opacity" values="0.25;0.85;0.25" dur="1.6s" repeatCount="indefinite" />
+        <animate attributeName="r" values={`${r + 9};${r + 16};${r + 9}`} dur="1.6s" repeatCount="indefinite" />
       </circle>
-      <circle cx={cx} cy={cy} r={r + 2} fill="none" stroke={ACCENT} strokeWidth="1.5" opacity="0.9" />
+      <circle cx={cx} cy={cy} r={r + 6} fill={GLOW} opacity="0.85">
+        <animate attributeName="opacity" values="0.5;1;0.5" dur="1.6s" repeatCount="indefinite" />
+        <animate attributeName="r" values={`${r + 4};${r + 8};${r + 4}`} dur="1.6s" repeatCount="indefinite" />
+      </circle>
+      <circle cx={cx} cy={cy} r={r + 2} fill="none" stroke={ACCENT} strokeWidth="2" opacity="0.95" />
     </g>
   );
 }
@@ -94,38 +102,49 @@ function IosStep1() {
         JournalCoach
       </text>
 
-      {/* Bottom Safari chrome */}
-      <rect x="14" y="340" width="192" height="40" rx="10" fill={CHROME} />
-      {/* 5 icons: back, forward, share, bookmark, tabs */}
-      {/* back */}
-      <path d="M38 360 l-6 -6 m0 0 l6 -6" stroke={MUTED} strokeWidth="1.6" fill="none" strokeLinecap="round" />
-      {/* forward */}
-      <path d="M66 354 l6 6 m0 0 l-6 6" stroke={MUTED} strokeWidth="1.6" fill="none" strokeLinecap="round" />
-      {/* share — HIGHLIGHTED */}
-      <GlowRing cx={110} cy={360} r={11} />
-      <g transform="translate(110 360)">
-        <path
-          d="M0 -6 L0 4 M-4 -2 L0 -6 L4 -2"
-          stroke={ACCENT}
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        <path
-          d="M-6 0 L-6 6 L6 6 L6 0"
-          stroke={ACCENT}
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
+      {/* Bottom Safari chrome — taller so icons can center cleanly */}
+      <rect x="14" y="338" width="192" height="44" rx="10" fill={CHROME} />
+      {/* All 5 icons share the same y center (360) for clean alignment.
+          Back + forward chevrons are now built from line segments so
+          their geometric center is on the y axis (the prior path
+          syntax made the back arrow look higher than the rest). */}
+      {/* back chevron — tip on the LEFT, opening right, centered (38, 360) */}
+      <g stroke={MUTED} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="42" y1="354" x2="36" y2="360" />
+        <line x1="36" y1="360" x2="42" y2="366" />
       </g>
-      {/* bookmark */}
+      {/* forward chevron — tip on the RIGHT, opening left, centered (72, 360) */}
+      <g stroke={MUTED} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="68" y1="354" x2="74" y2="360" />
+        <line x1="74" y1="360" x2="68" y2="366" />
+      </g>
+      {/* share — HIGHLIGHTED. Bigger glow + truer-to-iOS proportions:
+          the arrow extends well above the box and its tail rests
+          near the bottom interior of the box. */}
+      <GlowRing cx={110} cy={360} r={13} />
+      <g
+        transform="translate(110 360)"
+        stroke={ACCENT}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      >
+        {/* Box (open at top): bottom + two sides + small top stubs */}
+        <path d="M-7 -2 L-7 7 L7 7 L7 -2" />
+        <path d="M-7 -2 L-4 -2" />
+        <path d="M4 -2 L7 -2" />
+        {/* Arrow shaft + chevron — tail at y=4, tip at y=-9 */}
+        <line x1="0" y1="4" x2="0" y2="-9" />
+        <path d="M-4 -5 L0 -9 L4 -5" />
+      </g>
+      {/* bookmark — centered (158, 360) */}
       <path d="M154 354 L154 366 L158 362 L162 366 L162 354 Z" stroke={MUTED} strokeWidth="1.4" fill="none" />
-      {/* tabs */}
-      <rect x="184" y="354" width="10" height="10" rx="2" stroke={MUTED} strokeWidth="1.4" fill="none" />
-      <rect x="187" y="357" width="10" height="10" rx="2" stroke={MUTED} strokeWidth="1.4" fill="none" />
+      {/* tabs — same vertical center */}
+      <g stroke={MUTED} strokeWidth="1.4" fill="none">
+        <rect x="184" y="354" width="10" height="10" rx="2" />
+        <rect x="187" y="357" width="10" height="10" rx="2" />
+      </g>
     </PhoneFrame>
   );
 }
