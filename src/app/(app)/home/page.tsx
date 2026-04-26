@@ -188,9 +188,48 @@ function DroppableSlot({
 
 // ---------- Main page ----------
 
+// PWA cached-manifest fallback. Old installs still launch at /home
+// (the previous start_url). If the user's last-active wall was
+// tasks, send them there once per browser session — sessionStorage
+// flag means subsequent in-session /home visits aren't disrupted.
+const TASKS_TAB_PATHS: Record<string, string> = {
+  today: '/today',
+  lists: '/lists',
+  upcoming: '/upcoming',
+  groceries: '/groceries',
+};
+
 export default function HomePage() {
   const router = useRouter();
   const profile = useAuthStore((s) => s.profile);
+
+  // Run before any other side-effect: if this is the first /home
+  // landing of the browser session AND wallState localStorage says
+  // the user was last on the tasks wall, redirect to the last-
+  // visited tasks tab. Catches the iOS PWA cached-manifest case
+  // where old installs still launch at /home regardless of the new
+  // start_url=/. Subsequent in-session /home visits skip this
+  // (sessionStorage flag), so normal pulse-tab navigation works.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.sessionStorage.getItem('homeWallRedirectChecked') === '1') return;
+    window.sessionStorage.setItem('homeWallRedirectChecked', '1');
+    try {
+      const raw = window.localStorage.getItem('wallState.v1');
+      if (!raw) return;
+      const p = JSON.parse(raw) as {
+        activeWall?: string;
+        lastTabPerWall?: { tasks?: string };
+      };
+      if (p.activeWall !== 'tasks') return;
+      const tab = p.lastTabPerWall?.tasks ?? 'today';
+      const dest = TASKS_TAB_PATHS[tab] ?? '/today';
+      router.replace(dest);
+    } catch {
+      // localStorage unreadable — leave the user on /home.
+    }
+  }, [router]);
+
   const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
   const { entries, fetchEntries } = useJournalStore();
   // Server-delivered weekly letters. The cron at /api/cron/generate-

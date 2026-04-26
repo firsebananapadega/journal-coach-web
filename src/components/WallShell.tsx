@@ -18,14 +18,26 @@
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { useWallState, wallForPath, FLIP_HALF_MS } from '@/lib/wallState';
+import {
+  useWallState,
+  wallForPath,
+  tabForPath,
+  FLIP_HALF_MS,
+  type TasksTab,
+  type JournalTab,
+} from '@/lib/wallState';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import WallEdgeTab from './WallEdgeTab';
+
+const TASKS_TABS: ReadonlySet<TasksTab> = new Set(['today', 'lists', 'upcoming', 'groceries']);
+const JOURNAL_TABS: ReadonlySet<JournalTab> = new Set(['pulse', 'notebooks', 'journal', 'intentions', 'patterns']);
 
 export function WallShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const hydrate = useWallState((s) => s.hydrate);
   const setWall = useWallState((s) => s.setWall);
+  const setTab = useWallState((s) => s.setTab);
+  const setJournalTab = useWallState((s) => s.setJournalTab);
   const flipPhase = useWallState((s) => s.flipPhase);
 
   // Hydrate persisted wall state on first client mount.
@@ -33,14 +45,29 @@ export function WallShell({ children }: { children: React.ReactNode }) {
     hydrate();
   }, [hydrate]);
 
-  // Keep the active wall in sync with the URL when the user navigates
-  // via browser back/forward or deep links (paths that don't go through
-  // flipTo). Skipped during an active flip so we don't fight the action.
+  // Keep the active wall AND last-visited tab in sync with the URL.
+  // Previously this only updated activeWall — lastTabPerWall was only
+  // refreshed by bottom-nav button onClick handlers, so any other
+  // navigation (deep links, programmatic router.push, browser back/
+  // forward) left lastTabPerWall stale. The WallEdgeTab uses
+  // lastTabPerWall to compute its flip target; with stale data the
+  // user could flip to /patterns when they expected /home, etc.
+  // Now every time the user lands on a known root path, both fields
+  // update. Skipped during an active flip so we don't fight the
+  // animation's mid-flight state writes.
   useEffect(() => {
     if (flipPhase !== 'idle') return;
     const w = wallForPath(pathname);
-    if (w) setWall(w);
-  }, [pathname, setWall, flipPhase]);
+    if (!w) return;
+    setWall(w);
+    const tab = tabForPath(pathname);
+    if (!tab) return;
+    if (w === 'tasks' && TASKS_TABS.has(tab as TasksTab)) {
+      setTab('tasks', tab as TasksTab);
+    } else if (w === 'journal' && JOURNAL_TABS.has(tab as JournalTab)) {
+      setJournalTab(tab as JournalTab);
+    }
+  }, [pathname, setWall, setTab, setJournalTab, flipPhase]);
 
   if (prefersReducedMotion) {
     // Tab still mounts in the reduced-motion branch — its own flipTo
