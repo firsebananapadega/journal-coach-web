@@ -33,8 +33,8 @@ export default function ListDetailPage({ params }: PageProps) {
   const fetchTasks = useTaskStore((s) => s.fetchAll);
   const addTask = useTaskStore((s) => s.addTask);
   const toggleComplete = useTaskStore((s) => s.toggleComplete);
-  const removeTask = useTaskStore((s) => s.removeTask);
   // setQuadrant lives inside TaskEditSheet via useTaskStore directly.
+  // removeTask is reachable via the Delete button inside TaskEditSheet.
 
   const [viewMode, setViewMode] = useState<'list' | 'matrix'>('list');
   const [newText, setNewText] = useState('');
@@ -42,6 +42,9 @@ export default function ListDetailPage({ params }: PageProps) {
   const [quadrantTask, setQuadrantTask] = useState<Task | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
+  // Done section is collapsed by default — reduces visual clutter on
+  // active lists; expand to verify completed work.
+  const [doneCollapsed, setDoneCollapsed] = useState(true);
 
   useEffect(() => {
     fetchLists();
@@ -225,24 +228,39 @@ export default function ListDetailPage({ params }: PageProps) {
                       key={task.id}
                       task={task}
                       onToggle={() => toggleComplete(task.id)}
-                      onTap={() => setQuadrantTask(task)}
-                      onDelete={() => removeTask(task.id)}
+                      // Tap on the body of the row toggles done —
+                      // the user wants the row to behave like a
+                      // checkbox extension, not an edit affordance.
+                      onTap={() => toggleComplete(task.id)}
+                      // Pencil icon opens the rich edit sheet.
+                      onEdit={() => setQuadrantTask(task)}
                       showDate
                     />
                   ))}
                 </div>
               )}
               {done.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-xs uppercase tracking-wider text-text-tertiary font-semibold pt-3">
-                    Done
-                  </p>
-                  {done.map((task) => (
+                <div className="space-y-1.5 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setDoneCollapsed((c) => !c)}
+                    className="w-full flex items-center justify-between text-xs uppercase tracking-wider text-text-tertiary font-semibold py-1 hover:text-text-secondary transition-colors"
+                    aria-expanded={!doneCollapsed}
+                  >
+                    <span>
+                      Done <span className="text-text-tertiary/70">({done.length})</span>
+                    </span>
+                    <span aria-hidden className="text-base leading-none">
+                      {doneCollapsed ? '▸' : '▾'}
+                    </span>
+                  </button>
+                  {!doneCollapsed && done.map((task) => (
                     <TaskCard
                       key={task.id}
                       task={task}
                       onToggle={() => toggleComplete(task.id)}
-                      onDelete={() => removeTask(task.id)}
+                      onTap={() => toggleComplete(task.id)}
+                      onEdit={() => setQuadrantTask(task)}
                     />
                   ))}
                 </div>
