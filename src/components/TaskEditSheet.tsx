@@ -220,7 +220,7 @@ export function TaskEditSheet({ task, onClose }: Props) {
         exit={{ opacity: 0 }}
         transition={{ duration: prefersReducedMotion ? 0 : 0.18 }}
         onClick={onClose}
-        className="fixed inset-0 bg-black/40 z-50"
+        className="fixed inset-0 bg-black/40 z-[60]"
       />
 
       <motion.div
@@ -233,7 +233,7 @@ export function TaskEditSheet({ task, onClose }: Props) {
             ? { duration: 0 }
             : { type: 'spring', stiffness: 380, damping: 36 }
         }
-        className="fixed bottom-0 inset-x-0 z-50 bg-surface rounded-t-3xl border-t border-border shadow-warm-lg flex flex-col overflow-hidden"
+        className="fixed bottom-0 inset-x-0 z-[70] bg-surface rounded-t-3xl border-t border-border shadow-warm-lg flex flex-col overflow-hidden"
         style={{
           maxHeight: '92dvh',
         }}

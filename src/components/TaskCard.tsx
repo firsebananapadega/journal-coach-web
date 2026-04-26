@@ -6,14 +6,20 @@
 //
 // Behaviors:
 //   - Tap checkbox → onToggle (completed flip)
-//   - Tap text → onEdit if supplied; otherwise falls back to onTap
+//   - Tap text →
+//       inlineEdit=true  → swap text with auto-focused textarea so
+//         the user can fix typos with just the keyboard (used on
+//         /today; no full sheet)
+//       inlineEdit=false → click bubbles up to the row's onTap
+//         (used on /lists and /upcoming, where tap-text means toggle)
 //   - Tap empty area of the row → onTap (callers wire to onToggle on
 //     /lists and /upcoming so the row body acts as an extended
 //     checkbox; /priorities still wires onTap to the quadrant sheet)
-//   - Tap pencil → onEdit
+//   - Tap pencil (when onEdit supplied) → full TaskEditSheet
 //
 // Stays presentational — the page owns the store calls.
 
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import type { Task } from '@/stores/taskStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
@@ -32,6 +38,12 @@ interface Props {
    *  Replaces the previous trash-icon delete affordance — delete
    *  is now inside the edit sheet so the row stays focused. */
   onEdit?: () => void;
+  /** When true, tapping the text starts inline-edit mode instead of
+   *  bubbling up to the row's onTap. The text is replaced with an
+   *  auto-focused textarea; saving on blur or Enter calls
+   *  taskStore.updateTask. Used on /today where the user wants to
+   *  fix a typo with just the keyboard, no modal. */
+  inlineEdit?: boolean;
   showDate?: boolean;
   // Optional priority number (1-based) rendered as a leading bubble.
   // Used by Today / Upcoming / List views where users order tasks by
@@ -49,6 +61,7 @@ export function TaskCard({
   onToggle,
   onTap,
   onEdit,
+  inlineEdit = false,
   showDate,
   index,
   dragHandleProps,
@@ -56,6 +69,41 @@ export function TaskCard({
   const updateTask = useTaskStore((s) => s.updateTask);
   const reminderFired =
     !!task.remind_sent_at && !!task.remind_at && new Date(task.remind_at).getTime() < Date.now();
+
+  // Inline-edit state. Local to TaskCard so a re-render of the
+  // parent list doesn't blow it away while the user is typing.
+  const [isEditingInline, setIsEditingInline] = useState(false);
+  const [editText, setEditText] = useState(task.text);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Reset draft when the task text changes from outside (e.g.
+  // someone just edited it via the full sheet) and we're not
+  // currently editing inline.
+  useEffect(() => {
+    if (!isEditingInline) setEditText(task.text);
+  }, [task.text, isEditingInline]);
+  // Auto-grow the textarea so multi-line tasks don't clip.
+  useEffect(() => {
+    if (!isEditingInline) return;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [isEditingInline, editText]);
+
+  const exitInlineEdit = (commit: boolean) => {
+    if (commit) {
+      const trimmed = editText.trim();
+      if (trimmed && trimmed !== task.text) {
+        void updateTask(task.id, { text: trimmed });
+      } else if (!trimmed) {
+        // Reject empty save — restore previous text.
+        setEditText(task.text);
+      }
+    } else {
+      setEditText(task.text);
+    }
+    setIsEditingInline(false);
+  };
   // The row container itself listens for taps. The checkbox + text +
   // pencil + chips each stop propagation so they own their gesture
   // and don't double-fire the row's onTap. The "empty space" tap
@@ -112,15 +160,37 @@ export function TaskCard({
       </motion.button>
 
       <div className="flex-1 min-w-0">
-        {onEdit ? (
-          // Tapping the text itself opens the edit sheet. The row's
-          // outer onClick (toggle) won't fire because we
-          // stopPropagation here.
+        {isEditingInline ? (
+          // Inline edit — keyboard-only typo fix. Auto-focuses,
+          // grows with content, saves on blur or Enter.
+          <textarea
+            ref={textareaRef}
+            value={editText}
+            autoFocus
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setEditText(e.target.value)}
+            onBlur={() => exitInlineEdit(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                e.currentTarget.blur();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                exitInlineEdit(false);
+              }
+            }}
+            rows={1}
+            className="w-full text-sm leading-snug bg-transparent text-text-primary outline-none border-b border-primary resize-none py-0.5"
+          />
+        ) : inlineEdit ? (
+          // Tapping the text itself starts inline edit (only when
+          // the caller opted in). Row onTap (toggle) doesn't fire
+          // because we stopPropagation here.
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onEdit();
+              setIsEditingInline(true);
             }}
             className="block w-full text-left"
           >
@@ -135,9 +205,10 @@ export function TaskCard({
             </p>
           </button>
         ) : (
-          // No edit affordance — text is a static element; the row's
-          // onTap handles taps anywhere in the row including the
-          // text. Keeps /priorities' existing quadrant-sheet flow.
+          // No inline-edit opt-in — text is a static element; clicks
+          // bubble up to the row's onTap (typically toggleComplete).
+          // Pencil button (when onEdit is set) is the explicit way
+          // to open the full edit sheet.
           <p
             className={`text-sm leading-snug ${
               task.completed
