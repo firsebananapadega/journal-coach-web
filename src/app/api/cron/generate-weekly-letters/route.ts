@@ -48,6 +48,7 @@ interface ProfileRow {
   preferred_guide: string | null;
   letter_cadence: 'weekly' | 'biweekly' | 'monthly' | 'off' | null;
   created_at: string | null;
+  primary_use: 'tasks' | 'journal' | 'both' | null;
 }
 
 /** Minimum days between letters per cadence. Anything later than the
@@ -157,6 +158,12 @@ async function processUser(
   // Cadence: 'off' means the user explicitly muted the letter.
   if (cadence === 'off') {
     return { userId, status: 'cadence-off' };
+  }
+
+  // primary_use 'tasks' = user opted out of the journaling side
+  // entirely (Settings toggle or onboarding). No letters for them.
+  if (profile.primary_use === 'tasks') {
+    return { userId, status: 'gate-tasks-only' };
   }
 
   // Eligibility — see src/lib/server/eligibility.ts.
@@ -346,7 +353,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('id, display_name, preferred_guide, letter_cadence, created_at')
+    .select('id, display_name, preferred_guide, letter_cadence, created_at, primary_use')
     .in('id', activeUserIds);
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 500 });

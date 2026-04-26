@@ -25,6 +25,7 @@
 import { useRouter, usePathname } from 'next/navigation';
 import { motion, type PanInfo } from 'framer-motion';
 import { useWallState, isWallRootPath, type WallId } from '@/lib/wallState';
+import { useAuthStore } from '@/stores/authStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
 
@@ -40,6 +41,7 @@ export default function WallEdgeTab() {
   const lastTabPerWall = useWallState((s) => s.lastTabPerWall);
   const flipPhase = useWallState((s) => s.flipPhase);
   const flipTo = useWallState((s) => s.flipTo);
+  const primaryUse = useAuthStore((s) => s.profile?.primary_use ?? null);
 
   // Only show on the exact root tabs of either wall. Inside a notebook,
   // a list, an intention detail, the entry detail, etc. the user is in
@@ -47,6 +49,15 @@ export default function WallEdgeTab() {
   // whatever they're doing and looks like UI clutter on top of any
   // composer overlay rendered there.
   if (!isWallRootPath(pathname)) {
+    return null;
+  }
+
+  // Hide the switcher entirely when the user has scoped their app to
+  // only one wall (primary_use !== 'both'). They can re-enable both
+  // walls from /settings; until then the edge tab would point at a
+  // wall the user explicitly opted out of. `null` = legacy user
+  // who never picked, treat as 'both' for safety.
+  if (primaryUse !== 'both' && primaryUse !== null) {
     return null;
   }
 

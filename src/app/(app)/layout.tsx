@@ -13,6 +13,11 @@ import { WallNav } from '@/components/WallNav';
 import { wallForPath } from '@/lib/wallState';
 import GuideTour from '@/components/tour/GuideTour';
 
+// Wall-home destinations used when redirecting a user who has
+// scoped to a single wall but landed on the other side.
+const TASKS_HOME = '/today';
+const JOURNAL_HOME = '/home';
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -33,8 +38,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // still false. RootPage has a mirror check for '/'.
     if (profile && !profile.onboarding_completed) {
       router.replace('/auth/onboarding');
+      return;
     }
-  }, [initialized, session, profile, router]);
+
+    // Wall-scope guard. When the user has narrowed primary_use to
+    // 'tasks' or 'journal' (via onboarding or the Settings toggle)
+    // and the current path belongs to the OTHER wall, redirect to
+    // their wall's home. 'both' and null users are unaffected — the
+    // edge tab handles their wall switching naturally.
+    if (profile?.primary_use === 'tasks' || profile?.primary_use === 'journal') {
+      const currentWall = wallForPath(pathname);
+      if (
+        (profile.primary_use === 'tasks' && currentWall === 'journal') ||
+        (profile.primary_use === 'journal' && currentWall === 'tasks')
+      ) {
+        router.replace(profile.primary_use === 'tasks' ? TASKS_HOME : JOURNAL_HOME);
+      }
+    }
+  }, [initialized, session, profile, pathname, router]);
 
   // Guide-matched theme — applies [data-guide-theme="{id}"] to the
   // document root only when (a) toggle is on AND (b) user has a guide

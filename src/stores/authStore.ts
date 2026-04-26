@@ -13,7 +13,7 @@ const WRITE_MS = 15000;
 
 export type LetterCadence = 'weekly' | 'biweekly' | 'monthly' | 'off';
 
-export type PrimaryUse = 'journal' | 'tasks';
+export type PrimaryUse = 'journal' | 'tasks' | 'both';
 
 export interface Profile {
   id: string;
@@ -279,7 +279,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             anchor_moment: anchorMoment,
             intentions,
             preferred_guide: preferredGuide || 'ben',
-            primary_use: primaryUse ?? 'journal',
+            primary_use: primaryUse ?? 'both',
             onboarding_completed: true,
             updated_at: new Date().toISOString(),
           })

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import GuideMascot from '@/components/mascot/GuideMascot';
 import { staggerContainer, staggerItem, prefersReducedMotion } from '@/lib/motionVariants';
-import { useAuthStore, type LetterCadence } from '@/stores/authStore';
+import { useAuthStore, type LetterCadence, type PrimaryUse } from '@/stores/authStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -127,8 +127,87 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Your Guide — always visible for easy swapping */}
-      {(
+      {/* Use this app for — three-way segmented control. Mirrors the
+          onboarding choice (Tasks / Both / Journal) and lets the user
+          retune any time. Affects: wall switcher visibility, layout
+          wall-scope guard, letter cron eligibility. */}
+      <motion.div {...sectionMotion} className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+          Use this app for
+        </h2>
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-3">
+          {(() => {
+            const current: PrimaryUse =
+              profile?.primary_use === 'tasks' ||
+              profile?.primary_use === 'journal' ||
+              profile?.primary_use === 'both'
+                ? profile.primary_use
+                : 'both';
+            const options: Array<{ value: PrimaryUse; label: string }> = [
+              { value: 'tasks', label: 'Tasks' },
+              { value: 'both', label: 'Both' },
+              { value: 'journal', label: 'Journal' },
+            ];
+            return (
+              <>
+                <div className="flex items-center bg-surface-elevated rounded-xl p-1">
+                  {options.map((opt) => {
+                    const active = current === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={async () => {
+                          if (active) return;
+                          try {
+                            await updateProfile({ primary_use: opt.value });
+                            // The (app)/layout effect will redirect
+                            // off a now-mismatched wall on the next
+                            // render. No router push needed here.
+                            showToast(
+                              opt.value === 'both'
+                                ? 'Both walls enabled'
+                                : opt.value === 'tasks'
+                                ? 'Tasks-only mode'
+                                : 'Journal-only mode',
+                              'success',
+                            );
+                          } catch (err) {
+                            showToast(
+                              err instanceof Error ? err.message : t('common.error'),
+                              'error',
+                            );
+                          }
+                        }}
+                        className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                          active
+                            ? 'bg-primary text-white shadow-warm-sm'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                        aria-pressed={active}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-text-tertiary leading-snug">
+                  {current === 'both'
+                    ? 'Both walls are visible. Tap the pill at the top of any page to switch between them.'
+                    : current === 'tasks'
+                    ? 'Tasks-only mode. The journal wall and weekly letters are hidden.'
+                    : 'Journal-only mode. The tasks wall is hidden.'}
+                </p>
+              </>
+            );
+          })()}
+        </div>
+      </motion.div>
+
+      {/* Your Guide — hidden in tasks-only mode since guides are
+          journaling-flavored. Switching to Both/Journal in the toggle
+          above brings this section back. */}
+      {profile?.primary_use !== 'tasks' && (
         <motion.div {...sectionMotion} className="space-y-2">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.yourGuide')}</h2>
           <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm">

@@ -43,6 +43,7 @@ interface ProfileRow {
   display_name: string | null;
   preferred_guide: string | null;
   created_at: string | null;
+  primary_use: 'tasks' | 'journal' | 'both' | null;
 }
 
 interface EntryRow {
@@ -137,6 +138,11 @@ async function processUser(
   quarterKey: string,
 ): Promise<{ userId: string; status: string; error?: string }> {
   const userId = profile.id;
+
+  // primary_use 'tasks' = user opted out of journaling side. Skip.
+  if (profile.primary_use === 'tasks') {
+    return { userId, status: 'gate-tasks-only' };
+  }
 
   // Eligibility — research-backed gates so we don't fire a 90-day
   // narrative-arc letter at someone who's been around 4 days. See
@@ -319,7 +325,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('id, display_name, preferred_guide, created_at')
+    .select('id, display_name, preferred_guide, created_at, primary_use')
     .in('id', activeUserIds);
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 500 });
