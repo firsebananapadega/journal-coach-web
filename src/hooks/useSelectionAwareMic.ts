@@ -208,6 +208,15 @@ export function useSelectionAwareMic({
     return startListening({
       continuous: true,
       language: language ?? getLanguage(),
+      onStart: () => {
+        // Reactive re-sync. If the watchdog already flipped
+        // isListening to false (e.g., the user took >8s on the
+        // permission prompt), the moment the engine actually starts
+        // we flip it back to true so the UI matches reality. This
+        // makes isListening a projection of engine state instead of
+        // an optimistic guess.
+        setIsListening(true);
+      },
       onResult: (transcript) => {
         const baseline = transcriptBaselineRef.current;
         const delta =

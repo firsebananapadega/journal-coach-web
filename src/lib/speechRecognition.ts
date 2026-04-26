@@ -63,6 +63,11 @@ export interface SpeechRecognitionOptions {
   onResult?: (transcript: string, isFinal: boolean) => void;
   onEnd?: () => void;
   onError?: (error: string) => void;
+  /** Fires when `recognition.onstart` actually fires — i.e., the
+   *  engine is genuinely listening. Lets the consumer re-sync UI
+   *  state in case the watchdog already flipped it off (e.g., the
+   *  user took a long time to grant the permission prompt). */
+  onStart?: () => void;
 }
 
 let activeRecognition: SpeechRecognition | null = null;
@@ -90,13 +95,19 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
   recognition.interimResults = true;
 
   let finalTranscript = '';
-  // Watchdog: on iOS Safari (especially first-time use after a fresh
-  // permission grant) the SR engine occasionally enters a half-init
-  // state where `onstart` / `onresult` / `onerror` never fire and the
-  // UI is stuck on "listening" forever. If we don't see `onstart` or
-  // any result within START_TIMEOUT_MS, abort and surface as an error
+  // Watchdog: on iOS Safari the SR engine occasionally enters a half-
+  // init state where `onstart` / `onresult` / `onerror` never fire
+  // and the UI is stuck on "listening" forever. If we don't see
+  // `onstart` within START_TIMEOUT_MS, abort and surface as an error
   // so the caller can reset the UI.
-  const START_TIMEOUT_MS = 2500;
+  //
+  // 8000 ms is calibrated to the realistic "user reads + taps Allow"
+  // window for the iOS first-time permission prompt. The previous
+  // 2500 ms fired during a slow prompt, flipped isListening to false,
+  // and iOS would then start listening anyway — UI/engine desync.
+  // The companion `onStart` callback re-syncs UI when onstart fires
+  // late, so even a watchdog miss is self-correcting.
+  const START_TIMEOUT_MS = 8000;
   let started = false;
   let watchdog: ReturnType<typeof setTimeout> | null = setTimeout(() => {
     if (started) return;
@@ -114,6 +125,7 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
   recognition.onstart = () => {
     started = true;
     clearWatchdog();
+    options.onStart?.();
   };
 
   recognition.onresult = (event: SpeechRecognitionEvent) => {
