@@ -233,13 +233,12 @@ export function TaskEditSheet({ task, onClose }: Props) {
         }
         className="fixed inset-x-3 z-[70] bg-surface rounded-3xl border border-border shadow-warm-xl flex flex-col overflow-hidden"
         style={{
-          // Float the sheet off the bottom of the viewport (above
-          // any iOS home indicator) and inset from the sides so it
-          // reads as a proper modal panel rather than glued to the
-          // chrome. The drag-up animation still feels right because
-          // y:'100%' resolves relative to the sheet's height.
-          bottom: 'max(0.75rem, env(safe-area-inset-bottom))',
-          maxHeight: '88dvh',
+          // Sheet floats higher in the viewport: ~18dvh of empty
+          // backdrop below it. Tapping that empty space hits the
+          // backdrop → onClose. Capped to 70dvh so it doesn't grow
+          // back into the bottom area on long-content tasks.
+          bottom: 'max(18dvh, env(safe-area-inset-bottom) + 0.75rem)',
+          maxHeight: '70dvh',
         }}
       >
         {/* Drag handle pinned at the top so it's always visible. */}
@@ -264,9 +263,16 @@ export function TaskEditSheet({ task, onClose }: Props) {
             className="w-full px-3 py-2 bg-bg border border-border focus:border-primary rounded-xl text-base text-text-primary outline-none resize-none"
           />
 
-          {/* Date + List row */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
+          {/* Date + List row.
+              `min-w-0` is essential on each grid column — without
+              it, the iOS-formatted date input ("Apr 21, 2026")
+              forces its column to its intrinsic width, which
+              pushes the List column over and the two visually
+              overlap when the sheet is narrower (post-floating-
+              modal). min-w-0 lets the column shrink to whatever
+              grid-cols-2 allocates. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
               <label className="block text-[11px] uppercase tracking-wider text-text-tertiary mb-1">
                 Date
               </label>
@@ -277,7 +283,7 @@ export function TaskEditSheet({ task, onClose }: Props) {
                 className="w-full px-3 py-2.5 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary outline-none"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="block text-[11px] uppercase tracking-wider text-text-tertiary mb-1">
                 List
               </label>
