@@ -3,7 +3,9 @@
 // Bi-directional swipe-to-reveal row.
 //
 // Swipe LEFT  → reveal "Delete" on the right.
-// Swipe RIGHT → reveal "Copy"   on the left (when `onCopy` supplied).
+// Swipe RIGHT → reveal a caller-defined secondary action on the left
+//               (when `onSecondary` supplied; e.g. "Tomorrow" on
+//               /lists/[id], "Copy" on a clipboard surface, etc.).
 //
 // The row NEVER auto-commits an action on a full swipe. Both actions
 // require the user to tap the revealed button — a deliberate
@@ -23,7 +25,20 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 
 interface SwipeToDeleteProps {
   onDelete: () => void;
-  onCopy?: () => void;
+  /** Left-reveal secondary action (e.g. "Tomorrow", "Copy"). When
+   *  null, the left swipe stays disabled and the panel never shows. */
+  onSecondary?: () => void;
+  /** Visible label inside the secondary panel. Required when
+   *  onSecondary is supplied. Kept generic so the same component
+   *  serves both /lists ("Tomorrow") and any future surface. */
+  secondaryLabel?: string;
+  /** Optional icon node rendered above/beside the secondary label.
+   *  Defaults to a generic forward-arrow when omitted. */
+  secondaryIcon?: React.ReactNode;
+  /** Background color class for the secondary panel. Defaults to the
+   *  primary brand color. Override when an action wants to communicate
+   *  a different intent visually (e.g. neutral gray for "snooze"). */
+  secondaryBgClass?: string;
   onTap?: () => void;
   children: React.ReactNode;
 }
@@ -42,7 +57,15 @@ const SETTLE_CLICK_LOCKOUT_MS = 450;
 
 type Revealed = 'none' | 'left' | 'right';
 
-export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDeleteProps) {
+export function SwipeToDelete({
+  onDelete,
+  onSecondary,
+  secondaryLabel = 'Action',
+  secondaryIcon,
+  secondaryBgClass = 'bg-primary',
+  onTap,
+  children,
+}: SwipeToDeleteProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Static drag bookkeeping — refs so touch events don't need
@@ -64,7 +87,7 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
   // the action button's onTouchStart. Cleared on click. On desktop
   // (no touch) we fall through without requiring it.
   const deleteTouchedSelf = useRef(false);
-  const copyTouchedSelf = useRef(false);
+  const secondaryTouchedSelf = useRef(false);
 
   // Live transform offset — drives the inline style.
   const [offsetX, setOffsetX] = useState(0);
@@ -96,12 +119,12 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
   const clampedOffsetFor = useCallback(
     (dx: number, base: number): number => {
       const raw = base + dx;
-      const canOpenRight = !!onCopy;
+      const canOpenRight = !!onSecondary;
       const lower = -MAX_DRAG;
       const upper = canOpenRight ? MAX_DRAG : 0;
       return Math.max(lower, Math.min(upper, raw));
     },
-    [onCopy],
+    [onSecondary],
   );
 
   const beginGesture = useCallback(
@@ -198,7 +221,7 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
       if (dx <= -SNAP_THRESHOLD) {
         setOffsetX(-ACTION_WIDTH);
         setRevealed('right');
-      } else if (dx >= SNAP_THRESHOLD && onCopy) {
+      } else if (dx >= SNAP_THRESHOLD && onSecondary) {
         setOffsetX(ACTION_WIDTH);
         setRevealed('left');
       } else {
@@ -216,7 +239,7 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
       setOffsetX(0);
       setRevealed('none');
     }
-  }, [onCopy, onTap]);
+  }, [onSecondary, onTap]);
 
   // ── Touch handlers on the content layer ─────────────────────────
   const handleTouchStart = useCallback(
@@ -287,31 +310,31 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
     },
     [onDelete, clickIsReal],
   );
-  const handleCopyClick = useCallback(
+  const handleSecondaryClick = useCallback(
     (ev: React.MouseEvent) => {
       ev.stopPropagation();
-      const real = clickIsReal(copyTouchedSelf.current);
-      copyTouchedSelf.current = false;
+      const real = clickIsReal(secondaryTouchedSelf.current);
+      secondaryTouchedSelf.current = false;
       if (!real) return;
       if (revealedRef.current !== 'left') return;
       setOffsetX(0);
       setRevealed('none');
-      onCopy?.();
+      onSecondary?.();
     },
-    [onCopy, clickIsReal],
+    [onSecondary, clickIsReal],
   );
 
   return (
     <div ref={containerRef} className="relative overflow-hidden rounded-xl">
-      {/* Copy panel — revealed by LEFT-TO-RIGHT swipe. Hidden while
-          the row is at rest so the primary-color fill can't peek
+      {/* Secondary panel — revealed by LEFT-TO-RIGHT swipe. Hidden
+          while the row is at rest so the colored fill can't peek
           through the card's rounded corners. `visibility` (not
           `display`) keeps layout stable so the transform reveal
           doesn't reflow on first swipe. */}
-      {onCopy && (
+      {onSecondary && (
         <div
           aria-hidden={revealed !== 'left'}
-          className="absolute inset-y-0 left-0 flex items-center justify-center bg-primary"
+          className={`absolute inset-y-0 left-0 flex items-center justify-center ${secondaryBgClass}`}
           style={{
             width: ACTION_WIDTH,
             pointerEvents: revealed === 'left' ? 'auto' : 'none',
@@ -326,24 +349,26 @@ export function SwipeToDelete({ onDelete, onCopy, onTap, children }: SwipeToDele
               // here rather than being synthesized by iOS after a
               // swipe ending over this element.
               ev.stopPropagation();
-              copyTouchedSelf.current = true;
+              secondaryTouchedSelf.current = true;
             }}
-            onClick={handleCopyClick}
-            aria-label="Copy"
+            onClick={handleSecondaryClick}
+            aria-label={secondaryLabel}
             tabIndex={revealed === 'left' ? 0 : -1}
-            className="text-white text-sm font-semibold h-full w-full flex items-center justify-center gap-1"
+            className="text-white text-[11px] font-semibold h-full w-full flex flex-col items-center justify-center gap-0.5 leading-tight"
           >
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-            <span>Copy</span>
+            {secondaryIcon ?? (
+              <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M5 12h14" />
+                <path d="M13 5l7 7-7 7" />
+              </svg>
+            )}
+            <span>{secondaryLabel}</span>
           </button>
         </div>
       )}
 
       {/* Delete panel — revealed by RIGHT-TO-LEFT swipe. Same
-          at-rest visibility gate as the Copy panel above. */}
+          at-rest visibility gate as the secondary panel above. */}
       <div
         aria-hidden={revealed !== 'right'}
         className="absolute inset-y-0 right-0 flex items-center justify-center bg-error"

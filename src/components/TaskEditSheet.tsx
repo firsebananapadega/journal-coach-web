@@ -21,9 +21,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { Task } from '@/stores/taskStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { useListStore, type ListRecord } from '@/stores/listStore';
+import { toLocalDateStr } from '@/lib/dateUtils';
 import { t } from '@/lib/translations';
 import { prefersReducedMotion } from '@/lib/motionVariants';
-import TaskReminderChip from '@/components/tasks/TaskReminderChip';
 
 interface Props {
   task: Task | null;
@@ -166,6 +166,35 @@ export function TaskEditSheet({ task, onClose }: Props) {
     void updateTask(task.id, { remind_at: next, remind_sent_at: null });
   };
 
+  // Reminder is now a time-only picker. The date portion comes from
+  // the task's due_date (or today if undated) so the user only picks
+  // HH:MM — same UX as the Time field above. Returns the existing
+  // ISO's HH:MM in 24-hour format, or '' when no reminder is set.
+  const reminderHHMM: string = (() => {
+    if (!task.remind_at) return '';
+    const d = new Date(task.remind_at);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  })();
+
+  const commitReminderTime = (hhmm: string) => {
+    if (!hhmm) {
+      commitRemindAt(null);
+      return;
+    }
+    const [hh, mm] = hhmm.split(':').map((n) => parseInt(n, 10));
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return;
+    // Combine task.due_date (preferred) or today with the picked
+    // HH:MM. The Date constructor here interprets the parts in local
+    // time; toISOString converts to the UTC ISO the cron expects.
+    const baseDateStr = task.due_date ?? toLocalDateStr(new Date());
+    const [y, mo, day] = baseDateStr.split('-').map((n) => parseInt(n, 10));
+    const local = new Date(y, mo - 1, day, hh, mm, 0, 0);
+    if (isNaN(local.getTime())) return;
+    commitRemindAt(local.toISOString());
+  };
+
   const reminderFired =
     !!task.remind_sent_at &&
     !!task.remind_at &&
@@ -217,9 +246,12 @@ export function TaskEditSheet({ task, onClose }: Props) {
         {/* Scrollable content. The Delete + Done buttons live OUTSIDE
             this container in a sticky footer so when the iOS keyboard
             opens during text editing, the buttons stay reachable.
-            Previously they were inside this scroll area and got
-            pushed below the keyboard / fold of the sheet. */}
-        <div className="flex-1 overflow-y-auto max-w-lg mx-auto w-full px-5 pb-4 space-y-4">
+            `min-h-0` is required — without it a flex-1 child won't
+            shrink below its content's intrinsic height, so
+            overflow-y-auto never activates and the footer gets
+            pushed past the sheet's maxHeight (the user reported
+            being unable to scroll within the sheet). */}
+        <div className="flex-1 min-h-0 overflow-y-auto max-w-lg mx-auto w-full px-5 pb-4 space-y-4">
           {/* Editable text */}
           <textarea
             value={text}
@@ -285,17 +317,30 @@ export function TaskEditSheet({ task, onClose }: Props) {
             </div>
           </div>
 
-          {/* Reminder */}
+          {/* Reminder — time-only picker, same shape as the Time
+              field above. The date portion is taken from
+              task.due_date (or today if undated) so the user only
+              picks HH:MM. Bell icon kept as the visual anchor. */}
           <div>
             <label className="block text-[11px] uppercase tracking-wider text-text-tertiary mb-1">
               Reminder
             </label>
             <div className="flex flex-wrap items-center gap-1.5">
-              <TaskReminderChip
-                value={task.remind_at}
-                alreadyFired={reminderFired}
-                onChange={commitRemindAt}
+              <span aria-hidden className="text-base leading-none">🔔</span>
+              <input
+                type="time"
+                value={reminderHHMM}
+                onChange={(e) => commitReminderTime(e.target.value)}
+                className="px-3 py-1.5 bg-surface-elevated border border-border rounded-full text-xs text-text-primary outline-none w-[110px]"
               />
+              {reminderHHMM && (
+                <button
+                  onClick={() => commitReminderTime('')}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold text-text-tertiary hover:text-error"
+                >
+                  Clear
+                </button>
+              )}
               {reminderFired && (
                 <span className="text-[10px] text-text-tertiary">
                   Already fired

@@ -5,10 +5,12 @@
 // time/date chips + a trailing menu trigger.
 //
 // Behaviors:
-//   - Tap checkbox → toggle completed
-//   - Tap text → onTap (typically opens quadrant sheet to set
-//     urgent/important; caller decides)
-//   - Tap × → onDelete (caller confirms)
+//   - Tap checkbox → onToggle (completed flip)
+//   - Tap text → onEdit if supplied; otherwise falls back to onTap
+//   - Tap empty area of the row → onTap (callers wire to onToggle on
+//     /lists and /upcoming so the row body acts as an extended
+//     checkbox; /priorities still wires onTap to the quadrant sheet)
+//   - Tap pencil → onEdit
 //
 // Stays presentational — the page owns the store calls.
 
@@ -54,9 +56,27 @@ export function TaskCard({
   const updateTask = useTaskStore((s) => s.updateTask);
   const reminderFired =
     !!task.remind_sent_at && !!task.remind_at && new Date(task.remind_at).getTime() < Date.now();
+  // The row container itself listens for taps. The checkbox + text +
+  // pencil + chips each stop propagation so they own their gesture
+  // and don't double-fire the row's onTap. The "empty space" tap
+  // (gap to the right of the text, padding around the row) bubbles
+  // up to the row and fires onTap → typically toggleComplete.
+  const handleRowClick = () => {
+    if (onTap) onTap();
+  };
   return (
     <div
-      className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${
+      role="button"
+      tabIndex={onTap ? 0 : -1}
+      onClick={handleRowClick}
+      onKeyDown={(e) => {
+        if (!onTap) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onTap();
+        }
+      }}
+      className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer ${
         task.completed ? 'bg-success/5' : 'bg-surface'
       }`}
     >
@@ -71,7 +91,10 @@ export function TaskCard({
       )}
       <motion.button
         whileTap={prefersReducedMotion ? undefined : { scale: 0.85 }}
-        onClick={onToggle}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
         className="p-1 -m-1 flex-shrink-0"
         aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
       >
@@ -88,21 +111,47 @@ export function TaskCard({
         </div>
       </motion.button>
 
-      <button
-        type="button"
-        onClick={onTap}
-        className="flex-1 min-w-0 text-left"
-      >
-        <p
-          className={`text-sm leading-snug ${
-            task.completed
-              ? 'text-text-tertiary line-through'
-              : 'text-text-primary'
-          }`}
+      <div className="flex-1 min-w-0">
+        {onEdit ? (
+          // Tapping the text itself opens the edit sheet. The row's
+          // outer onClick (toggle) won't fire because we
+          // stopPropagation here.
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+            className="block w-full text-left"
+          >
+            <p
+              className={`text-sm leading-snug ${
+                task.completed
+                  ? 'text-text-tertiary line-through'
+                  : 'text-text-primary'
+              }`}
+            >
+              {task.text}
+            </p>
+          </button>
+        ) : (
+          // No edit affordance — text is a static element; the row's
+          // onTap handles taps anywhere in the row including the
+          // text. Keeps /priorities' existing quadrant-sheet flow.
+          <p
+            className={`text-sm leading-snug ${
+              task.completed
+                ? 'text-text-tertiary line-through'
+                : 'text-text-primary'
+            }`}
+          >
+            {task.text}
+          </p>
+        )}
+        <div
+          className="flex items-center gap-1.5 mt-1 flex-wrap"
+          onClick={(e) => e.stopPropagation()}
         >
-          {task.text}
-        </p>
-        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
           {showDate && task.due_date && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
               {task.due_date}
@@ -120,15 +169,13 @@ export function TaskCard({
               has the picker. Once set, the chip shows the time so
               the user can read the reminder at a glance. */}
           {task.remind_at && (
-            <div onClick={(e) => e.stopPropagation()}>
-              <TaskReminderChip
-                value={task.remind_at}
-                alreadyFired={reminderFired}
-                onChange={(next) => {
-                  void updateTask(task.id, { remind_at: next, remind_sent_at: null });
-                }}
-              />
-            </div>
+            <TaskReminderChip
+              value={task.remind_at}
+              alreadyFired={reminderFired}
+              onChange={(next) => {
+                void updateTask(task.id, { remind_at: next, remind_sent_at: null });
+              }}
+            />
           )}
           {task.urgent && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-600 dark:text-red-400 font-medium">
@@ -141,11 +188,14 @@ export function TaskCard({
             </span>
           )}
         </div>
-      </button>
+      </div>
 
       {onEdit && (
         <button
-          onClick={onEdit}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
           className="p-2 -m-1 flex-shrink-0 text-text-tertiary hover:text-primary transition-colors"
           aria-label="Edit task"
         >
@@ -163,6 +213,7 @@ export function TaskCard({
         <div
           className="p-2 -m-1 text-text-tertiary flex-shrink-0"
           style={{ touchAction: 'none' }}
+          onClick={(e) => e.stopPropagation()}
           {...dragHandleProps}
           aria-label="Reorder"
         >
