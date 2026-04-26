@@ -59,12 +59,20 @@ export default function WelcomeStep({ onContinue }: WelcomeStepProps) {
         style={{ background: 'var(--theme-primary-glow)' }}
       />
 
-      {/* Language toggle — pinned to top-right, respects safe area */}
+      {/* Language toggle — centered prominently above the welcome
+          card. Bigger than a corner pill so first-time users from
+          either language see it immediately and feel invited to
+          flip. Flipping here writes localStorage; the language is
+          then persisted to the profile when onboarding completes. */}
       <div
-        className="relative z-10 flex justify-end px-6 pt-3"
-        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+        className="relative z-10 flex justify-center px-6 pt-4"
+        style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
       >
-        <div className="flex gap-1 p-1 bg-surface/80 backdrop-blur border border-border rounded-full">
+        <div
+          role="group"
+          aria-label="Language"
+          className="flex gap-1 p-1 bg-surface/80 backdrop-blur border border-border rounded-full shadow-warm-sm"
+        >
           {LANGUAGES.map((l) => {
             const active = lang === l.code;
             return (
@@ -72,14 +80,16 @@ export default function WelcomeStep({ onContinue }: WelcomeStepProps) {
                 key={l.code}
                 type="button"
                 onClick={() => pickLang(l.code)}
-                className={`text-xs px-3 py-1 rounded-full transition-colors ${
-                  active ? 'bg-primary text-white' : 'text-text-tertiary hover:text-text-secondary'
+                className={`text-sm font-semibold px-5 py-2 rounded-full transition-colors ${
+                  active
+                    ? 'bg-primary text-white shadow-warm-sm'
+                    : 'text-text-tertiary hover:text-text-secondary'
                 }`}
                 aria-label={l.label}
                 aria-pressed={active}
               >
-                <span className="mr-1">{l.flag}</span>
-                {l.code.split('-')[0].toUpperCase()}
+                <span className="mr-1.5 text-base">{l.flag}</span>
+                <span>{l.label}</span>
               </button>
             );
           })}

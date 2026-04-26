@@ -86,23 +86,33 @@ export interface BuildQuarterlyLetterInput {
    *  what shifted"). Caller passes empty string for first-ever
    *  quarterly. */
   priorLetterText?: string;
+  /** 'en' | 'es' — drives the prompt's output language. 'es' adds
+   *  an explicit Mexican-Spanish instruction (tú form, no Spain
+   *  vocabulary) and switches date formatting to Spanish abbreviations. */
+  locale?: 'en' | 'es';
 }
 
 export const QUARTERLY_LETTER_MODEL = 'gemini-2.5-flash';
 
 function buildPrompt(input: BuildQuarterlyLetterInput): string {
+  const isSpanish = input.locale === 'es';
+  const dateLocale = isSpanish ? 'es-MX' : 'en-US';
   const summaries = input.entries.map((e) => {
-    const date = new Date(e.created_at).toLocaleDateString('en-US', {
+    const date = new Date(e.created_at).toLocaleDateString(dateLocale, {
       month: 'short',
       day: 'numeric',
     });
-    const mood = e.mood_label || 'unspecified';
+    const mood = e.mood_label || (isSpanish ? 'no especificado' : 'unspecified');
     const snippet = (e.content_text || '').slice(0, 350);
     return `- id="${e.id}" date=${date} mood=${mood}\n  ${snippet}`;
   });
 
   const priorBlock = input.priorLetterText
     ? `\n\nPrior quarterly letter (you wrote this last time — DON'T repeat it; reference it sparingly only if there's an arc that connects):\n"""\n${input.priorLetterText.slice(0, 1500)}\n"""`
+    : '';
+
+  const langInstruction = isSpanish
+    ? '\n- Write the entire letter AND the themes in Mexican Spanish (español mexicano). Use "tú" form. Never use Spain Spanish vocabulary.'
     : '';
 
   return `You are ${input.guideName}, a warm and observant journaling guide writing a QUARTERLY narrative-arc letter to ${input.userName || 'your journaler'}.
@@ -125,7 +135,7 @@ CONTENT RULES (non-negotiable):
 - Use cognitive/causal language ("you've been making sense of X by…") more than emotion words. Pennebaker's mechanism — narrative coherence is built through "because", "I notice", "the reason."
 - Do NOT use markdown formatting in the letter — no **bold**, no *italics*, no headers, no bullet points. Plain prose with \\n\\n paragraph breaks.
 - Do NOT moralize. Do NOT prescribe. Reflect, name, ask one closing question.
-- Sign with your first name on the final line.
+- Sign with your first name on the final line.${langInstruction}
 
 Behavioral signals over the past 90 days (use to ground specific observations — don't list mechanically):
 ${input.signalsBlock || '(none)'}

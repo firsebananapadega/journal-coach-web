@@ -38,6 +38,11 @@ export interface Profile {
    *  loads on first app open. After that, wallState localStorage owns
    *  the default. */
   primary_use: PrimaryUse | null;
+  /** UI + content language. Mirrors localStorage 'app_language' but
+   *  is the source of truth for any server process (letter crons,
+   *  reminder pushes) that needs to localize. Set during onboarding;
+   *  changeable in Settings. */
+  language: 'en-US' | 'es-MX';
   created_at: string;
   updated_at: string;
 }
@@ -271,6 +276,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = get().user;
       if (!user) throw new Error('No authenticated user');
       set({ loading: true, error: null });
+      // Persist whatever language the user picked on the welcome step
+      // (lives in localStorage at this point). The cron uses this
+      // server-side; without persistence the language never leaves
+      // the browser.
+      let chosenLanguage: 'en-US' | 'es-MX' = 'en-US';
+      if (typeof window !== 'undefined') {
+        const stored = window.localStorage.getItem('app_language');
+        if (stored === 'es-MX' || stored === 'en-US') chosenLanguage = stored;
+      }
       const { data, error } = await withTimeout(
         supabase
           .from('profiles')
@@ -280,6 +294,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             intentions,
             preferred_guide: preferredGuide || 'ben',
             primary_use: primaryUse ?? 'both',
+            language: chosenLanguage,
             onboarding_completed: true,
             updated_at: new Date().toISOString(),
           })

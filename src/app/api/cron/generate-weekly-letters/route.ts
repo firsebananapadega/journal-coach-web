@@ -49,6 +49,7 @@ interface ProfileRow {
   letter_cadence: 'weekly' | 'biweekly' | 'monthly' | 'off' | null;
   created_at: string | null;
   primary_use: 'tasks' | 'journal' | 'both' | null;
+  language: 'en-US' | 'es-MX' | null;
 }
 
 /** Minimum days between letters per cadence. Anything later than the
@@ -230,11 +231,13 @@ async function processUser(
   const signals = await gatherWeeklySignals(admin, userId);
   const signalsBlock = formatSignalsForPrompt(signals);
 
-  // Build the letter. Locale defaults to English for the cron —
-  // profile doesn't yet carry a language field, and the client path
-  // still handles Spanish speakers via getLocale(). When we add
-  // per-user locale to profiles we can thread it in here.
+  // Build the letter using the user's chosen language. profile.language
+  // is the source of truth (synced from Settings → DB by the client);
+  // the buildWeeklyLetter prompt switches to Mexican-Spanish output
+  // when locale='es' and entries are formatted with the matching
+  // dateLocale so the model sees consistent date strings.
   const guide = getGuideOrDefault(profile.preferred_guide);
+  const isSpanish = profile.language === 'es-MX';
   let reflection;
   try {
     reflection = await buildWeeklyLetter({
@@ -246,8 +249,8 @@ async function processUser(
       })),
       userName: profile.display_name || '',
       guideName: guide.name,
-      locale: 'en',
-      dateLocale: 'en-US',
+      locale: isSpanish ? 'es' : 'en',
+      dateLocale: isSpanish ? 'es-MX' : 'en-US',
       weekKey,
       signalsBlock,
       callGemini: serverInvoker,
@@ -353,7 +356,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('id, display_name, preferred_guide, letter_cadence, created_at, primary_use')
+    .select('id, display_name, preferred_guide, letter_cadence, created_at, primary_use, language')
     .in('id', activeUserIds);
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 500 });

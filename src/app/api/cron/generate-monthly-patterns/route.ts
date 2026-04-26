@@ -41,6 +41,7 @@ interface ProfileRow {
   preferred_guide: string | null;
   created_at: string | null;
   primary_use: 'tasks' | 'journal' | 'both' | null;
+  language: 'en-US' | 'es-MX' | null;
 }
 
 interface EntryRow {
@@ -195,6 +196,7 @@ async function processUser(
       guideName: guide.name,
       monthKey,
       signalsBlock,
+      locale: profile.language === 'es-MX' ? 'es' : 'en',
       callGemini: serverInvoker,
     });
   } catch (err) {
@@ -291,7 +293,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('id, display_name, preferred_guide, created_at, primary_use')
+    .select('id, display_name, preferred_guide, created_at, primary_use, language')
     .in('id', activeUserIds);
   if (profErr) {
     return NextResponse.json({ error: profErr.message }, { status: 500 });

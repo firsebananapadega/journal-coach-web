@@ -50,9 +50,13 @@ export default function SettingsPage() {
     setNewIntention('');
   };
 
-  const handleLanguageChange = (lang: AppLanguage) => {
+  const handleLanguageChange = async (lang: AppLanguage) => {
     setLanguage(lang);
     setCurrentLang(lang);
+    // Persist to profile so server-side processes (letter crons,
+    // reminder pushes) can localize. Fire-and-forget; the local
+    // state flip is what the user feels immediately.
+    updateProfile({ language: lang } as Partial<typeof profile> & { language: AppLanguage }).catch(() => {});
     window.location.reload();
   };
 

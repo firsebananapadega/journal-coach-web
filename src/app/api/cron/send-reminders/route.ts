@@ -44,6 +44,7 @@ async function deliverForTask(
   admin: SupabaseClient,
   task: TaskRow,
   hmacSecret: string,
+  language: 'en-US' | 'es-MX',
 ): Promise<{ attempts: number; sent: number }> {
   const { data: subs } = await admin
     .from('push_subscriptions')
@@ -63,8 +64,9 @@ async function deliverForTask(
     hmacSecret,
   );
 
+  const isSpanish = language === 'es-MX';
   const payload = JSON.stringify({
-    title: 'Reminder',
+    title: isSpanish ? 'Recordatorio' : 'Reminder',
     body: (task.reminder_message || task.text || '').slice(0, 240),
     data: {
       task_id: task.id,
@@ -156,9 +158,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ processed: 0 });
   }
 
+  // One bulk profile fetch — maps user_id → language so each push
+  // can localize its title ("Reminder" vs "Recordatorio") without
+  // an extra round trip per task.
+  const userIds = Array.from(new Set((tasks as TaskRow[]).map((t) => t.user_id)));
+  const { data: profileRows } = await admin
+    .from('profiles')
+    .select('id, language')
+    .in('id', userIds);
+  const langByUser = new Map<string, 'en-US' | 'es-MX'>();
+  for (const r of (profileRows ?? []) as Array<{ id: string; language: string | null }>) {
+    langByUser.set(r.id, r.language === 'es-MX' ? 'es-MX' : 'en-US');
+  }
+
   const results: Array<{ task_id: string; attempts: number; sent: number }> = [];
   for (const t of tasks as TaskRow[]) {
-    const r = await deliverForTask(admin, t, hmacSecret);
+    const lang = langByUser.get(t.user_id) ?? 'en-US';
+    const r = await deliverForTask(admin, t, hmacSecret, lang);
     results.push({ task_id: t.id, ...r });
     await admin
       .from('tasks')

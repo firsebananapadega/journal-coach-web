@@ -85,25 +85,31 @@ export interface BuildMonthlyPatternInput {
   signalsBlock?: string;
   callGemini: GeminiInvoker;
   monthKey?: string;
+  /** 'en' | 'es' — drives the prompt's output language. 'es' adds
+   *  an explicit Mexican-Spanish instruction (tú form, no Spain
+   *  vocabulary) and switches date formatting to Spanish abbreviations. */
+  locale?: 'en' | 'es';
 }
 
 export const MONTHLY_PATTERN_MODEL = 'gemini-2.5-flash';
 
 function buildPrompt(input: BuildMonthlyPatternInput): string {
+  const isSpanish = input.locale === 'es';
+  const dateLocale = isSpanish ? 'es-MX' : 'en-US';
   const summaries = input.entries.map((e) => {
-    const date = new Date(e.created_at).toLocaleDateString('en-US', {
+    const date = new Date(e.created_at).toLocaleDateString(dateLocale, {
       month: 'short',
       day: 'numeric',
     });
-    const mood = e.mood_label || 'unspecified';
+    const mood = e.mood_label || (isSpanish ? 'no especificado' : 'unspecified');
     const snippet = (e.content_text || '').slice(0, 400);
-    // Include the entry id so the model can cite specific entries
-    // when assembling theme.entry_ids. The id appears before the text
-    // so the model doesn't drift past it.
     return `- id="${e.id}" date=${date} mood=${mood}\n  ${snippet}`;
   });
 
   const signalsBlock = input.signalsBlock ?? '';
+  const langInstruction = isSpanish
+    ? '\n- Write the entire narrative AND theme names/summaries in Mexican Spanish (español mexicano). Use "tú" form. Never use Spain Spanish vocabulary.'
+    : '';
 
   return `You are ${input.guideName}, a warm and observant journaling guide writing a MONTHLY pattern digest for ${input.userName || 'your journaler'}.
 
@@ -128,7 +134,7 @@ Rules:
 - The narrative is a 150-220 word reflection in your warm voice. Address ${input.userName || 'the journaler'} directly. Use cognitive/causal language ("you've been noticing X because…") rather than pure emotion words.
 - The narrative should reference 1-2 of the themes by name, NOT all three (so each one feels like its own discovery).
 - Sign the narrative with your first name only on the final line.
-- Use plain text in the narrative — no markdown, no headers, no bullet points.
+- Use plain text in the narrative — no markdown, no headers, no bullet points.${langInstruction}
 
 Behavioral signals from the past 30 days (use to ground specific observations — don't list mechanically):
 ${signalsBlock || '(none)'}

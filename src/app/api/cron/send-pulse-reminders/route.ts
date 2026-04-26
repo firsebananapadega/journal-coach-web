@@ -33,6 +33,7 @@ interface ProfileRow {
   last_morning_pulse_reminder_at: string | null;
   last_evening_pulse_reminder_at: string | null;
   primary_use: 'tasks' | 'journal' | 'both' | null;
+  language: 'en-US' | 'es-MX' | null;
 }
 
 interface SubRow {
@@ -145,6 +146,7 @@ async function sendPulsePush(
   userId: string,
   mode: 'morning' | 'evening',
   displayName: string,
+  language: 'en-US' | 'es-MX',
 ): Promise<'sent' | 'no-subs' | 'failed'> {
   const { data: subs } = await admin
     .from('push_subscriptions')
@@ -153,14 +155,26 @@ async function sendPulsePush(
     .eq('active', true);
   if (!subs || subs.length === 0) return 'no-subs';
 
+  const isSpanish = language === 'es-MX';
   const greeting = displayName ? `, ${displayName}` : '';
+  const title = isSpanish
+    ? mode === 'morning'
+      ? `Pulso matutino${greeting}`
+      : `Pulso nocturno${greeting}`
+    : mode === 'morning'
+    ? `Morning pulse${greeting}`
+    : `Evening pulse${greeting}`;
+  const body = isSpanish
+    ? mode === 'morning'
+      ? 'Toma 30 segundos para fijar tu intención de hoy.'
+      : 'Una breve reflexión antes de descansar.'
+    : mode === 'morning'
+    ? "Take 30 seconds to set today's intention."
+    : 'A short reflection before you wind down.';
   const payload = JSON.stringify({
     kind: 'pulse_reminder',
-    title: mode === 'morning' ? `Morning pulse${greeting}` : `Evening pulse${greeting}`,
-    body:
-      mode === 'morning'
-        ? "Take 30 seconds to set today's intention."
-        : 'A short reflection before you wind down.',
+    title,
+    body,
     data: { mode, url: '/home' },
   });
 
@@ -218,7 +232,7 @@ export async function POST(req: Request) {
   const { data: profiles, error } = await admin
     .from('profiles')
     .select(
-      'id, display_name, timezone, notification_preferences, last_morning_pulse_reminder_at, last_evening_pulse_reminder_at, primary_use',
+      'id, display_name, timezone, notification_preferences, last_morning_pulse_reminder_at, last_evening_pulse_reminder_at, primary_use, language',
     )
     .or(
       'notification_preferences->>morning_reminder.eq.true,notification_preferences->>evening_reminder.eq.true',
@@ -264,7 +278,7 @@ export async function POST(req: Request) {
         } else if (await pulseDoneToday(admin, p.id, 'morning', local.yyyymmdd, tz)) {
           results.push({ userId: p.id, status: 'morning-already-done' });
         } else {
-          const r = await sendPulsePush(admin, p.id, 'morning', p.display_name ?? '');
+          const r = await sendPulsePush(admin, p.id, 'morning', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US');
           await admin
             .from('profiles')
             .update({ last_morning_pulse_reminder_at: now.toISOString() })
@@ -283,7 +297,7 @@ export async function POST(req: Request) {
         } else if (await pulseDoneToday(admin, p.id, 'evening', local.yyyymmdd, tz)) {
           results.push({ userId: p.id, status: 'evening-already-done' });
         } else {
-          const r = await sendPulsePush(admin, p.id, 'evening', p.display_name ?? '');
+          const r = await sendPulsePush(admin, p.id, 'evening', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US');
           await admin
             .from('profiles')
             .update({ last_evening_pulse_reminder_at: now.toISOString() })

@@ -92,6 +92,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     void useAuthStore.getState().updateProfile({ timezone: browserTz });
   }, [profile]);
 
+  // Language backfill. Pre-this-feature `language` lived only in
+  // localStorage. If the stored profile.language is the en-US
+  // default but localStorage already says es-MX, the user picked
+  // Spanish before the column existed — sync it up so the cron's
+  // letter-language check matches what the user sees in the UI.
+  useEffect(() => {
+    if (!profile) return;
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem('app_language');
+    if (stored !== 'en-US' && stored !== 'es-MX') return;
+    if (stored === profile.language) return;
+    // Only auto-sync when we're upgrading FROM the en-US default
+    // TO a non-default. We never silently overwrite a user-picked
+    // profile language back to en-US even if their localStorage
+    // happens to say so (e.g. clearing site data).
+    if (profile.language === 'en-US' && stored === 'es-MX') {
+      void useAuthStore.getState().updateProfile({ language: stored });
+    }
+  }, [profile]);
+
   if (!initialized || !session) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-bg">
