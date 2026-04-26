@@ -134,6 +134,17 @@ function PriorityRowContent({
     setIsEditingInline(false);
   };
 
+  // Quadrant-colored left border, mirroring TaskCard. Lets the user
+  // glance at /today's list view and immediately see which items
+  // they bucketed into Q1/Q2/Q3 in the matrix. Untriaged or zero-
+  // flag items render without a stripe.
+  const u = !!item.urgent;
+  const i = !!item.important;
+  let stripeClass = '';
+  if (u && i) stripeClass = 'border-l-4 border-l-red-500';
+  else if (!u && i) stripeClass = 'border-l-4 border-l-amber-500';
+  else if (u && !i) stripeClass = 'border-l-4 border-l-blue-500';
+
   return (
     <div
       role={onToggle && !isEditingInline ? 'button' : undefined}
@@ -155,7 +166,7 @@ function PriorityRowContent({
           : item.completed
           ? 'bg-success/5'
           : 'bg-surface'
-      }`}
+      } ${stripeClass}`}
     >
       <span className={`w-6 text-right text-base font-bold tabular-nums ${
         item.completed ? 'text-text-tertiary' : 'text-text-secondary'
