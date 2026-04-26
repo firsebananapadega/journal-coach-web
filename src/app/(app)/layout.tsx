@@ -71,6 +71,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [guideTheme, profile?.preferred_guide]);
 
+  // Timezone backfill. The legacy default is 'UTC' for a lot of
+  // existing rows; the pulse-reminder cron needs the user's actual
+  // local tz to fire morning/evening reminders at their picked
+  // times. Update only when the stored value is empty/UTC AND the
+  // browser reports a different value — never overwrites a user
+  // who explicitly picked their tz somewhere.
+  useEffect(() => {
+    if (!profile) return;
+    const browserTz = (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        return null;
+      }
+    })();
+    if (!browserTz) return;
+    if (profile.timezone && profile.timezone !== 'UTC') return;
+    if (browserTz === profile.timezone) return;
+    void useAuthStore.getState().updateProfile({ timezone: browserTz });
+  }, [profile]);
+
   if (!initialized || !session) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-bg">

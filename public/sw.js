@@ -44,12 +44,14 @@ self.addEventListener('push', (event) => {
 
   const { title, body, data, kind } = payload;
 
-  // Letters / monthly patterns / quarterly letters don't get action
-  // buttons — there's nothing to snooze or mark done. One-tap open.
+  // Letters / monthly patterns / quarterly letters / pulse reminders
+  // don't get action buttons — there's nothing to snooze or mark
+  // done. One-tap open.
   const isLetter = kind === 'weekly_letter';
   const isPattern = kind === 'monthly_pattern';
   const isQuarterly = kind === 'quarterly_letter';
-  const isArchiveItem = isLetter || isPattern || isQuarterly;
+  const isPulse = kind === 'pulse_reminder';
+  const isArchiveItem = isLetter || isPattern || isQuarterly || isPulse;
   const actions = isArchiveItem
     ? []
     : [
@@ -66,6 +68,10 @@ self.addEventListener('push', (event) => {
     tag = data && data.pattern_id ? `pattern-${data.pattern_id}` : 'monthly-pattern';
   } else if (isQuarterly) {
     tag = data && data.quarterly_id ? `quarterly-${data.quarterly_id}` : 'quarterly-letter';
+  } else if (isPulse) {
+    // Per-mode tag so a morning reminder can't replace an evening
+    // reminder later in the same day (and vice versa).
+    tag = `pulse-${(data && data.mode) || 'reminder'}`;
   } else if (data && data.task_id) {
     tag = `task-${data.task_id}`;
   }
@@ -76,6 +82,8 @@ self.addEventListener('push', (event) => {
     ? 'Monthly pattern'
     : isQuarterly
     ? 'Quarterly letter'
+    : isPulse
+    ? (data && data.mode === 'evening' ? 'Evening pulse' : 'Morning pulse')
     : 'Reminder';
 
   event.waitUntil(
@@ -100,8 +108,29 @@ self.addEventListener('notificationclick', (event) => {
   const isLetter = data.kind === 'weekly_letter';
   const isPattern = data.kind === 'monthly_pattern';
   const isQuarterly = data.kind === 'quarterly_letter';
+  const isPulse = data.kind === 'pulse_reminder';
 
   const handle = async () => {
+    // Pulse reminders open /home so the user lands directly on the
+    // DailyPulseCard. Same nav pattern as letters: try to focus an
+    // existing window before opening a new one.
+    if (isPulse) {
+      const target = data.url || '/home';
+      const winClients = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      for (const c of winClients) {
+        if ('focus' in c) {
+          if ('navigate' in c) {
+            try { await c.navigate(target); } catch {}
+          }
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    }
+
     // Letters, monthly patterns, and quarterly letters have no
     // actions — any tap opens the archive (or the specific item if
     // we know its id). This branch runs before the reminder action

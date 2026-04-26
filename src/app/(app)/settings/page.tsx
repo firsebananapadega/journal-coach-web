@@ -306,6 +306,131 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
+      {/* Pulse reminders — fire push notifications at the user's
+          chosen morning + evening times. The cron at
+          /api/cron/send-pulse-reminders evaluates these per-user in
+          the user's timezone every 5 min. Hidden in tasks-only mode
+          since pulses are journaling-side. */}
+      {profile?.primary_use !== 'tasks' && (() => {
+        const prefs = profile?.notification_preferences ?? {
+          morning_reminder: false,
+          evening_reminder: false,
+          reminder_times: { morning: '08:00', evening: '21:30' },
+        };
+        const morningOn = prefs.morning_reminder === true;
+        const eveningOn = prefs.evening_reminder === true;
+        const morningTime = prefs.reminder_times?.morning || '08:00';
+        const eveningTime = prefs.reminder_times?.evening || '21:30';
+
+        const updatePrefs = async (
+          patch: Partial<{
+            morning_reminder: boolean;
+            evening_reminder: boolean;
+            reminder_times: { morning: string; evening: string };
+          }>,
+        ) => {
+          const next = {
+            morning_reminder:
+              patch.morning_reminder !== undefined ? patch.morning_reminder : morningOn,
+            evening_reminder:
+              patch.evening_reminder !== undefined ? patch.evening_reminder : eveningOn,
+            reminder_times: {
+              morning: patch.reminder_times?.morning ?? morningTime,
+              evening: patch.reminder_times?.evening ?? eveningTime,
+            },
+          };
+          try {
+            await updateProfile({ notification_preferences: next });
+          } catch (err) {
+            showToast(err instanceof Error ? err.message : t('common.error'), 'error');
+          }
+        };
+
+        return (
+          <motion.div {...sectionMotion} className="space-y-2">
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+              Pulse reminders
+            </h2>
+            <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-4">
+              {/* Morning */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">Morning pulse</p>
+                  <p className="text-xs text-text-tertiary leading-snug mt-0.5">
+                    Notify me to set today's intention.
+                  </p>
+                </div>
+                <input
+                  type="time"
+                  value={morningTime}
+                  disabled={!morningOn}
+                  onChange={(e) =>
+                    updatePrefs({
+                      reminder_times: { morning: e.target.value, evening: eveningTime },
+                    })
+                  }
+                  className="px-2 py-1.5 bg-surface-elevated border border-border rounded-lg text-xs text-text-primary outline-none w-[100px] disabled:opacity-40"
+                />
+                <button
+                  role="switch"
+                  aria-checked={morningOn}
+                  onClick={() => updatePrefs({ morning_reminder: !morningOn })}
+                  className={`relative w-12 h-7 rounded-full transition-colors flex-shrink-0 ${
+                    morningOn ? 'bg-primary' : 'bg-border'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                      morningOn ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Evening */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">Evening pulse</p>
+                  <p className="text-xs text-text-tertiary leading-snug mt-0.5">
+                    A short reflection before you wind down.
+                  </p>
+                </div>
+                <input
+                  type="time"
+                  value={eveningTime}
+                  disabled={!eveningOn}
+                  onChange={(e) =>
+                    updatePrefs({
+                      reminder_times: { morning: morningTime, evening: e.target.value },
+                    })
+                  }
+                  className="px-2 py-1.5 bg-surface-elevated border border-border rounded-lg text-xs text-text-primary outline-none w-[100px] disabled:opacity-40"
+                />
+                <button
+                  role="switch"
+                  aria-checked={eveningOn}
+                  onClick={() => updatePrefs({ evening_reminder: !eveningOn })}
+                  className={`relative w-12 h-7 rounded-full transition-colors flex-shrink-0 ${
+                    eveningOn ? 'bg-primary' : 'bg-border'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                      eveningOn ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <p className="text-[11px] text-text-tertiary leading-snug">
+                Reminders only fire if you haven't completed that pulse yet
+                today. Times are in your local timezone.
+              </p>
+            </div>
+          </motion.div>
+        );
+      })()}
+
       {/* Appearance */}
       <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.appearance')}</h2>

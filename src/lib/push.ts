@@ -229,6 +229,18 @@ export async function ensureSubscribed(): Promise<EnsureSubscribedResult> {
       if (!sub) return 'error';
     }
     const sent = await withTimeout(sendSubscription(sub), 6000, 'sendSubscription');
+    if (sent) {
+      // Permission is granted and a subscription is live — opt the
+      // user into pulse reminders by default ON. The Settings page
+      // toggle still owns subsequent edits; this only sets the
+      // initial values when the field is empty/false.
+      try {
+        await defaultEnablePulseReminders();
+      } catch {
+        // Non-fatal — the push subscription succeeded; the prefs
+        // can be set manually from Settings.
+      }
+    }
     return sent ? 'ok' : 'error';
   } catch (err) {
     // Surface the specific failure on the window object so the
@@ -240,6 +252,50 @@ export async function ensureSubscribed(): Promise<EnsureSubscribedResult> {
     } catch {}
     return 'error';
   }
+}
+
+/**
+ * Default-enable pulse reminders the first time push permission is
+ * granted. Idempotent: only flips the toggles when they're not
+ * already explicitly set. Future user toggles in Settings persist
+ * normally.
+ */
+async function defaultEnablePulseReminders(): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('notification_preferences, timezone')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (!profile) return;
+  const prefs = (profile.notification_preferences ?? {}) as {
+    morning_reminder?: boolean;
+    evening_reminder?: boolean;
+    reminder_times?: { morning?: string; evening?: string };
+  };
+  // Only opt-in when the user has never explicitly chosen — both
+  // flags present and false is a deliberate opt-out.
+  const morningSet = typeof prefs.morning_reminder === 'boolean';
+  const eveningSet = typeof prefs.evening_reminder === 'boolean';
+  if (morningSet && eveningSet) return;
+  const next = {
+    morning_reminder: morningSet ? prefs.morning_reminder : true,
+    evening_reminder: eveningSet ? prefs.evening_reminder : true,
+    reminder_times: {
+      morning: prefs.reminder_times?.morning || '08:00',
+      evening: prefs.reminder_times?.evening || '21:30',
+    },
+  };
+  // Backfill timezone if it's the legacy UTC default — picks up
+  // the browser's actual zone so the cron's local-time math is
+  // correct for this user.
+  const updates: Record<string, unknown> = { notification_preferences: next };
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (browserTz && (!profile.timezone || profile.timezone === 'UTC')) {
+    updates.timezone = browserTz;
+  }
+  await supabase.from('profiles').update(updates).eq('id', user.id);
 }
 
 const LS_DISMISS_KEY = 'push_prompt_dismissed_at';

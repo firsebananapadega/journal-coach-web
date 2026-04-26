@@ -821,6 +821,89 @@ export default function PatternsPage() {
         </section>
       )}
 
+      {/* ─── Typical pulse times ────────────────────────────────────
+          Median completion time for morning + evening pulses over
+          the past 30 days. Uses the user's local timezone via
+          Intl.DateTimeFormat. Hidden when neither mode has at
+          least 3 datapoints (median is meaningless on tiny n). */}
+      {(() => {
+        const now = Date.now();
+        const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+        const buckets: Record<'morning' | 'evening', number[]> = {
+          morning: [],
+          evening: [],
+        };
+        for (const e of entries) {
+          if (e.entry_type !== 'pulse') continue;
+          const ts = e.created_at ? new Date(e.created_at).getTime() : 0;
+          if (!ts || ts < cutoff) continue;
+          const m = (e.metadata ?? {}) as Record<string, unknown>;
+          const mode = m.pulseMode === 'morning' || m.pulseMode === 'evening' ? m.pulseMode : null;
+          if (!mode) continue;
+          const d = new Date(ts);
+          // Minutes-since-midnight in local time. Median is more
+          // robust than mean for time-of-day (a single 3am pulse
+          // shouldn't drag the average backwards by 30 min).
+          buckets[mode].push(d.getHours() * 60 + d.getMinutes());
+        }
+        const median = (arr: number[]): number | null => {
+          if (arr.length === 0) return null;
+          const sorted = [...arr].sort((a, b) => a - b);
+          const mid = Math.floor(sorted.length / 2);
+          return sorted.length % 2 === 0
+            ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+            : sorted[mid];
+        };
+        const fmt = (mins: number): string => {
+          const h = Math.floor(mins / 60);
+          const m = mins % 60;
+          const period = h < 12 ? 'AM' : 'PM';
+          const h12 = h % 12 === 0 ? 12 : h % 12;
+          return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+        };
+        const morningMedian = median(buckets.morning);
+        const eveningMedian = median(buckets.evening);
+        const showMorning = buckets.morning.length >= 3 && morningMedian !== null;
+        const showEvening = buckets.evening.length >= 3 && eveningMedian !== null;
+        if (!showMorning && !showEvening) return null;
+        return (
+          <section className="bg-surface rounded-2xl border border-border p-4 space-y-2">
+            <h2 className="text-sm font-semibold text-text-primary">Typical pulse times</h2>
+            <p className="text-[11px] text-text-tertiary leading-snug">
+              Median over the last 30 days.
+            </p>
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              {showMorning && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                    Morning
+                  </p>
+                  <p className="text-lg font-bold text-text-primary tabular-nums">
+                    {fmt(morningMedian!)}
+                  </p>
+                  <p className="text-[10px] text-text-tertiary">
+                    {buckets.morning.length} entries
+                  </p>
+                </div>
+              )}
+              {showEvening && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                    Evening
+                  </p>
+                  <p className="text-lg font-bold text-text-primary tabular-nums">
+                    {fmt(eveningMedian!)}
+                  </p>
+                  <p className="text-[10px] text-text-tertiary">
+                    {buckets.evening.length} entries
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      })()}
+
       {/* ─── Pulse trend ─────────────────────────────────────────────── */}
       <section className="bg-surface rounded-2xl border border-border p-4 space-y-3">
         <h2 className="text-sm font-semibold text-text-primary">Pulse trend</h2>
