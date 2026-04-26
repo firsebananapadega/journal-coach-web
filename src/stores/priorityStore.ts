@@ -93,6 +93,10 @@ interface PriorityState {
   addItems: (date: string, newItems: PriorityItem[]) => Promise<void>;
   addGroceryGroups: (date: string, newGroups: GroceryGroup[]) => Promise<void>;
   toggleItem: (itemId: string) => Promise<void>;
+  /** Replace a priority item's text. Used by the Today-tab inline-
+   *  edit affordance (tap the text → autoFocus textarea → save on
+   *  blur). No-op when text is empty or unchanged. */
+  updateItemText: (itemId: string, nextText: string) => Promise<void>;
   // Eisenhower matrix flag setters. Persist into the existing JSON
   // items column — no schema change. Optimistic update + rollback on
   // failure (same pattern as toggleItem).
@@ -246,6 +250,26 @@ export const usePriorityStore = create<PriorityState>((set, get) => ({
     if (!date) return;
     const updated = items.map((item) =>
       item.id === itemId ? { ...item, completed: !item.completed } : item
+    );
+    set({ items: updated });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await upsertRow(user.id, date, { items: updated });
+    } catch {
+      set({ items });
+    }
+  },
+
+  updateItemText: async (itemId, nextText) => {
+    const { items, date } = get();
+    if (!date) return;
+    const trimmed = nextText.trim();
+    if (!trimmed) return;
+    const target = items.find((it) => it.id === itemId);
+    if (!target || target.text === trimmed) return;
+    const updated = items.map((item) =>
+      item.id === itemId ? { ...item, text: trimmed } : item,
     );
     set({ items: updated });
     try {

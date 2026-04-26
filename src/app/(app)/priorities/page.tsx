@@ -68,18 +68,70 @@ function PriorityRowContent({
   item,
   index,
   onToggle,
+  onCommitText,
   isDragOverlay,
   dragHandleProps,
 }: {
   item: PriorityItem;
   index: number;
   onToggle?: () => void;
+  /** Persist a new value for `item.text`. When supplied, tapping the
+   *  text swaps in an auto-focused textarea so the user can fix
+   *  typos with just the keyboard — no modal, no full edit sheet
+   *  (per the user's Today-tab spec). When omitted (e.g. drag
+   *  overlay), the text is rendered as a plain span. */
+  onCommitText?: (next: string) => void;
   isDragOverlay?: boolean;
   dragHandleProps?: Record<string, unknown>;
 }) {
+  const [isEditingInline, setIsEditingInline] = useState(false);
+  const [editText, setEditText] = useState(item.text);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync the draft when the item's text changes from outside while
+  // we're not editing (e.g. another device, or sheet edit).
+  useEffect(() => {
+    if (!isEditingInline) setEditText(item.text);
+  }, [item.text, isEditingInline]);
+  // Auto-grow textarea so multi-line items don't clip.
+  useEffect(() => {
+    if (!isEditingInline) return;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [isEditingInline, editText]);
+
+  const exitInlineEdit = (commit: boolean) => {
+    if (commit) {
+      const trimmed = editText.trim();
+      if (trimmed && trimmed !== item.text && onCommitText) {
+        onCommitText(trimmed);
+      } else if (!trimmed) {
+        setEditText(item.text);
+      }
+    } else {
+      setEditText(item.text);
+    }
+    setIsEditingInline(false);
+  };
+
   return (
     <div
-      className={`flex items-center gap-3 p-3.5 rounded-xl ${
+      role={onToggle && !isEditingInline ? 'button' : undefined}
+      tabIndex={onToggle && !isEditingInline ? 0 : -1}
+      onClick={() => {
+        if (isEditingInline) return;
+        if (onToggle) onToggle();
+      }}
+      onKeyDown={(e) => {
+        if (isEditingInline) return;
+        if ((e.key === 'Enter' || e.key === ' ') && onToggle) {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      className={`flex items-center gap-3 p-3.5 rounded-xl cursor-pointer ${
         isDragOverlay
           ? 'bg-surface border border-primary shadow-lg'
           : item.completed
@@ -94,7 +146,10 @@ function PriorityRowContent({
       </span>
       <motion.button
         whileTap={prefersReducedMotion ? undefined : { scale: 0.85 }}
-        onClick={onToggle}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onToggle) onToggle();
+        }}
         className="p-2 -m-2 flex-shrink-0"
       >
         <motion.div
@@ -107,13 +162,55 @@ function PriorityRowContent({
           {item.completed && <span className="text-white text-sm font-bold">✓</span>}
         </motion.div>
       </motion.button>
-      <span className={`text-base flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
-        {item.text}
-      </span>
+      {isEditingInline ? (
+        <textarea
+          ref={textareaRef}
+          value={editText}
+          autoFocus
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setEditText(e.target.value)}
+          onBlur={() => exitInlineEdit(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              e.currentTarget.blur();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              exitInlineEdit(false);
+            }
+          }}
+          rows={1}
+          className="flex-1 text-base bg-transparent text-text-primary outline-none border-b border-primary resize-none py-0.5"
+        />
+      ) : onCommitText && !isDragOverlay ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsEditingInline(true);
+          }}
+          className="flex-1 text-left"
+        >
+          <span
+            className={`text-base ${
+              item.completed
+                ? 'text-text-tertiary line-through'
+                : 'text-text-primary'
+            }`}
+          >
+            {item.text}
+          </span>
+        </button>
+      ) : (
+        <span className={`text-base flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
+          {item.text}
+        </span>
+      )}
       {!isDragOverlay && (
         <div
           className="p-2 -m-1 text-text-tertiary"
           style={{ touchAction: 'none' }}
+          onClick={(e) => e.stopPropagation()}
           {...(dragHandleProps || {})}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -135,11 +232,15 @@ function SortablePriorityRow({
   index,
   onToggle,
   onDelete,
+  onCommitText,
+  onMoveToTomorrow,
 }: {
   item: PriorityItem;
   index: number;
   onToggle: () => void;
   onDelete: () => void;
+  onCommitText?: (next: string) => void;
+  onMoveToTomorrow?: () => void;
 }) {
   const {
     attributes,
@@ -154,11 +255,27 @@ function SortablePriorityRow({
       {...attributes}
       style={{ opacity: isDragging ? 0 : 1 }}
     >
-      <SwipeToDelete onDelete={onDelete}>
+      <SwipeToDelete
+        onDelete={onDelete}
+        onSecondary={onMoveToTomorrow}
+        secondaryLabel={onMoveToTomorrow ? 'Tomorrow' : undefined}
+        secondaryIcon={
+          onMoveToTomorrow ? (
+            <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+              <path d="M9 15l3 3 3-3" />
+            </svg>
+          ) : undefined
+        }
+      >
         <PriorityRowContent
           item={item}
           index={index}
           onToggle={onToggle}
+          onCommitText={onCommitText}
           dragHandleProps={listeners}
         />
       </SwipeToDelete>
@@ -763,6 +880,23 @@ export default function PrioritiesPage() {
                         index={index}
                         onToggle={() => toggleItem(item.id)}
                         onDelete={() => removeItem(item.id)}
+                        onCommitText={(next) =>
+                          usePriorityStore.getState().updateItemText(item.id, next)
+                        }
+                        onMoveToTomorrow={async () => {
+                          const tomorrow = new Date();
+                          tomorrow.setDate(tomorrow.getDate() + 1);
+                          const tomorrowStr = toLocalDateStr(tomorrow);
+                          // Append to tomorrow's row, then drop from
+                          // today (current selectedDate). addItems
+                          // operates on the supplied date, removeItem
+                          // operates on the currently-loaded date.
+                          await usePriorityStore.getState().addItems(tomorrowStr, [
+                            { ...item, completed: false },
+                          ]);
+                          await usePriorityStore.getState().removeItem(item.id);
+                          showToast('Moved to tomorrow', 'success');
+                        }}
                       />
                     ))}
                   </SortableContext>
@@ -798,10 +932,12 @@ export default function PrioritiesPage() {
           onToggle={(id) => toggleScheduledComplete(id)}
           onDelete={(id) => removeScheduledTask(id)}
           onReorder={(ids) => reorderScheduledTasks(ids)}
-          // Tap on the empty area of the row toggles done; the
-          // edit affordance moves to the pencil button via onEditTask.
+          // Tap on the empty area of the row toggles done. Per
+          // user spec for the Today tab: no pencil edit affordance —
+          // tap-text starts inline edit (TaskCard's inlineEdit
+          // prop), tap-empty toggles. Full edit sheet is reachable
+          // from /lists or /upcoming if needed.
           onTapTask={(task) => toggleScheduledComplete(task.id)}
-          onEditTask={(task) => setScheduledQuadrantTask(task)}
           onMoveToTomorrow={async (task) => {
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
