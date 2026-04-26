@@ -51,7 +51,15 @@ export interface MatrixTask {
   completed: boolean;
 }
 
-type QuadrantId = 'q1' | 'q2' | 'q3' | 'q4' | 'unsorted';
+// Q4 ("Drop") was removed in favor of a delete-on-drop cell. Per
+// Eisenhower's original framework, Q4 means "eliminate" — tasks
+// you shouldn't be doing — and modern productivity apps (Things,
+// Todoist, Asana) don't surface it as a distinct bucket. Keeping
+// the cell as a drag-target labelled "Drop · Delete" preserves
+// the familiar 2×2 visual but stops tasks from sitting in Q4
+// limbo forever.
+type QuadrantId = 'q1' | 'q2' | 'q3' | 'unsorted';
+type DropZoneId = 'delete';
 
 interface QuadrantFlags {
   urgent: boolean;
@@ -63,10 +71,6 @@ const QUADRANT_FLAGS: Record<QuadrantId, QuadrantFlags> = {
   q1: { urgent: true, important: true, triaged: true },
   q2: { urgent: false, important: true, triaged: true },
   q3: { urgent: true, important: false, triaged: true },
-  q4: { urgent: false, important: false, triaged: true },
-  // Unsorted is the only state where triaged=false. That's the bit
-  // that disambiguates it from Q4: both have urgent=false +
-  // important=false, but only Unsorted has triaged=false.
   unsorted: { urgent: false, important: false, triaged: false },
 };
 
@@ -100,13 +104,6 @@ const QUADRANT_STYLES: Record<QuadrantId, QuadrantStyle> = {
     text: 'text-blue-700 dark:text-blue-300',
     ring: 'ring-blue-500/50',
   },
-  q4: {
-    border: 'border-gray-400/40',
-    bg: 'bg-gray-400/5',
-    accent: 'text-gray-500 dark:text-gray-400',
-    text: 'text-gray-600 dark:text-gray-300',
-    ring: 'ring-gray-400/50',
-  },
   unsorted: {
     border: 'border-border',
     bg: 'bg-surface',
@@ -119,15 +116,13 @@ const QUADRANT_STYLES: Record<QuadrantId, QuadrantStyle> = {
 function quadrantOf(item: MatrixTask): QuadrantId {
   const u = !!item.urgent;
   const i = !!item.important;
-  // Untriaged + neither flag = the "haven't sorted this yet" pile.
-  // Anything triaged falls into Q1/Q2/Q3/Q4 by its flag combo —
-  // Q4 (Drop) is the explicit "neither urgent nor important AND
-  // I've decided that on purpose" state.
-  if (!item.triaged && !u && !i) return 'unsorted';
+  // After Q4 removal: anything triaged but with neither flag set
+  // (legacy Q4 data) collapses back into Unsorted. The user can
+  // re-bucket it intentionally or drop it on the delete cell.
   if (u && i) return 'q1';
   if (!u && i) return 'q2';
   if (u && !i) return 'q3';
-  return 'q4';
+  return 'unsorted';
 }
 
 // Draggable task chip. `onTap` fires only on a clean tap (no drag);
@@ -233,15 +228,21 @@ interface MatrixViewProps {
   onTapTask: (item: MatrixTask) => void;
   // Fires after a successful drag-drop between quadrants. Callers
   // wire this to priorityStore.setQuadrant / taskStore.setQuadrant.
-  // `triaged` flips false → true when dropped into Q1/Q2/Q3/Q4 and
+  // `triaged` flips false → true when dropped into Q1/Q2/Q3 and
   // back to false when dropped into Unsorted.
   onSetFlags?: (
     id: string,
     flags: { urgent: boolean; important: boolean; triaged: boolean },
   ) => void;
+  /** Fires when a task is dropped onto the bottom-right "Drop ·
+   *  Delete" cell. The caller is responsible for any confirmation
+   *  prompt and the actual delete (priorityStore.removeItem /
+   *  taskStore.removeTask). When omitted, the delete cell isn't
+   *  rendered. */
+  onDeleteTask?: (id: string) => void;
 }
 
-export function MatrixView({ items, onTapTask, onSetFlags }: MatrixViewProps) {
+export function MatrixView({ items, onTapTask, onSetFlags, onDeleteTask }: MatrixViewProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   // 250ms press-and-hold before drag starts — matches the /today list
   // drag timing so the two interactions feel identical. Short enough
@@ -266,7 +267,7 @@ export function MatrixView({ items, onTapTask, onSetFlags }: MatrixViewProps) {
   }
 
   const buckets: Record<QuadrantId, MatrixTask[]> = {
-    q1: [], q2: [], q3: [], q4: [], unsorted: [],
+    q1: [], q2: [], q3: [], unsorted: [],
   };
   for (const item of items) buckets[quadrantOf(item)].push(item);
 
@@ -279,8 +280,14 @@ export function MatrixView({ items, onTapTask, onSetFlags }: MatrixViewProps) {
     setActiveId(null);
     const { active, over } = e;
     if (!over) return;
-    const targetQ = over.id as QuadrantId;
-    const flags = QUADRANT_FLAGS[targetQ];
+    const overId = over.id as QuadrantId | DropZoneId;
+    // Drop on the delete cell — caller handles confirmation +
+    // store delete. Skip the flags update entirely.
+    if (overId === 'delete') {
+      onDeleteTask?.(active.id as string);
+      return;
+    }
+    const flags = QUADRANT_FLAGS[overId as QuadrantId];
     if (!flags) return;
     const current = items.find((i) => i.id === active.id);
     if (!current) return;
@@ -326,13 +333,11 @@ export function MatrixView({ items, onTapTask, onSetFlags }: MatrixViewProps) {
             tasks={buckets.q3}
             onTapTask={onTapTask}
           />
-          <Quadrant
-            id="q4"
-            title={t('matrix.q4.title')}
-            subtitle={t('matrix.q4.subtitle')}
-            tasks={buckets.q4}
-            onTapTask={onTapTask}
-          />
+          {onDeleteTask ? (
+            <DeleteDropZone />
+          ) : (
+            <div aria-hidden className="rounded-2xl border border-dashed border-border/60 min-h-[140px]" />
+          )}
         </div>
 
         {buckets.unsorted.length > 0 && (
@@ -360,6 +365,29 @@ export function MatrixView({ items, onTapTask, onSetFlags }: MatrixViewProps) {
           document.body,
         )}
     </DndContext>
+  );
+}
+
+function DeleteDropZone() {
+  const { setNodeRef, isOver } = useDroppable({ id: 'delete' });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-colors min-h-[140px] p-3 text-center ${
+        isOver
+          ? 'bg-error/10 border-error/60 ring-2 ring-error/40'
+          : 'bg-error/[0.03] border-error/25'
+      }`}
+      aria-label="Drop a task here to delete it"
+    >
+      <span className="text-error/80 text-2xl leading-none mb-1.5" aria-hidden>
+        🗑
+      </span>
+      <p className="text-sm font-bold text-error/90">Drop · Delete</p>
+      <p className="text-[11px] text-error/70 mt-0.5 leading-snug">
+        Drag here to remove from your list.
+      </p>
+    </div>
   );
 }
 

@@ -102,6 +102,24 @@ function PriorityRowContent({
     ta.style.height = `${ta.scrollHeight}px`;
   }, [isEditingInline, editText]);
 
+  // Place the caret at the end on first focus — iOS otherwise puts
+  // it at index 0 so typing prepends, which doesn't match the
+  // typo-fix mental model.
+  useEffect(() => {
+    if (!isEditingInline) return;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const id = window.requestAnimationFrame(() => {
+      const len = ta.value.length;
+      try {
+        ta.setSelectionRange(len, len);
+      } catch {
+        // Harmless on older Safari if focus hasn't propagated.
+      }
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [isEditingInline]);
+
   const exitInlineEdit = (commit: boolean) => {
     if (commit) {
       const trimmed = editText.trim();
@@ -843,6 +861,14 @@ export default function PrioritiesPage() {
           onSetFlags={(id, flags) =>
             usePriorityStore.getState().setQuadrant(id, flags)
           }
+          onDeleteTask={(id) => {
+            const item = items.find((i) => i.id === id);
+            if (typeof window !== 'undefined') {
+              const ok = window.confirm(`Delete "${item?.text ?? 'this item'}"?`);
+              if (!ok) return;
+            }
+            void usePriorityStore.getState().removeItem(id);
+          }}
         />
       )}
 

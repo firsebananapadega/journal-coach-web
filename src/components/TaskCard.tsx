@@ -90,6 +90,26 @@ export function TaskCard({
     ta.style.height = `${ta.scrollHeight}px`;
   }, [isEditingInline, editText]);
 
+  // Place the caret at the end on first focus so typing appends to
+  // the existing text (the iOS default puts it at index 0 — anything
+  // the user types prepends, which doesn't match how editing should
+  // feel for a one-line task title).
+  useEffect(() => {
+    if (!isEditingInline) return;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    // Wait one frame so autoFocus has applied before we set range.
+    const id = window.requestAnimationFrame(() => {
+      const len = ta.value.length;
+      try {
+        ta.setSelectionRange(len, len);
+      } catch {
+        // Older Safari can throw if not focused; harmless.
+      }
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [isEditingInline]);
+
   const exitInlineEdit = (commit: boolean) => {
     if (commit) {
       const trimmed = editText.trim();
@@ -112,6 +132,18 @@ export function TaskCard({
   const handleRowClick = () => {
     if (onTap) onTap();
   };
+
+  // Quadrant-colored left border — gives a list-view glance at the
+  // Eisenhower bucket without needing to flip into matrix view.
+  // Mirrors the matrix's color scheme: red Q1, amber Q2, blue Q3.
+  // Untriaged or zero-flag tasks render with no stripe (default).
+  const u = !!task.urgent;
+  const i = !!task.important;
+  let stripeClass = '';
+  if (u && i) stripeClass = 'border-l-4 border-l-red-500';
+  else if (!u && i) stripeClass = 'border-l-4 border-l-amber-500';
+  else if (u && !i) stripeClass = 'border-l-4 border-l-blue-500';
+
   return (
     <div
       role="button"
@@ -126,7 +158,7 @@ export function TaskCard({
       }}
       className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer ${
         task.completed ? 'bg-success/5' : 'bg-surface'
-      }`}
+      } ${stripeClass}`}
     >
       {typeof index === 'number' && (
         <span
