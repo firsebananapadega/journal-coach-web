@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
+import { lastWallDestination } from '@/app/page';
 import Link from 'next/link';
 import { t } from '@/lib/translations';
 
@@ -38,11 +39,15 @@ export default function SignUpPage() {
       if (user) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('onboarding_completed')
+          .select('onboarding_completed, primary_use')
           .eq('id', user.id)
           .maybeSingle();
         const needsOnboarding = !profile || !profile.onboarding_completed;
-        router.replace(needsOnboarding ? '/auth/onboarding' : '/home');
+        router.replace(
+          needsOnboarding
+            ? '/auth/onboarding'
+            : lastWallDestination(profile?.primary_use),
+        );
         return;
       }
     }

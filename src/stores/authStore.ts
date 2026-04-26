@@ -13,6 +13,8 @@ const WRITE_MS = 15000;
 
 export type LetterCadence = 'weekly' | 'biweekly' | 'monthly' | 'off';
 
+export type PrimaryUse = 'journal' | 'tasks';
+
 export interface Profile {
   id: string;
   display_name: string;
@@ -32,6 +34,10 @@ export interface Profile {
   tour_completed: boolean;
   install_prompt_dismissed_at: string | null;
   pwa_installed: boolean;
+  /** Asked during onboarding — determines which wall (Journal / Tasks)
+   *  loads on first app open. After that, wallState localStorage owns
+   *  the default. */
+  primary_use: PrimaryUse | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,7 +62,8 @@ interface AuthState {
     displayName: string,
     anchorMoment: string,
     intentions: string[],
-    preferredGuide?: string
+    preferredGuide?: string,
+    primaryUse?: PrimaryUse,
   ) => Promise<void>;
   setPreferredGuide: (guideId: string) => Promise<void>;
 }
@@ -257,7 +264,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     displayName: string,
     anchorMoment: string,
     intentions: string[],
-    preferredGuide?: string
+    preferredGuide?: string,
+    primaryUse?: PrimaryUse,
   ) => {
     try {
       const user = get().user;
@@ -271,6 +279,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             anchor_moment: anchorMoment,
             intentions,
             preferred_guide: preferredGuide || 'ben',
+            primary_use: primaryUse ?? 'journal',
             onboarding_completed: true,
             updated_at: new Date().toISOString(),
           })

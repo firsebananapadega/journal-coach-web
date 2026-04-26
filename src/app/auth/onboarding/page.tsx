@@ -1,195 +1,173 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+// Onboarding v3 — Philosophy → Guide → Install → Name.
+// Each step is a self-contained component; this page just owns the
+// tiny bit of cross-step state (name, guide) and calls completeOnboarding.
+//
+// See docs/ONBOARDING_PLAN.md / .claude/plans/playful-hugging-pebble.md
+// for the design rationale.
+
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
-import { GuideSelector } from '@/components/GuideSelector';
-import { supabase } from '@/lib/supabase';
-import { setLanguage, LANGUAGES, type AppLanguage } from '@/lib/language';
-import { t } from '@/lib/translations';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useAuthStore, type PrimaryUse } from '@/stores/authStore';
+import { useUiStore } from '@/stores/uiStore';
+import { prefersReducedMotion } from '@/lib/motionVariants';
+import type { GuideId } from '@/lib/guideConfigs';
+import WelcomeStep from '@/components/onboarding/WelcomeStep';
+import GuideStep from '@/components/onboarding/GuideStep';
+import PrimaryUseStep from '@/components/onboarding/PrimaryUseStep';
+import InstallStep from '@/components/onboarding/InstallStep';
+import NameStep from '@/components/onboarding/NameStep';
 
-interface TemplateOption {
-  id: string;
-  name: string;
-  icon: string;
-  description: string;
-  category: string;
-}
-
-const ICONS: Record<string, string> = {
-  moon: '🌙', sun: '☀️', heart: '❤️', face: '😊',
-  cloud: '☁️', calendar: '📅', target: '🎯', document: '📄',
-};
+type StepIndex = 0 | 1 | 2 | 3 | 4;
+const TOTAL_STEPS = 5;
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { completeOnboarding, loading, user } = useAuthStore();
-  const [step, setStep] = useState(0);
-  const googleName = user?.user_metadata?.full_name || user?.user_metadata?.name || '';
+  const { completeOnboarding, updateProfile, loading, user } = useAuthStore();
+  const celebrate = useUiStore((s) => s.celebrate);
+
+  const [step, setStep] = useState<StepIndex>(0);
+  const googleName =
+    user?.user_metadata?.full_name || user?.user_metadata?.name || '';
   const [name, setName] = useState(googleName);
-  const [guide, setGuide] = useState('ben');
-  const [templates, setTemplates] = useState<TemplateOption[]>([]);
-  const [selectedTemplates, setSelectedTemplates] = useState<Set<string>>(new Set());
-  const [selectedLang, setSelectedLang] = useState<AppLanguage>('en-US');
+  const [guide, setGuide] = useState<GuideId>('ben');
+  const [primaryUse, setPrimaryUse] = useState<PrimaryUse | null>(null);
   const [error, setError] = useState('');
 
-  // Fetch available templates
-  useEffect(() => {
-    supabase.from('templates').select('id, name, icon, description, category').eq('is_active', true).order('sort_order').then(({ data }) => {
-      if (data) {
-        setTemplates(data);
-        // Pre-select daily templates by default
-        const dailyIds = new Set(data.filter((t) => t.category === 'daily').map((t) => t.id));
-        setSelectedTemplates(dailyIds);
-      }
-    });
-  }, []);
+  const goto = (n: StepIndex) => {
+    setError('');
+    setStep(n);
+  };
 
-  const toggleTemplate = (id: string) => {
-    const next = new Set(selectedTemplates);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    setSelectedTemplates(next);
+  const handleInstalled = async () => {
+    // Fire-and-forget; don't block the onboarding flow on a
+    // network hiccup. The profile column is optional metadata.
+    updateProfile({ pwa_installed: true }).catch(() => {});
+    goto(4);
+  };
+
+  const handleInstallSkip = async () => {
+    updateProfile({ install_prompt_dismissed_at: new Date().toISOString() }).catch(() => {});
+    goto(4);
   };
 
   const handleComplete = async () => {
     try {
       setError('');
-      await completeOnboarding(name.trim() || 'Friend', '', [], guide);
-      // Save selected template IDs to localStorage
+      const chosenUse: PrimaryUse = primaryUse ?? 'journal';
+      await completeOnboarding(name.trim() || 'Friend', '', [], guide, chosenUse);
+      // Flag the guided tour to run on first /home paint. Using
+      // localStorage (rather than profile.tour_completed) because it's
+      // set-and-forget and doesn't require the schema migration to
+      // have already run — legacy users upgrading won't see a tour,
+      // only users who just completed this onboarding flow.
       if (typeof window !== 'undefined') {
-        localStorage.setItem('enabled_template_ids', JSON.stringify([...selectedTemplates]));
+        localStorage.setItem('tour_pending', '1');
+        // Seed wallState so the first /home or /today render — and
+        // any cold reload before the user navigates — lands on the
+        // wall they just chose. wallState's hydrate() reads this on
+        // mount; without this seed, defaults take over.
+        const initialWall = chosenUse === 'tasks' ? 'tasks' : 'journal';
+        try {
+          localStorage.setItem(
+            'wallState.v1',
+            JSON.stringify({
+              activeWall: initialWall,
+              lastTabPerWall: { tasks: 'today', journal: 'pulse' },
+            }),
+          );
+        } catch {}
       }
-      router.replace('/home');
+      celebrate();
+      const destination = chosenUse === 'tasks' ? '/today' : '/home';
+      window.setTimeout(
+        () => router.replace(destination),
+        prefersReducedMotion ? 200 : 900
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     }
   };
 
-  const handleSelectLang = (lang: AppLanguage) => {
-    setSelectedLang(lang);
-    setLanguage(lang);
-  };
-
-  const steps = [
-    // Step 0: Language
-    <div key="language" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">{t('onboarding.chooseLanguage')}</h2>
-      <p className="text-sm text-text-secondary">{t('onboarding.changeLater')}</p>
-      <div className="space-y-3">
-        {LANGUAGES.map((lang) => (
-          <button
-            key={lang.code}
-            onClick={() => handleSelectLang(lang.code)}
-            className={`w-full flex items-center gap-3 p-4 rounded-xl border text-left transition-colors ${
-              selectedLang === lang.code
-                ? 'border-primary bg-primary/10'
-                : 'border-border bg-surface hover:bg-surface-elevated'
-            }`}
-          >
-            <span className="text-3xl">{lang.flag}</span>
-            <span className="text-base font-medium text-text-primary">{lang.label}</span>
-            {selectedLang === lang.code && <span className="ml-auto text-primary text-sm font-bold">{'\u2713'}</span>}
-          </button>
-        ))}
-      </div>
-      <button
-        onClick={() => setStep(1)}
-        className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
-      >
-        {t('common.next')}
-      </button>
-    </div>,
-
-    // Step 1: Name
-    <div key="name" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">{t('onboarding.whatName')}</h2>
-      <p className="text-sm text-text-secondary">{t('onboarding.changeNameLater')}</p>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder={t('onboarding.yourName')}
-        autoFocus
-        className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary outline-none"
-      />
-      <button
-        onClick={() => name.trim() && setStep(2)}
-        disabled={!name.trim()}
-        className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-40"
-      >
-        {t('common.next')}
-      </button>
-    </div>,
-
-    // Step 2: Pick guide
-    <div key="guide" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">{t('onboarding.chooseGuide')}</h2>
-      <p className="text-sm text-text-secondary">{t('onboarding.guideSubtitle')}</p>
-      <GuideSelector value={guide} onChange={setGuide} />
-      <button
-        onClick={() => setStep(3)}
-        className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors"
-      >
-        {t('common.next')}
-      </button>
-    </div>,
-
-    // Step 3: Pick templates
-    <div key="templates" className="space-y-4">
-      <h2 className="text-xl font-bold text-text-primary">{t('onboarding.pickTemplates')}</h2>
-      <p className="text-sm text-text-secondary">{t('onboarding.templateSubtitle')}</p>
-      <div className="grid grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto">
-        {templates.map((tmpl) => {
-          const isSelected = selectedTemplates.has(tmpl.id);
-          return (
-            <button
-              key={tmpl.id}
-              onClick={() => toggleTemplate(tmpl.id)}
-              className={`flex items-center gap-2 p-3 rounded-xl border text-left transition-colors ${
-                isSelected
-                  ? 'border-primary bg-primary/10'
-                  : 'border-border bg-surface hover:bg-surface-elevated'
-              }`}
-            >
-              <span className="text-xl">{ICONS[tmpl.icon] || '\uD83D\uDCC4'}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-text-primary truncate">{tmpl.name}</p>
-                <p className="text-xs text-text-tertiary capitalize">{tmpl.category}</p>
-              </div>
-              {isSelected && <span className="text-primary text-sm">{'\u2713'}</span>}
-            </button>
-          );
-        })}
-      </div>
-      {error && <p className="text-error text-sm">{error}</p>}
-      <button
-        onClick={handleComplete}
-        disabled={loading}
-        className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
-      >
-        {loading ? t('onboarding.settingUp') : t('onboarding.startJournaling')}
-      </button>
-    </div>,
-  ];
-
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-bg">
-      <div className="max-w-sm w-full">
-        <div className="flex gap-1 mb-8">
-          {[0, 1, 2, 3].map((s) => (
-            <div
-              key={s}
-              className={`flex-1 h-1 rounded-full transition-colors ${
-                s <= step ? 'bg-primary' : 'bg-border'
-              }`}
-            />
-          ))}
+    <div className="relative min-h-screen bg-bg">
+      {/* Slim progress indicator across the top — skipped on the
+          welcome step so the philosophy reveal isn't competing with
+          UI chrome. */}
+      {step > 0 && (
+        <div className="fixed top-0 inset-x-0 z-20 h-0.5 bg-border/50">
+          <motion.div
+            className="h-full bg-primary"
+            initial={false}
+            animate={{ width: `${((step + 1) / TOTAL_STEPS) * 100}%` }}
+            transition={
+              prefersReducedMotion
+                ? { duration: 0 }
+                : { type: 'spring', stiffness: 240, damping: 32 }
+            }
+          />
         </div>
-        {steps[step]}
-      </div>
+      )}
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={step}
+          initial={prefersReducedMotion ? undefined : { opacity: 0, x: 18 }}
+          animate={prefersReducedMotion ? undefined : { opacity: 1, x: 0 }}
+          exit={prefersReducedMotion ? undefined : { opacity: 0, x: -18 }}
+          transition={{ duration: 0.32, ease: [0.25, 0.46, 0.45, 0.94] }}
+          className="w-full"
+        >
+          {step === 0 && <WelcomeStep onContinue={() => goto(1)} />}
+          {step === 1 && (
+            <GuideStep
+              value={guide}
+              onChange={setGuide}
+              onContinue={() => goto(2)}
+            />
+          )}
+          {step === 2 && (
+            <PrimaryUseStep
+              value={primaryUse}
+              onChange={setPrimaryUse}
+              onContinue={() => goto(3)}
+            />
+          )}
+          {step === 3 && (
+            <InstallStep
+              guide={guide}
+              onInstalled={handleInstalled}
+              onSkip={handleInstallSkip}
+            />
+          )}
+          {step === 4 && (
+            <NameStep
+              guide={guide}
+              value={name}
+              onChange={setName}
+              onSubmit={handleComplete}
+              loading={loading}
+              error={error}
+            />
+          )}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* Back link — only on steps after welcome */}
+      {step > 0 && (
+        <motion.button
+          initial={prefersReducedMotion ? undefined : { opacity: 0 }}
+          animate={prefersReducedMotion ? undefined : { opacity: 1 }}
+          whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
+          onClick={() => goto(Math.max(0, step - 1) as StepIndex)}
+          className="fixed top-3 left-4 z-30 text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+          style={{ marginTop: 'env(safe-area-inset-top)' }}
+        >
+          ← Back
+        </motion.button>
+      )}
     </div>
   );
 }

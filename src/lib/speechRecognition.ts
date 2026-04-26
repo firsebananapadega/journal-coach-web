@@ -90,8 +90,35 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
   recognition.interimResults = true;
 
   let finalTranscript = '';
+  // Watchdog: on iOS Safari (especially first-time use after a fresh
+  // permission grant) the SR engine occasionally enters a half-init
+  // state where `onstart` / `onresult` / `onerror` never fire and the
+  // UI is stuck on "listening" forever. If we don't see `onstart` or
+  // any result within START_TIMEOUT_MS, abort and surface as an error
+  // so the caller can reset the UI.
+  const START_TIMEOUT_MS = 2500;
+  let started = false;
+  let watchdog: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    if (started) return;
+    try { recognition.abort(); } catch {}
+    if (activeRecognition === recognition) activeRecognition = null;
+    options.onError?.('start-timeout');
+  }, START_TIMEOUT_MS);
+  const clearWatchdog = () => {
+    if (watchdog) {
+      clearTimeout(watchdog);
+      watchdog = null;
+    }
+  };
+
+  recognition.onstart = () => {
+    started = true;
+    clearWatchdog();
+  };
 
   recognition.onresult = (event: SpeechRecognitionEvent) => {
+    started = true;
+    clearWatchdog();
     let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
@@ -106,11 +133,13 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
   };
 
   recognition.onend = () => {
+    clearWatchdog();
     activeRecognition = null;
     options.onEnd?.();
   };
 
   recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    clearWatchdog();
     // 'no-speech' and 'aborted' are not real errors
     if (event.error === 'no-speech' || event.error === 'aborted') return;
     if (event.error === 'not-allowed') {
@@ -123,12 +152,14 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
   try {
     recognition.start();
     activeRecognition = recognition;
-  } catch (err) {
+  } catch {
+    clearWatchdog();
     options.onError?.('Failed to start speech recognition.');
     return null;
   }
 
   return () => {
+    clearWatchdog();
     if (activeRecognition === recognition) {
       activeRecognition = null;
     }

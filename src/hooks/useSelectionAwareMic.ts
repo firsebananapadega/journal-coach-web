@@ -27,10 +27,7 @@
 //   <button {...micButtonProps}>Tap to speak</button>
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  startListening,
-  requestMicPermission,
-} from '@/lib/speechRecognition';
+import { startListening } from '@/lib/speechRecognition';
 import { getLanguage } from '@/lib/language';
 import { playCaptureStart, playCaptureStop } from '@/lib/audioCues';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
@@ -291,12 +288,13 @@ export function useSelectionAwareMic({
     transcriptBaselineRef.current = '';
     lastTranscriptRef.current = '';
 
-    const ok = await requestMicPermission();
-    if (!ok) {
-      console.warn('[mic] permission denied or unavailable');
-      return;
-    }
-
+    // Skip the getUserMedia permission preflight on purpose: on iOS
+    // Safari it consumed the user gesture and left recognition.start()
+    // without a fresh gesture, which produced a half-init engine that
+    // never fired onstart/onresult/onerror — UI stuck on "listening".
+    // recognition.start() handles whichever permission the browser
+    // needs and the watchdog in startListening guarantees we never
+    // get stuck.
     const cleanup = beginRecognition();
     if (cleanup) {
       setIsListening(true);

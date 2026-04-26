@@ -43,6 +43,7 @@ export default function VoiceEntryPage() {
   const {
     isListening,
     toggle: toggleMic,
+    stop: stopMic,
     micButtonProps,
   } = useSelectionAwareMic({
     textareaRef,
@@ -50,6 +51,27 @@ export default function VoiceEntryPage() {
     onChange: setTranscript,
     autoRestart: true,
   });
+
+  // ── Auto-mic preference ────────────────────────────────────────
+  // Stored in localStorage. Default ON (user preference). The first
+  // time a brand-new user lands on /voice (right after onboarding)
+  // we force it OFF for that one session — gives the keyboard the
+  // first impression and lets them opt-in to the mic instead of
+  // racing the iOS first-permission prompt on launch.
+  const [autoMic, setAutoMic] = useState<boolean>(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem('capture.autoMic');
+    if (raw === '0') setAutoMic(false);
+    else if (raw === '1') setAutoMic(true);
+  }, []);
+  const persistAutoMic = (next: boolean) => {
+    setAutoMic(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('capture.autoMic', next ? '1' : '0');
+    }
+  };
 
   // Pre-save preview state. classifyCapture's result lives here from the
   // moment it resolves until the user either confirms (writes to stores)
@@ -90,14 +112,31 @@ export default function VoiceEntryPage() {
 
   useEffect(() => {
     startTime.current = Date.now();
-    // Opt-in capture: page opens in a calm state with the textarea
-    // focused and the mic idle. Users who want to dictate tap "Tap to
-    // speak"; users who want to type just type. No surprise permission
-    // prompts, no accidental recording.
+    // First-open carve-out: the very first time the user lands on
+    // /voice after onboarding, force keyboard-first so the iOS
+    // first-permission prompt isn't racing the mount. After that we
+    // honor capture.autoMic.
+    const firstOpenDone =
+      typeof window !== 'undefined' && window.localStorage.getItem('capture.firstOpenDone') === '1';
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('capture.firstOpenDone', '1');
+    }
+    const shouldAutoMic = autoMic && firstOpenDone && speechSupported;
+    if (shouldAutoMic) {
+      // Brief delay so the page has painted before we trigger the
+      // permission/dictation prompt — keeps the UI from flashing.
+      const id = window.setTimeout(() => {
+        void toggleMic();
+      }, 120);
+      return () => window.clearTimeout(id);
+    }
+    // Calm state: textarea focused, mic idle.
     const id = window.setTimeout(() => {
       textareaRef.current?.focus();
     }, 80);
     return () => window.clearTimeout(id);
+    // Run-once on mount; don't re-trigger when autoMic toggles mid-session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -439,7 +478,12 @@ export default function VoiceEntryPage() {
           (per Apple HIG minimum touch target). */}
       <div className="flex items-center justify-between px-3 pt-2 pb-2 border-b border-border flex-shrink-0">
         <button
-          onClick={() => router.push('/today')}
+          onClick={() => {
+            // Hard-stop the SR engine before navigating so a hung
+            // recognition session can't pin the next page.
+            stopMic();
+            router.push('/today');
+          }}
           className="w-11 h-11 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors"
           aria-label={t('common.cancel')}
         >
@@ -448,7 +492,16 @@ export default function VoiceEntryPage() {
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
-        <div className="w-11" />
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="w-11 h-11 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors"
+          aria-label="Capture settings"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
       </div>
 
       {/* Textarea — capped height, scrolls internally */}
@@ -682,6 +735,72 @@ export default function VoiceEntryPage() {
           }
         }}
       />
+
+      {/* Capture settings sheet — opened by the gear in the header.
+          One toggle for now: auto-start microphone. Persists to
+          localStorage; takes effect on the NEXT open of /voice (we
+          don't auto-start mid-session when the user just toggled). */}
+      {settingsOpen && (
+        <>
+          <motion.div
+            initial={prefersReducedMotion ? undefined : { opacity: 0 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/40"
+            onClick={() => setSettingsOpen(false)}
+          />
+          <motion.div
+            initial={prefersReducedMotion ? undefined : { y: '100%' }}
+            animate={prefersReducedMotion ? undefined : { y: 0 }}
+            exit={prefersReducedMotion ? undefined : { y: '100%' }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            className="fixed inset-x-0 bottom-0 z-[70] bg-bg rounded-t-3xl shadow-warm-xl"
+            style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+          >
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-border" />
+            </div>
+            <div className="px-5 py-3 flex items-center justify-between border-b border-border">
+              <h2 className="text-base font-bold text-text-primary">Capture settings</h2>
+              <button
+                onClick={() => setSettingsOpen(false)}
+                className="text-text-secondary text-lg w-9 h-9 flex items-center justify-center"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">
+                    Auto-start microphone
+                  </p>
+                  <p className="text-xs text-text-tertiary leading-snug mt-0.5">
+                    {autoMic
+                      ? 'Mic starts listening as soon as you open Capture.'
+                      : 'Capture opens with the keyboard ready to type.'}
+                  </p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={autoMic}
+                  onClick={() => persistAutoMic(!autoMic)}
+                  className={`relative w-12 h-7 rounded-full transition-colors flex-shrink-0 ${
+                    autoMic ? 'bg-primary' : 'bg-border'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                      autoMic ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
     </div>
   );
 }
