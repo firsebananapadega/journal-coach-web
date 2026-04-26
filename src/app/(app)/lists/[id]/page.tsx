@@ -10,6 +10,7 @@
 import { use, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useListStore } from '@/stores/listStore';
 import { useTaskStore, type Task } from '@/stores/taskStore';
 import { MatrixView, type MatrixTask } from '@/components/MatrixView';
@@ -18,7 +19,10 @@ import { TaskEditSheet } from '@/components/TaskEditSheet';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import { useUiStore } from '@/stores/uiStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
+import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
+
+const ICON_PRESETS = ['📁', '📋', '📝', '🎯', '💼', '🏠', '🛒', '✅', '📌', '⭐', '📅', '💡'];
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -31,6 +35,7 @@ export default function ListDetailPage({ params }: PageProps) {
   const lists = useListStore((s) => s.lists);
   const fetchLists = useListStore((s) => s.fetchLists);
   const renameList = useListStore((s) => s.renameList);
+  const updateListIcon = useListStore((s) => s.updateListIcon);
   const deleteList = useListStore((s) => s.deleteList);
   const tasks = useTaskStore((s) => s.tasks);
   const fetchTasks = useTaskStore((s) => s.fetchAll);
@@ -45,11 +50,15 @@ export default function ListDetailPage({ params }: PageProps) {
   const [newText, setNewText] = useState('');
   const [adding, setAdding] = useState(false);
   const [quadrantTask, setQuadrantTask] = useState<Task | null>(null);
-  const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
-  // Done section is collapsed by default — reduces visual clutter on
-  // active lists; expand to verify completed work.
-  const [doneCollapsed, setDoneCollapsed] = useState(true);
+  // Done section is now expanded by default per user preference —
+  // they want to see completed items as a proper section without
+  // having to expand each time.
+  const [doneCollapsed, setDoneCollapsed] = useState(false);
+  // Settings sheet (rename / icon / delete) — opened by the gear
+  // icon in the header. Inbox shows fewer affordances (no delete).
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [iconDraft, setIconDraft] = useState('');
 
   // Swipe-left → Delete with confirm; swipe-right → move task's
   // due_date to tomorrow. Both feel native to iOS list interactions
@@ -80,7 +89,17 @@ export default function ListDetailPage({ params }: PageProps) {
     [tasks, id],
   );
   const open = listTasks.filter((task) => !task.completed);
-  const done = listTasks.filter((task) => task.completed);
+  // Sort completed tasks so the most-recently checked-off item
+  // sits at the top of the Done section. updated_at is stamped
+  // by Postgres on every UPDATE, including the toggle that flips
+  // completed → true.
+  const done = useMemo(
+    () =>
+      listTasks
+        .filter((task) => task.completed)
+        .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? '')),
+    [listTasks],
+  );
 
   // ✨ FIX: declare hooks before any early return so order stays stable.
   const handleAdd = async () => {
@@ -94,15 +113,17 @@ export default function ListDetailPage({ params }: PageProps) {
     }
   };
 
-  const handleRename = async () => {
+  const handleSettingsRename = async () => {
     if (!list) return;
     const trimmed = draftName.trim();
-    if (!trimmed || trimmed === list.name) {
-      setEditingName(false);
-      return;
-    }
+    if (!trimmed || trimmed === list.name) return;
     await renameList(list.id, trimmed);
-    setEditingName(false);
+  };
+
+  const handleSettingsIcon = async (next: string) => {
+    if (!list) return;
+    setIconDraft(next);
+    await updateListIcon(list.id, next);
   };
 
   const handleDelete = async () => {
@@ -134,48 +155,34 @@ export default function ListDetailPage({ params }: PageProps) {
         <Link href="/lists" className="text-sm text-primary font-medium">
           &lsaquo; {t('tab.lists')}
         </Link>
-        {!list.is_inbox && (
-          <button
-            onClick={handleDelete}
-            className="text-xs text-text-tertiary hover:text-error transition-colors"
-          >
-            Delete list
-          </button>
-        )}
-      </div>
-
-      {/* Title — tap to rename (skipped for Inbox) */}
-      {editingName && !list.is_inbox ? (
-        <div className="flex gap-2">
-          <input
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleRename()}
-            autoFocus
-            className="flex-1 px-3 py-2 bg-surface border border-border focus:border-primary rounded-lg text-base font-bold text-text-primary outline-none"
-          />
-          <button
-            onClick={handleRename}
-            className="px-3 py-2 bg-primary text-white rounded-lg text-sm font-medium"
-          >
-            {t('common.done')}
-          </button>
-        </div>
-      ) : (
+        {/* Context-aware gear — opens the list-scoped settings sheet
+            (rename, icon, delete). Replaces the previous top-right
+            "Delete list" link; destructive action now sits behind a
+            two-step inside the sheet. The global gear from
+            (app)/layout is suppressed on /lists/[id]. */}
         <button
           onClick={() => {
-            if (list.is_inbox) return;
+            setIconDraft(list.icon ?? '');
             setDraftName(list.name);
-            setEditingName(true);
+            setSettingsOpen(true);
           }}
-          className="text-left"
+          aria-label="List settings"
+          className="w-9 h-9 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-text-secondary hover:text-text-primary"
         >
-          <h1 className="text-2xl font-bold text-text-primary flex items-center gap-2">
-            <span>{list.is_inbox ? '📥' : list.icon ?? '📁'}</span>
-            <span>{list.is_inbox ? t('inbox.label') : list.name}</span>
-          </h1>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
         </button>
-      )}
+      </div>
+
+      {/* Title — rename + icon now live behind the gear icon's
+          settings sheet. The header stays static so it doesn't
+          fight the gear-tap target. */}
+      <h1 className="text-2xl font-bold text-text-primary flex items-center gap-2">
+        <span>{list.is_inbox ? '📥' : list.icon ?? '📁'}</span>
+        <span>{list.is_inbox ? t('inbox.label') : list.name}</span>
+      </h1>
 
       {/* Add task */}
       <div className="flex gap-2">
@@ -277,34 +284,45 @@ export default function ListDetailPage({ params }: PageProps) {
                 </div>
               )}
               {done.length > 0 && (
-                <div className="space-y-1.5 pt-3">
+                <section className="pt-6 space-y-2">
+                  {/* Proper section break — divider + bigger header
+                      so Done feels like its own area below the open
+                      tasks rather than a tiny aside. */}
+                  <div className="border-t border-border" aria-hidden />
                   <button
                     type="button"
                     onClick={() => setDoneCollapsed((c) => !c)}
-                    className="w-full flex items-center justify-between text-xs uppercase tracking-wider text-text-tertiary font-semibold py-1 hover:text-text-secondary transition-colors"
+                    className="w-full flex items-center justify-between pt-2 hover:opacity-80 transition-opacity"
                     aria-expanded={!doneCollapsed}
                   >
-                    <span>
-                      Done <span className="text-text-tertiary/70">({done.length})</span>
+                    <span className="text-base font-bold text-text-secondary">
+                      Done{' '}
+                      <span className="text-text-tertiary font-semibold">
+                        · {done.length}
+                      </span>
                     </span>
-                    <span aria-hidden className="text-base leading-none">
+                    <span aria-hidden className="text-lg leading-none text-text-tertiary">
                       {doneCollapsed ? '▸' : '▾'}
                     </span>
                   </button>
-                  {!doneCollapsed && done.map((task) => (
-                    <SwipeToDelete
-                      key={task.id}
-                      onDelete={() => handleSwipeDelete(task)}
-                    >
-                      <TaskCard
-                        task={task}
-                        onToggle={() => toggleComplete(task.id)}
-                        onTap={() => toggleComplete(task.id)}
-                        onEdit={() => setQuadrantTask(task)}
-                      />
-                    </SwipeToDelete>
-                  ))}
-                </div>
+                  {!doneCollapsed && (
+                    <div className="space-y-1.5">
+                      {done.map((task) => (
+                        <SwipeToDelete
+                          key={task.id}
+                          onDelete={() => handleSwipeDelete(task)}
+                        >
+                          <TaskCard
+                            task={task}
+                            onToggle={() => toggleComplete(task.id)}
+                            onTap={() => toggleComplete(task.id)}
+                            onEdit={() => setQuadrantTask(task)}
+                          />
+                        </SwipeToDelete>
+                      ))}
+                    </div>
+                  )}
+                </section>
               )}
             </>
           )}
@@ -315,6 +333,128 @@ export default function ListDetailPage({ params }: PageProps) {
         task={quadrantTask}
         onClose={() => setQuadrantTask(null)}
       />
+
+      {/* List settings sheet — gear-icon entry point. Houses rename,
+          icon picker (preset grid + free-text emoji), and the
+          delete-list affordance that previously sat in the top
+          header. Inbox can rename + change icon but not be deleted. */}
+      <AnimatePresence>
+        {settingsOpen && (
+          <>
+            <motion.div
+              key="list-settings-backdrop"
+              initial={prefersReducedMotion ? undefined : { opacity: 0 }}
+              animate={prefersReducedMotion ? undefined : { opacity: 1 }}
+              exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+              className="fixed inset-0 z-[60] bg-black/40"
+              onClick={() => setSettingsOpen(false)}
+            />
+            <motion.div
+              key="list-settings-sheet"
+              initial={prefersReducedMotion ? undefined : { y: '100%', opacity: 0 }}
+              animate={prefersReducedMotion ? undefined : { y: 0, opacity: 1 }}
+              exit={prefersReducedMotion ? undefined : { y: '100%', opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+              className="fixed inset-x-3 z-[70] bg-surface rounded-3xl border border-border shadow-warm-xl"
+              style={{
+                bottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+                maxHeight: '88dvh',
+              }}
+            >
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-border" />
+              </div>
+              <div className="px-5 py-3 flex items-center justify-between border-b border-border">
+                <h2 className="text-base font-bold text-text-primary">List settings</h2>
+                <button
+                  onClick={() => setSettingsOpen(false)}
+                  className="text-text-secondary text-lg w-9 h-9 flex items-center justify-center"
+                  aria-label="Close"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="px-5 py-4 space-y-5 overflow-y-auto" style={{ maxHeight: '70dvh' }}>
+                {/* Rename */}
+                {!list.is_inbox && (
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-wider text-text-tertiary mb-1.5">
+                      Name
+                    </label>
+                    <input
+                      type="text"
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      onBlur={handleSettingsRename}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      className="w-full px-3 py-2.5 bg-surface-elevated border border-border focus:border-primary rounded-xl text-base text-text-primary outline-none"
+                    />
+                  </div>
+                )}
+
+                {/* Icon picker */}
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-text-tertiary mb-1.5">
+                    Icon
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {ICON_PRESETS.map((emoji) => {
+                      const active = (iconDraft || '📁') === emoji;
+                      return (
+                        <button
+                          key={emoji}
+                          onClick={() => handleSettingsIcon(emoji)}
+                          className={`w-11 h-11 rounded-xl text-xl flex items-center justify-center transition-colors ${
+                            active
+                              ? 'bg-primary/20 border border-primary'
+                              : 'bg-surface-elevated border border-border hover:border-primary/40'
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input
+                    type="text"
+                    value={iconDraft}
+                    placeholder="Or paste any emoji…"
+                    maxLength={4}
+                    onChange={(e) => setIconDraft(e.target.value)}
+                    onBlur={() => handleSettingsIcon(iconDraft)}
+                    className="w-full px-3 py-2 bg-surface-elevated border border-border focus:border-primary rounded-xl text-sm text-text-primary outline-none"
+                  />
+                </div>
+
+                {/* Delete (non-Inbox only) */}
+                {!list.is_inbox && (
+                  <div>
+                    <button
+                      onClick={async () => {
+                        setSettingsOpen(false);
+                        await handleDelete();
+                      }}
+                      className="w-full py-3 rounded-xl bg-error/10 text-error text-sm font-semibold hover:bg-error/20 transition-colors"
+                    >
+                      Delete list
+                    </button>
+                    <p className="text-[11px] text-text-tertiary mt-1.5 leading-snug">
+                      Tasks in this list will move to Inbox. The list itself is
+                      permanently removed.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

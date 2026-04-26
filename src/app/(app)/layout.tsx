@@ -90,6 +90,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // both overlap the composer card AND be the wrong destination for
   // "edit this notebook" — so suppress it here.
   const isInsideNotebook = /^\/notebooks\/[^/]+/.test(pathname);
+  // Same pattern for /lists/[id] — the list-detail page renders its
+  // own gear that opens list-scoped settings (rename, icon, delete).
+  const isInsideList = /^\/lists\/[^/]+/.test(pathname);
 
   // Pages without a wall (e.g. /settings) skip the flip animation so
   // they don't visually flip in/out when the user taps the gear from
@@ -123,7 +126,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           BookPage renders its own context-aware gear there. Sits
           above page content so any page can reserve top padding
           (the existing pages already do). */}
-      {!hideNav && !isSettings && !isInsideNotebook && (
+      {!hideNav && !isSettings && !isInsideNotebook && !isInsideList && (
         <Link
           href="/settings"
           aria-label={t('settings.title') || 'Settings'}

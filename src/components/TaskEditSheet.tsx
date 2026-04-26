@@ -209,8 +209,6 @@ export function TaskEditSheet({ task, onClose }: Props) {
     onClose();
   };
 
-  const isPresetTime = (TIME_PRESETS as readonly string[]).includes(time);
-
   return (
     <AnimatePresence>
       <motion.div
@@ -233,9 +231,15 @@ export function TaskEditSheet({ task, onClose }: Props) {
             ? { duration: 0 }
             : { type: 'spring', stiffness: 380, damping: 36 }
         }
-        className="fixed bottom-0 inset-x-0 z-[70] bg-surface rounded-t-3xl border-t border-border shadow-warm-lg flex flex-col overflow-hidden"
+        className="fixed inset-x-3 z-[70] bg-surface rounded-3xl border border-border shadow-warm-xl flex flex-col overflow-hidden"
         style={{
-          maxHeight: '92dvh',
+          // Float the sheet off the bottom of the viewport (above
+          // any iOS home indicator) and inset from the sides so it
+          // reads as a proper modal panel rather than glued to the
+          // chrome. The drag-up animation still feels right because
+          // y:'100%' resolves relative to the sheet's height.
+          bottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+          maxHeight: '88dvh',
         }}
       >
         {/* Drag handle pinned at the top so it's always visible. */}
@@ -281,7 +285,10 @@ export function TaskEditSheet({ task, onClose }: Props) {
             </div>
           </div>
 
-          {/* Time row */}
+          {/* Time row — preset chips only. Exact-time picking moved
+              to the Reminder field below since that's the actual
+              trigger for a notification; the Time field is a coarse
+              "when in the day" tag. */}
           <div>
             <label className="block text-[11px] uppercase tracking-wider text-text-tertiary mb-1">
               Time
@@ -300,12 +307,6 @@ export function TaskEditSheet({ task, onClose }: Props) {
                   {p}
                 </button>
               ))}
-              <input
-                type="time"
-                value={isPresetTime ? '' : time}
-                onChange={(e) => commitTime(e.target.value)}
-                className="px-3 py-1.5 bg-surface-elevated border border-border rounded-full text-xs text-text-primary outline-none w-[110px]"
-              />
               {time && (
                 <button
                   onClick={() => commitTime('')}

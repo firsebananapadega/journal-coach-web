@@ -1,0 +1,213 @@
+import { create } from 'zustand';
+import { supabase } from '../lib/supabase';
+
+// Project lists. Inbox is a system-created list (is_inbox = true)
+// that lives at the top of the Lists tab. ensureInbox() creates it
+// idempotently the first time the user lands on Lists or fires a
+// capture that needs a default destination.
+//
+// The store degrades gracefully if the lists table doesn't exist yet
+// (migration not applied): all reads return empty, all writes log a
+// warning and fail silently. This means the app stays usable while
+// the user copy-pastes the SQL into the Supabase editor.
+
+export interface ListRecord {
+  id: string;
+  user_id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  sort_order: number;
+  is_inbox: boolean;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ListState {
+  lists: ListRecord[];
+  inboxId: string | null;
+  loading: boolean;
+  error: string | null;
+  hasFetched: boolean;
+  fetchLists: () => Promise<void>;
+  ensureInbox: () => Promise<string | null>;
+  createList: (name: string, opts?: { color?: string; icon?: string }) => Promise<ListRecord | null>;
+  renameList: (id: string, name: string) => Promise<void>;
+  /** Set the icon (a single emoji string). Pass an empty string to
+   *  clear back to the default 📁 in render code. */
+  updateListIcon: (id: string, icon: string) => Promise<void>;
+  deleteList: (id: string) => Promise<void>;
+  reset: () => void;
+}
+
+const INBOX_NAME = 'Inbox';
+
+function isMissingTableError(err: unknown): boolean {
+  const msg = (err as { message?: string })?.message?.toLowerCase() ?? '';
+  return (
+    msg.includes('relation') &&
+    (msg.includes('does not exist') || msg.includes('not exist'))
+  );
+}
+
+export const useListStore = create<ListState>((set, get) => ({
+  lists: [],
+  inboxId: null,
+  loading: false,
+  error: null,
+  hasFetched: false,
+
+  fetchLists: async () => {
+    try {
+      set({ loading: true, error: null });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        set({ lists: [], inboxId: null, hasFetched: true });
+        return;
+      }
+      const { data, error } = await supabase
+        .from('lists')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('archived', false)
+        .order('is_inbox', { ascending: false })
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      const lists = (data ?? []) as ListRecord[];
+      const inbox = lists.find((l) => l.is_inbox) ?? null;
+      set({ lists, inboxId: inbox?.id ?? null, hasFetched: true });
+    } catch (err) {
+      if (isMissingTableError(err)) {
+        // Migration not applied yet — surface a friendly empty state.
+        set({ lists: [], inboxId: null, hasFetched: true, error: 'lists table not found' });
+      } else {
+        const msg = err instanceof Error ? err.message : 'Failed to fetch lists';
+        set({ error: msg });
+      }
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  ensureInbox: async () => {
+    const cached = get().inboxId;
+    if (cached) return cached;
+    if (!get().hasFetched) {
+      await get().fetchLists();
+      const after = get().inboxId;
+      if (after) return after;
+    }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data, error } = await supabase
+        .from('lists')
+        .insert({
+          user_id: user.id,
+          name: INBOX_NAME,
+          is_inbox: true,
+          sort_order: 0,
+        })
+        .select()
+        .single();
+      if (error) {
+        // Race: another tab beat us to it. Re-fetch and read.
+        await get().fetchLists();
+        return get().inboxId;
+      }
+      const inbox = data as ListRecord;
+      set((s) => ({
+        lists: [inbox, ...s.lists.filter((l) => l.id !== inbox.id)],
+        inboxId: inbox.id,
+      }));
+      return inbox.id;
+    } catch (err) {
+      if (isMissingTableError(err)) {
+        return null;
+      }
+      console.warn('ensureInbox failed', err);
+      return null;
+    }
+  },
+
+  createList: async (name, opts) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const trimmed = name.trim();
+      if (!trimmed) return null;
+      const baseSort = get().lists.filter((l) => !l.is_inbox).length + 1;
+      const { data, error } = await supabase
+        .from('lists')
+        .insert({
+          user_id: user.id,
+          name: trimmed,
+          color: opts?.color ?? null,
+          icon: opts?.icon ?? null,
+          sort_order: baseSort,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      const created = data as ListRecord;
+      set((s) => ({ lists: [...s.lists, created] }));
+      return created;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to create list';
+      set({ error: msg });
+      return null;
+    }
+  },
+
+  renameList: async (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const prev = get().lists;
+    set({
+      lists: prev.map((l) => (l.id === id ? { ...l, name: trimmed } : l)),
+    });
+    try {
+      const { error } = await supabase
+        .from('lists')
+        .update({ name: trimmed })
+        .eq('id', id);
+      if (error) throw error;
+    } catch {
+      set({ lists: prev });
+    }
+  },
+
+  updateListIcon: async (id, icon) => {
+    const next = icon.trim() || null;
+    const prev = get().lists;
+    set({
+      lists: prev.map((l) => (l.id === id ? { ...l, icon: next } : l)),
+    });
+    try {
+      const { error } = await supabase
+        .from('lists')
+        .update({ icon: next })
+        .eq('id', id);
+      if (error) throw error;
+    } catch {
+      set({ lists: prev });
+    }
+  },
+
+  deleteList: async (id) => {
+    const list = get().lists.find((l) => l.id === id);
+    if (!list || list.is_inbox) return; // Can't delete Inbox.
+    const prev = get().lists;
+    set({ lists: prev.filter((l) => l.id !== id) });
+    try {
+      const { error } = await supabase.from('lists').delete().eq('id', id);
+      if (error) throw error;
+    } catch {
+      set({ lists: prev });
+    }
+  },
+
+  reset: () => set({ lists: [], inboxId: null, hasFetched: false, error: null }),
+}));
