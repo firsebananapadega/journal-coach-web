@@ -17,7 +17,13 @@ interface Props {
   entries: JournalEntry[];
 }
 
-type PulseMode = 'morning' | 'evening';
+// Three pulse touchpoints through the day. Morning + evening are the
+// long-form structured pulses (intention / reflection / body / mind);
+// presence is the lightweight mid-day pause captured via PresenceCapture
+// on /home. They all live in journal_entries with entry_type='pulse'
+// and a discriminating metadata.pulseMode, so this component can render
+// all three sorted chronologically as compact done cards.
+type PulseMode = 'morning' | 'evening' | 'presence';
 
 // Pulse mode by clock hour:
 //   - 04:00–17:59 → morning
@@ -56,7 +62,7 @@ function currentPulseDay(): string {
 
 function pulseModeOf(e: JournalEntry): PulseMode | null {
   const m = (e.metadata as Record<string, unknown> | null)?.pulseMode;
-  return m === 'morning' || m === 'evening' ? m : null;
+  return m === 'morning' || m === 'evening' || m === 'presence' ? m : null;
 }
 
 // Morning: 1 question. Evening: 2 questions.
@@ -496,10 +502,78 @@ export default function DailyPulseCard({ entries }: Props) {
     const meta = (entry.metadata ?? {}) as Record<string, string>;
     const m = pulseModeOf(entry);
     if (!m) return null;
-    const label = m === 'morning' ? t('pulse.morningDone') : t('pulse.eveningDone');
-    const icon = m === 'morning' ? '☀️' : '🌙';
+    const label =
+      m === 'morning'
+        ? t('pulse.morningDone')
+        : m === 'evening'
+        ? t('pulse.eveningDone')
+        : t('pulse.presenceDone');
+    const icon = m === 'morning' ? '☀️' : m === 'evening' ? '🌙' : '🌤️';
     const isExpanded = expandedIds.has(entry.id);
     const isEditing = editingId === entry.id;
+
+    // Presence is a lighter card — no edit mode, no body/mind picker
+    // re-roll. Just attention + one_word in the expanded section.
+    if (m === 'presence') {
+      const attention = (meta.attention as string) ?? '';
+      const oneWord = (meta.one_word as string) ?? '';
+      const time = new Date(entry.created_at).toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+      return (
+        <motion.div
+          layout
+          className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm"
+          data-testid="pulse-completed-presence"
+        >
+          <button
+            onClick={() => toggleExpanded(entry.id)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{icon}</span>
+              <span className="font-semibold text-text-primary text-sm">{label}</span>
+              <span className="text-[11px] text-text-tertiary">{time}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-success">✓</span>
+              <motion.span
+                animate={{ rotate: isExpanded ? 180 : 0 }}
+                transition={{ duration: 0.2 }}
+                className="text-xs text-text-tertiary inline-block"
+              >
+                ▼
+              </motion.span>
+            </div>
+          </button>
+          <AnimatePresence initial={false}>
+            {isExpanded && (attention || oneWord) && (
+              <motion.div
+                initial={prefersReducedMotion ? undefined : { height: 0, opacity: 0 }}
+                animate={prefersReducedMotion ? undefined : { height: 'auto', opacity: 1 }}
+                exit={prefersReducedMotion ? undefined : { height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="overflow-hidden"
+              >
+                <div className="mt-3 pt-3 border-t border-border space-y-2">
+                  {attention && (
+                    <p className="text-[15px] text-text-primary leading-relaxed">
+                      {attention}
+                    </p>
+                  )}
+                  {oneWord && (
+                    <p className="text-sm text-text-secondary italic">
+                      &ldquo;{oneWord}&rdquo;
+                    </p>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      );
+    }
 
     return (
       <motion.div
@@ -537,11 +611,11 @@ export default function DailyPulseCard({ entries }: Props) {
               className="overflow-hidden"
             >
               {!isEditing ? (
-                <div className="mt-3 space-y-2 pt-3 border-t border-border">
+                <div className="mt-3 space-y-3 pt-3 border-t border-border">
                   {m === 'morning' && meta.intention && (
                     <div>
-                      <span className="text-xs font-medium text-primary">{t('pulse.intentionLabel')}</span>
-                      <p className="text-sm text-text-primary mt-0.5 whitespace-pre-wrap">{meta.intention}</p>
+                      <span className="text-xs font-medium text-primary uppercase tracking-wide">{t('pulse.intentionLabel')}</span>
+                      <p className="text-[15px] text-text-primary mt-1 leading-relaxed whitespace-pre-wrap">{meta.intention}</p>
                     </div>
                   )}
                   {/* Evening intention-outcome — per-item summary.
@@ -552,8 +626,8 @@ export default function DailyPulseCard({ entries }: Props) {
                       pulses written before the per-item rewrite. */}
                   {m === 'evening' && Array.isArray((entry.metadata as Record<string, unknown> | null)?.prior_intention_items) && (
                     <div>
-                      <span className="text-xs font-medium text-primary">Morning intention</span>
-                      <ul className="space-y-2 mt-1">
+                      <span className="text-xs font-medium text-primary uppercase tracking-wide">Morning intention</span>
+                      <ul className="space-y-3 mt-2">
                         {((entry.metadata as Record<string, unknown>).prior_intention_items as Array<{
                           text: string;
                           outcome: 'fully' | 'partially' | 'distracted' | 'not' | null;
@@ -570,18 +644,18 @@ export default function DailyPulseCard({ entries }: Props) {
                               ? '✗ Not at all'
                               : null;
                           return (
-                            <li key={i} className="text-sm">
-                              <div className="flex items-start gap-2">
-                                <span className="text-primary mt-0.5 shrink-0" aria-hidden>✦</span>
-                                <span className="text-text-primary leading-snug">{it.text}</span>
+                            <li key={i}>
+                              <div className="flex items-start gap-2.5">
+                                <span className="text-primary mt-1 shrink-0" aria-hidden>✦</span>
+                                <span className="text-[16px] font-medium text-text-primary leading-snug">{it.text}</span>
                               </div>
                               {outcomeLabel && (
-                                <p className="ml-6 mt-0.5 text-[12px] font-semibold text-text-secondary">
+                                <p className="ml-6 mt-1 text-[13px] font-semibold text-text-secondary">
                                   {outcomeLabel}
                                 </p>
                               )}
                               {it.note && (
-                                <p className="ml-6 mt-0.5 text-[13px] text-text-secondary leading-snug whitespace-pre-wrap">
+                                <p className="ml-6 mt-1 text-[14px] text-text-secondary leading-relaxed whitespace-pre-wrap">
                                   {it.note}
                                 </p>
                               )}
@@ -622,14 +696,14 @@ export default function DailyPulseCard({ entries }: Props) {
                   )}
                   {m === 'evening' && meta.wentRight && (
                     <div>
-                      <span className="text-xs font-medium text-primary">{t('pulse.wentRightLabel')}</span>
-                      <p className="text-sm text-text-primary mt-0.5 whitespace-pre-wrap">{meta.wentRight}</p>
+                      <span className="text-xs font-medium text-primary uppercase tracking-wide">{t('pulse.wentRightLabel')}</span>
+                      <p className="text-[15px] text-text-primary mt-1 leading-relaxed whitespace-pre-wrap">{meta.wentRight}</p>
                     </div>
                   )}
                   {m === 'evening' && meta.doneBetter && (
                     <div>
-                      <span className="text-xs font-medium text-accent">{t('pulse.doneBetterLabel')}</span>
-                      <p className="text-sm text-text-primary mt-0.5 whitespace-pre-wrap">{meta.doneBetter}</p>
+                      <span className="text-xs font-medium text-accent uppercase tracking-wide">{t('pulse.doneBetterLabel')}</span>
+                      <p className="text-[15px] text-text-primary mt-1 leading-relaxed whitespace-pre-wrap">{meta.doneBetter}</p>
                     </div>
                   )}
                   {/* Body/Mind chips — show whichever the user picked.
@@ -672,7 +746,7 @@ export default function DailyPulseCard({ entries }: Props) {
                         value={editIntention}
                         onChange={(e) => setEditIntention(e.target.value)}
                         rows={3}
-                        className="w-full px-3 py-2 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary outline-none focus:border-primary resize-none"
+                        className="w-full px-3.5 py-2.5 bg-surface-elevated border border-border rounded-xl text-base leading-relaxed text-text-primary outline-none focus:border-primary resize-none"
                       />
                     </div>
                   )}
@@ -684,7 +758,7 @@ export default function DailyPulseCard({ entries }: Props) {
                           value={editWentRight}
                           onChange={(e) => setEditWentRight(e.target.value)}
                           rows={3}
-                          className="w-full px-3 py-2 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary outline-none focus:border-primary resize-none"
+                          className="w-full px-3.5 py-2.5 bg-surface-elevated border border-border rounded-xl text-base leading-relaxed text-text-primary outline-none focus:border-primary resize-none"
                         />
                       </div>
                       <div className="space-y-1">
@@ -693,7 +767,7 @@ export default function DailyPulseCard({ entries }: Props) {
                           value={editDoneBetter}
                           onChange={(e) => setEditDoneBetter(e.target.value)}
                           rows={3}
-                          className="w-full px-3 py-2 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary outline-none focus:border-primary resize-none"
+                          className="w-full px-3.5 py-2.5 bg-surface-elevated border border-border rounded-xl text-base leading-relaxed text-text-primary outline-none focus:border-primary resize-none"
                         />
                       </div>
                     </>
@@ -856,19 +930,24 @@ export default function DailyPulseCard({ entries }: Props) {
                   const outcome = itemOutcomes[i] ?? null;
                   const note = itemNotes[i] ?? '';
                   return (
-                    <li key={i} className="space-y-2">
-                      <div className="flex items-start gap-2">
-                        <span className="text-primary mt-0.5 shrink-0" aria-hidden>
+                    <li
+                      key={i}
+                      className="space-y-3 pb-4 border-b border-border/40 last:border-b-0 last:pb-0"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <span className="text-primary mt-1 shrink-0 text-base" aria-hidden>
                           ✦
                         </span>
-                        <span className="text-[15px] text-text-primary leading-snug">
+                        <span className="text-[17px] font-medium text-text-primary leading-snug">
                           {item}
                         </span>
                       </div>
                       {/* Outcome pills — single line, equally-sized via
                           flex-1 so all four fit on iPhone-narrow widths
-                          without wrapping. Re-tap toggles off. */}
-                      <div className="flex items-center gap-1 flex-nowrap pl-6">
+                          without wrapping. Taller touch target (py-2)
+                          and larger label so they're easier to read +
+                          tap on mobile. Re-tap toggles off. */}
+                      <div className="flex items-center gap-1.5 flex-nowrap pl-7">
                         {(
                           [
                             { id: 'fully', label: 'Fully' },
@@ -889,9 +968,9 @@ export default function DailyPulseCard({ entries }: Props) {
                                 }))
                               }
                               aria-pressed={selected}
-                              className={`flex-1 min-w-0 px-2 py-1 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                              className={`flex-1 min-w-0 px-2 py-2 rounded-full text-[13px] font-semibold transition-colors whitespace-nowrap ${
                                 selected
-                                  ? 'bg-primary text-white border border-primary'
+                                  ? 'bg-primary text-white border border-primary shadow-warm-sm'
                                   : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
                               }`}
                             >
@@ -911,7 +990,7 @@ export default function DailyPulseCard({ entries }: Props) {
                         }
                         placeholder="How did it go? (optional)"
                         rows={2}
-                        className="ml-6 w-[calc(100%-1.5rem)] px-3 py-2 bg-surface border border-border rounded-xl text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-primary resize-none"
+                        className="ml-7 w-[calc(100%-1.75rem)] px-3.5 py-2.5 bg-surface border border-border rounded-xl text-base leading-relaxed text-text-primary placeholder:text-text-tertiary outline-none focus:border-primary resize-none"
                       />
                     </li>
                   );
@@ -928,7 +1007,7 @@ export default function DailyPulseCard({ entries }: Props) {
               value={currentValue}
               onChange={(e) => setCurrentValue(e.target.value)}
               placeholder={t('pulse.placeholder')}
-              className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary text-sm resize-none outline-none min-h-[160px] focus:border-primary placeholder:text-text-tertiary"
+              className="w-full px-4 py-3.5 bg-surface border border-border rounded-xl text-text-primary text-[17px] leading-relaxed resize-none outline-none min-h-[180px] focus:border-primary placeholder:text-text-tertiary"
               data-testid={`pulse-q${step}`}
             />
 

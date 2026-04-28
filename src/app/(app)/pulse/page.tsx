@@ -2,9 +2,12 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
 import { useJournalStore } from '@/stores/journalStore';
 import { t } from '@/lib/translations';
 import { getLanguage } from '@/lib/language';
+import EmptyState from '@/components/ui/EmptyState';
+import { staggerContainer, staggerItem, prefersReducedMotion, fadeUp } from '@/lib/motionVariants';
 import {
   getCachedPulseAnalysis,
   generatePulseAnalysis,
@@ -66,17 +69,20 @@ export default function PulsePatternsPage() {
       )}
 
       {analysis && analysis.insight && (
-        <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
-          <p className="text-sm text-text-primary leading-relaxed whitespace-pre-line">
+        <motion.div
+          {...(prefersReducedMotion ? {} : fadeUp)}
+          className="card-gradient-primary rounded-2xl p-5 space-y-3 text-white shadow-warm-lg"
+        >
+          <p className="text-sm leading-relaxed whitespace-pre-line">
             {analysis.insight}
           </p>
 
           {analysis.wentRightThemes.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-xs font-medium text-primary">{t('pulse.wentRightLabel')}</span>
+              <span className="text-xs font-semibold uppercase tracking-wider opacity-90">{t('pulse.wentRightLabel')}</span>
               <div className="flex flex-wrap gap-1.5">
                 {analysis.wentRightThemes.map((theme) => (
-                  <span key={theme} className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full">
+                  <span key={theme} className="px-2.5 py-1 bg-white/20 text-white text-xs font-medium rounded-full backdrop-blur-sm">
                     {theme}
                   </span>
                 ))}
@@ -86,10 +92,10 @@ export default function PulsePatternsPage() {
 
           {analysis.improvementThemes.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-xs font-medium text-accent">{t('pulse.doneBetterLabel')}</span>
+              <span className="text-xs font-semibold uppercase tracking-wider opacity-90">{t('pulse.doneBetterLabel')}</span>
               <div className="flex flex-wrap gap-1.5">
                 {analysis.improvementThemes.map((theme) => (
-                  <span key={theme} className="px-2.5 py-1 bg-accent/10 text-accent text-xs font-medium rounded-full">
+                  <span key={theme} className="px-2.5 py-1 bg-white/20 text-white text-xs font-medium rounded-full backdrop-blur-sm">
                     {theme}
                   </span>
                 ))}
@@ -99,28 +105,37 @@ export default function PulsePatternsPage() {
 
           {analysis.intentionThemes.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-xs font-medium text-text-secondary">{t('pulse.intentionLabel')}</span>
+              <span className="text-xs font-semibold uppercase tracking-wider opacity-90">{t('pulse.intentionLabel')}</span>
               <div className="flex flex-wrap gap-1.5">
                 {analysis.intentionThemes.map((theme) => (
-                  <span key={theme} className="px-2.5 py-1 bg-surface-elevated text-text-primary text-xs font-medium rounded-full">
+                  <span key={theme} className="px-2.5 py-1 bg-white/20 text-white text-xs font-medium rounded-full backdrop-blur-sm">
                     {theme}
                   </span>
                 ))}
               </div>
             </div>
           )}
-        </div>
+        </motion.div>
       )}
 
       {/* Timeline */}
-      <div className="space-y-3">
+      <motion.div
+        variants={staggerContainer}
+        initial={prefersReducedMotion ? undefined : 'initial'}
+        animate={prefersReducedMotion ? undefined : 'animate'}
+        className="space-y-3"
+      >
         {pulseEntries.map((entry) => {
           const meta = entry.metadata as Record<string, string> | null;
           const pulseMode = meta?.pulseMode;
           const icon = pulseMode === 'morning' ? '☀️' : '🌙';
 
           return (
-            <div key={entry.id} className="bg-surface rounded-xl border border-border p-3 space-y-2">
+            <motion.div
+              key={entry.id}
+              variants={staggerItem}
+              className="bg-surface rounded-xl border border-border p-3 space-y-2 shadow-warm-sm"
+            >
               <div className="flex items-center gap-2">
                 <span className="text-sm">{icon}</span>
                 <span className="text-xs text-text-tertiary">
@@ -179,16 +194,17 @@ export default function PulsePatternsPage() {
                   )}
                 </>
               )}
-            </div>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
 
       {pulseEntries.length === 0 && (
-        <div className="text-center py-12 space-y-2">
-          <p className="text-4xl">✨</p>
-          <p className="text-text-secondary text-sm">No pulse entries yet.</p>
-        </div>
+        <EmptyState
+          pose="meditate"
+          title={t('pulse.emptyTitle')}
+          message={t('pulse.emptyMessage')}
+        />
       )}
     </div>
   );

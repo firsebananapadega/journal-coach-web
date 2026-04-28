@@ -28,10 +28,12 @@ interface ProfileRow {
   notification_preferences: {
     morning_reminder?: boolean;
     evening_reminder?: boolean;
-    reminder_times?: { morning?: string; evening?: string };
+    presence_reminder?: boolean;
+    reminder_times?: { morning?: string; evening?: string; presence?: string };
   } | null;
   last_morning_pulse_reminder_at: string | null;
   last_evening_pulse_reminder_at: string | null;
+  last_presence_pulse_reminder_at: string | null;
   primary_use: 'tasks' | 'journal' | 'both' | null;
   language: 'en-US' | 'es-MX' | null;
 }
@@ -49,6 +51,7 @@ const BATCH_LIMIT = 200;
 const WINDOW_MIN = 5;
 const DEFAULT_MORNING_TIME = '08:00';
 const DEFAULT_EVENING_TIME = '21:30';
+const DEFAULT_PRESENCE_TIME = '13:00';
 
 function configureWebPush() {
   const pub = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '').trim();
@@ -118,7 +121,7 @@ function alreadySentToday(
 async function pulseDoneToday(
   admin: SupabaseClient,
   userId: string,
-  mode: 'morning' | 'evening',
+  mode: 'morning' | 'evening' | 'presence',
   userLocalDate: string,
   tz: string,
 ): Promise<boolean> {
@@ -144,7 +147,7 @@ async function pulseDoneToday(
 async function sendPulsePush(
   admin: SupabaseClient,
   userId: string,
-  mode: 'morning' | 'evening',
+  mode: 'morning' | 'evening' | 'presence',
   displayName: string,
   language: 'en-US' | 'es-MX',
 ): Promise<'sent' | 'no-subs' | 'failed'> {
@@ -160,22 +163,35 @@ async function sendPulsePush(
   const title = isSpanish
     ? mode === 'morning'
       ? `Pulso matutino${greeting}`
-      : `Pulso nocturno${greeting}`
+      : mode === 'evening'
+      ? `Pulso nocturno${greeting}`
+      : `Una pausa de 30 segundos${greeting}`
     : mode === 'morning'
     ? `Morning pulse${greeting}`
-    : `Evening pulse${greeting}`;
+    : mode === 'evening'
+    ? `Evening pulse${greeting}`
+    : `A 30-second pause${greeting}`;
   const body = isSpanish
     ? mode === 'morning'
       ? 'Toma 30 segundos para fijar tu intención de hoy.'
-      : 'Una breve reflexión antes de descansar.'
+      : mode === 'evening'
+      ? 'Una breve reflexión antes de descansar.'
+      : '¿Dónde está tu atención ahora mismo?'
     : mode === 'morning'
     ? "Take 30 seconds to set today's intention."
-    : 'A short reflection before you wind down.';
+    : mode === 'evening'
+    ? 'A short reflection before you wind down.'
+    : "Where's your attention right now?";
+  // All three pulse modes (morning / mid-day Presence / evening) now
+  // land on the Pulse tab — Presence functionality was folded into
+  // /home so the user has a single throughout-the-day check-in
+  // surface. The mode field stays in the payload for SW + analytics.
+  const url = '/home';
   const payload = JSON.stringify({
     kind: 'pulse_reminder',
     title,
     body,
-    data: { mode, url: '/home' },
+    data: { mode, url },
   });
 
   let sent = 0;
@@ -229,13 +245,25 @@ export async function POST(req: Request) {
   // Pull every profile that has at least one pulse reminder enabled.
   // Cap at BATCH_LIMIT — the cron fires every 5min so even 200/run
   // covers a healthy active-user pool with headroom.
+  // Presence reminder defaults to ON for users who haven't toggled it,
+  // so the OR filter must also accept profiles where presence_reminder
+  // is undefined (NULL in JSONB). The simplest correct approach: don't
+  // filter on presence_reminder at the SQL level at all — let the
+  // per-profile loop apply the default-on logic. We still keep the
+  // morning/evening OR filter so we don't process profiles with all
+  // three explicitly off.
+  //
+  // Practical cost: if a user has morning + evening explicitly OFF and
+  // no presence preference, they currently won't show up in this
+  // query. Acceptable — the only way to opt back in is to flip a
+  // toggle, which writes the field and brings them back into the OR.
   const { data: profiles, error } = await admin
     .from('profiles')
     .select(
-      'id, display_name, timezone, notification_preferences, last_morning_pulse_reminder_at, last_evening_pulse_reminder_at, primary_use, language',
+      'id, display_name, timezone, notification_preferences, last_morning_pulse_reminder_at, last_evening_pulse_reminder_at, last_presence_pulse_reminder_at, primary_use, language',
     )
     .or(
-      'notification_preferences->>morning_reminder.eq.true,notification_preferences->>evening_reminder.eq.true',
+      'notification_preferences->>morning_reminder.eq.true,notification_preferences->>evening_reminder.eq.true,notification_preferences->>presence_reminder.eq.true,notification_preferences->>presence_reminder.is.null',
     )
     .limit(BATCH_LIMIT);
   if (error) {
@@ -257,8 +285,11 @@ export async function POST(req: Request) {
     const prefs = p.notification_preferences ?? {};
     const morningOn = prefs.morning_reminder === true;
     const eveningOn = prefs.evening_reminder === true;
+    // Presence default-on: undefined → on. Users opt OUT explicitly.
+    const presenceOn = prefs.presence_reminder !== false;
     const morningTime = prefs.reminder_times?.morning || DEFAULT_MORNING_TIME;
     const eveningTime = prefs.reminder_times?.evening || DEFAULT_EVENING_TIME;
+    const presenceTime = prefs.reminder_times?.presence || DEFAULT_PRESENCE_TIME;
 
     // Tasks-only users opted out of journaling entirely. No pulse
     // reminders for them even if the toggles are stale-on from
@@ -303,6 +334,31 @@ export async function POST(req: Request) {
             .update({ last_evening_pulse_reminder_at: now.toISOString() })
             .eq('id', p.id);
           results.push({ userId: p.id, status: `evening-${r}` });
+          fired = true;
+        }
+      }
+    }
+
+    // Mid-day Presence pause. Independent of morning/evening firing —
+    // we want users who already did their morning pulse to still get
+    // the mid-day cue. Same dedup machinery as the other two.
+    if (presenceOn && !fired) {
+      const diff = minutesDiff(local, presenceTime);
+      if (diff !== null && diff <= WINDOW_MIN) {
+        if (alreadySentToday(p.last_presence_pulse_reminder_at, local.yyyymmdd, tz)) {
+          results.push({ userId: p.id, status: 'presence-already-sent' });
+        } else if (await pulseDoneToday(admin, p.id, 'presence', local.yyyymmdd, tz)) {
+          // The presence "done" check is intentionally lenient — even
+          // one pause today suppresses the reminder. Users can take
+          // additional pauses voluntarily; we just don't push them.
+          results.push({ userId: p.id, status: 'presence-already-done' });
+        } else {
+          const r = await sendPulsePush(admin, p.id, 'presence', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US');
+          await admin
+            .from('profiles')
+            .update({ last_presence_pulse_reminder_at: now.toISOString() })
+            .eq('id', p.id);
+          results.push({ userId: p.id, status: `presence-${r}` });
         }
       }
     }
