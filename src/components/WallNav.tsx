@@ -33,8 +33,10 @@ function MicIcon({ size = 22 }: { size?: number }) {
   );
 }
 
-// Open-book glyph for the Journal center pill. Symmetrical spine with
-// two pages; bottom stroke doubles as the "lines of text" hint.
+// Open-book glyph — used for the Notebooks tab pill (small line icon)
+// and, at larger sizes, anywhere a "reading / shelf of entries" affordance
+// is needed. Symmetrical spine with two pages; the short horizontal
+// strokes double as "lines of text."
 function BookIcon({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -44,6 +46,25 @@ function BookIcon({ size = 22 }: { size?: number }) {
       <line x1="7" y1="10" x2="9.5" y2="10" opacity="0.7" />
       <line x1="14.5" y1="7" x2="17" y2="7" opacity="0.7" />
       <line x1="14.5" y1="10" x2="17" y2="10" opacity="0.7" />
+    </svg>
+  );
+}
+
+// Pencil-on-book glyph for the Journal center pill — reading icons
+// read "Notebooks" (shelf / reference) while writing icons read
+// "Journal" (the act of capturing). A closed journal with a pencil
+// resting diagonally across it says "open this to write" at a glance.
+function PencilBookIcon({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {/* Closed journal — soft-rounded rectangle with a spine strap */}
+      <path d="M5 4.5A2.5 2.5 0 0 1 7.5 2h9A2.5 2.5 0 0 1 19 4.5v15A2.5 2.5 0 0 1 16.5 22h-9A2.5 2.5 0 0 1 5 19.5v-15Z" />
+      <line x1="8" y1="6.5" x2="14" y2="6.5" opacity="0.55" />
+      <line x1="8" y1="10" x2="13" y2="10" opacity="0.55" />
+      {/* Pencil — tip lower-left, eraser upper-right, resting across the journal */}
+      <path d="M15.5 12.5l4-4 2 2-4 4" />
+      <path d="M15.5 12.5l-1.6 3.8 3.8-1.6" />
+      <line x1="18" y1="10" x2="20" y2="12" opacity="0.55" />
     </svg>
   );
 }
@@ -95,9 +116,17 @@ function TabIcon({ name, size = 20 }: { name: string; size?: number }) {
         </svg>
       );
     case 'pulse':
+      // Concentric ripple — visual metaphor for the throughout-the-day
+      // check-in surface (morning + mid-day Presence + evening). Each
+      // ring is one of the three vital signs. Replaces the previous
+      // pulse-line glyph (kept commented for revert).
+      // Old pulse-line glyph (kept for one-line revert if desired):
+      //   <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
       return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+          <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="5" />
+          <circle cx="12" cy="12" r="9" opacity="0.45" />
         </svg>
       );
     case 'history':
@@ -109,6 +138,8 @@ function TabIcon({ name, size = 20 }: { name: string; size?: number }) {
         </svg>
       );
     case 'intentions':
+      // DISABLED tab — kept here so any direct visit to /intentions
+      // still has a glyph in the (very rare) case the icon is rendered.
       // Compass-like glyph: a focus point inside a circle, hinting at
       // direction-of-being. Distinct from the patterns bar-chart.
       return (
@@ -121,6 +152,28 @@ function TabIcon({ name, size = 20 }: { name: string; size?: number }) {
           <line x1="18" y1="12" x2="21" y2="12" />
         </svg>
       );
+    case 'presence':
+      // DISABLED tab — Presence functionality moved into the Pulse tab
+      // (slot 0). Glyph kept here as a no-op for any direct visit /
+      // stale tab key.
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="5" />
+          <circle cx="12" cy="12" r="9" opacity="0.45" />
+        </svg>
+      );
+    case 'guided':
+      // Speech bubble with a small dot inside — represents Ben asking
+      // the user a question (guided session = dialogue). Distinct from
+      // the journal pencil-on-book (blank-page writing) on the center
+      // pill, and from the patterns bar-chart.
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+          <circle cx="12" cy="11" r="1.2" fill="currentColor" stroke="none" />
+        </svg>
+      );
     case 'patterns':
       return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -129,6 +182,11 @@ function TabIcon({ name, size = 20 }: { name: string; size?: number }) {
           <line x1="6" y1="20" x2="6" y2="14" />
         </svg>
       );
+    case 'notebooks':
+      // Same open-book glyph that used to sit on the Journal center
+      // pill — demoted to a tab icon now that the center pill is the
+      // act of writing (pencil-on-book). Notebooks = the shelf.
+      return <BookIcon size={size} />;
     default:
       return null;
   }
@@ -155,11 +213,18 @@ export function WallNav() {
       ]
     : [
         // Journal wall — 5 slots so the center Journal pill sits
-        // actually centered. Intentions is back per user request.
+        // actually centered. Slot 3 is the Guided Session (Ben asks
+        // questions, you reply). Mid-day Presence pause folded into
+        // the Pulse tab (slot 0). Old slot-3 occupants kept commented
+        // for one-line revert.
         { href: '/home', key: 'pulse', labelKey: 'tab.pulse' },
         { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks' },
         { href: '/journal', key: 'journal', labelKey: 'tab.journal', isCenter: true },
-        { href: '/intentions', key: 'intentions', labelKey: 'tab.intentions' },
+        // DISABLED: intentions tab (kept for revert).
+        // { href: '/intentions', key: 'intentions', labelKey: 'tab.intentions' },
+        // DISABLED: standalone presence tab (functionality moved into Pulse).
+        // { href: '/presence', key: 'presence', labelKey: 'tab.presence' },
+        { href: '/guided', key: 'guided', labelKey: 'tab.guided' },
         { href: '/patterns', key: 'patterns', labelKey: 'tab.patterns' },
       ];
 
@@ -174,10 +239,10 @@ export function WallNav() {
           // tap, not a generic chat bubble).
           if (slot.isCenter) {
             // Both walls render the center slot as a raised primary
-            // action. Tasks wall → mic. Journal wall → book (opens the
-            // writing surface at /journal). The old guide-avatar-as-
-            // button was moved to a Pulse bubble.
-            const CenterIcon = activeWall === 'journal' ? BookIcon : MicIcon;
+            // action. Tasks wall → mic. Journal wall → pencil-on-book
+            // (the writing surface at /journal). Notebooks (shelf) uses
+            // the plain book glyph on its own tab pill.
+            const CenterIcon = activeWall === 'journal' ? PencilBookIcon : MicIcon;
             return (
               <Link
                 key={slot.key}
@@ -220,7 +285,7 @@ export function WallNav() {
                   activeWall === 'journal' &&
                   (slot.key === 'pulse' ||
                     slot.key === 'notebooks' ||
-                    slot.key === 'intentions' ||
+                    slot.key === 'guided' ||
                     slot.key === 'patterns')
                 ) {
                   setJournalTab(slot.key);

@@ -30,7 +30,7 @@ import { prefersReducedMotion } from '@/lib/motionVariants';
 import WallEdgeTab from './WallEdgeTab';
 
 const TASKS_TABS: ReadonlySet<TasksTab> = new Set(['today', 'lists', 'upcoming', 'groceries']);
-const JOURNAL_TABS: ReadonlySet<JournalTab> = new Set(['pulse', 'notebooks', 'journal', 'intentions', 'patterns']);
+const JOURNAL_TABS: ReadonlySet<JournalTab> = new Set(['pulse', 'notebooks', 'journal', 'guided', 'patterns']);
 
 export function WallShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

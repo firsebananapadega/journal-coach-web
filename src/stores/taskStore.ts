@@ -29,6 +29,19 @@ export interface Task {
   triaged: boolean;
   completed: boolean;
   sort_order: number;
+  /** /today-only sort field. NULL = no manual /today position yet —
+   *  fall back to sort_order (which is the /lists/[id] order). Drag
+   *  on /today writes this column only, leaving sort_order untouched
+   *  so the project-list view keeps its own ordering. */
+  today_sort_order: number | null;
+  /** Auto-tagged category from the capture engine: 'home' | 'work' |
+   *  'errands' | 'bills' | 'medications' | 'other'. NULL when capture
+   *  didn't classify (no chip rendered). Free-text in DB; the UI
+   *  treats it as a typed enum for chip styling. */
+  category: string | null;
+  /** Subgroup within a category — e.g. 'morning' / 'evening' for
+   *  medications. Renders as a small chip alongside the category. */
+  subgroup: string | null;
   notes: string | null;
   // Sprint 3 reminder columns.
   remind_at: string | null;            // UTC ISO; null = no reminder.
@@ -55,6 +68,8 @@ interface TaskState {
     important?: boolean;
     remind_at?: string | null;
     reminder_message?: string | null;
+    category?: string | null;
+    subgroup?: string | null;
   }) => Promise<Task | null>;
   updateTask: (id: string, patch: Partial<Omit<Task, 'id' | 'user_id' | 'created_at' | 'updated_at'>>) => Promise<void>;
   toggleComplete: (id: string) => Promise<void>;
@@ -68,6 +83,12 @@ interface TaskState {
   // The store rewrites those rows' sort_order in the given order.
   // Other tasks' sort_order is left alone. Optimistic + rollback.
   reorderTasks: (orderedIds: string[]) => Promise<void>;
+  // Same as reorderTasks but writes today_sort_order instead. Used
+  // by /today's unified drag-reorder so changes there don't bleed
+  // into /lists/[id] order. Takes a Map of id → explicit position so
+  // task positions can match the combined priority+task position space
+  // (where priorities and tasks share the same global ranks).
+  reorderForToday: (positionsById: Map<string, number>) => Promise<void>;
   // Selectors (not async; read from current cache).
   byList: (listId: string | null) => Task[];
   byDate: (yyyymmdd: string) => Task[];
@@ -138,6 +159,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
           sort_order: baseSort,
           remind_at: input.remind_at ?? null,
           reminder_message: input.reminder_message ?? null,
+          category: input.category ?? null,
+          subgroup: input.subgroup ?? null,
         })
         .select()
         .single();
@@ -210,6 +233,28 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       // back the whole batch.
       const updates = Array.from(nextOrderById.entries()).map(([id, so]) =>
         supabase.from('tasks').update({ sort_order: so, updated_at: new Date().toISOString() }).eq('id', id),
+      );
+      const results = await Promise.all(updates);
+      for (const r of results) if (r.error) throw r.error;
+    } catch {
+      set({ tasks: prev });
+    }
+  },
+
+  reorderForToday: async (positionsById) => {
+    if (positionsById.size === 0) return;
+    const prev = get().tasks;
+    const optimistic = prev.map((t) => {
+      const next = positionsById.get(t.id);
+      return next != null ? { ...t, today_sort_order: next } : t;
+    });
+    set({ tasks: optimistic });
+    try {
+      const updates = Array.from(positionsById.entries()).map(([id, tso]) =>
+        supabase
+          .from('tasks')
+          .update({ today_sort_order: tso, updated_at: new Date().toISOString() })
+          .eq('id', id),
       );
       const results = await Promise.all(updates);
       for (const r of results) if (r.error) throw r.error;

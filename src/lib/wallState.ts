@@ -15,9 +15,14 @@ export type WallId = 'tasks' | 'journal';
 // without extra plumbing.
 export type TasksTab = 'today' | 'lists' | 'upcoming' | 'groceries';
 // 5-slot journal wall: pulse / notebooks / [journal center] /
-// intentions / patterns. Keeping 5 keeps the center pill actually
+// guided / patterns. Keeping 5 keeps the center pill actually
 // centered. 'history' + 'habits' stay as paths but not as nav tabs.
-export type JournalTab = 'pulse' | 'notebooks' | 'journal' | 'intentions' | 'patterns';
+//
+// 'intentions' and 'presence' were previous slot-3 occupants — both
+// DISABLED in nav now (routes still resolve: /intentions to its old
+// page, /presence redirects to /home). Both kept off the union so a
+// stale persisted value can't slip through.
+export type JournalTab = 'pulse' | 'notebooks' | 'journal' | 'guided' | 'patterns';
 
 const LS_KEY = 'wallState.v1';
 
@@ -47,7 +52,7 @@ export const FLIP_HALF_MS = 300;
 // 'plans') to the current set so a returning user doesn't land on a
 // dead route after an upgrade.
 const VALID_TASKS_TABS: TasksTab[] = ['today', 'lists', 'upcoming', 'groceries'];
-const VALID_JOURNAL_TABS: JournalTab[] = ['pulse', 'notebooks', 'journal', 'intentions', 'patterns'];
+const VALID_JOURNAL_TABS: JournalTab[] = ['pulse', 'notebooks', 'journal', 'guided', 'patterns'];
 
 function readPersisted(): Persisted {
   if (typeof window === 'undefined') return DEFAULT;
@@ -56,7 +61,15 @@ function readPersisted(): Persisted {
     if (!raw) return DEFAULT;
     const parsed = JSON.parse(raw) as Partial<Persisted>;
     const rawTasks = parsed.lastTabPerWall?.tasks;
-    const rawJournal = parsed.lastTabPerWall?.journal;
+    let rawJournal = parsed.lastTabPerWall?.journal;
+    // Hydration migrations for past slot-3 occupants. Both intentions
+    // (replaced by Presence) and Presence (folded into Pulse + slot 3
+    // now Guided) are no longer valid tab values. Rewrite both to
+    // 'pulse' so users who last left the app on those tabs land
+    // somewhere coherent rather than a nav-less destination.
+    if ((rawJournal as string) === 'intentions' || (rawJournal as string) === 'presence') {
+      rawJournal = 'pulse';
+    }
     return {
       activeWall: parsed.activeWall === 'journal' ? 'journal' : 'tasks',
       lastTabPerWall: {
@@ -182,7 +195,9 @@ export const WALL_ROOT_PATHS: ReadonlySet<string> = new Set([
   '/pulse',
   '/notebooks',
   '/patterns',
-  '/intentions',
+  '/guided',
+  '/presence', // DISABLED in nav, redirects to /home; kept to satisfy wall guard for any in-flight notification taps.
+  '/intentions', // DISABLED in nav but route still resolves; kept for revert.
 ]);
 
 /** True only on the exact root tabs of either wall. */
@@ -215,7 +230,8 @@ export function wallForPath(pathname: string): WallId | null {
     pathname === '/notebooks' ||
     pathname.startsWith('/notebooks/') ||
     pathname === '/patterns' ||
-    pathname === '/intentions' ||
+    pathname === '/presence' ||
+    pathname === '/intentions' || // DISABLED in nav; route still resolves
     pathname.startsWith('/intentions/') ||
     pathname === '/templates' ||
     pathname === '/home' || // legacy: home page redirects to pulse
@@ -233,7 +249,10 @@ export function wallForPath(pathname: string): WallId | null {
 export function tabForPath(pathname: string): TasksTab | JournalTab | null {
   // Sub-routes like /lists/[id] still highlight the parent tab.
   if (pathname.startsWith('/lists/')) return 'lists';
-  if (pathname.startsWith('/intentions/')) return 'intentions';
+  // /intentions/<sub> previously highlighted the intentions tab —
+  // since the tab is DISABLED in nav now, return null so no slot
+  // lights up. The page still renders.
+  if (pathname.startsWith('/intentions/')) return null;
   // /notebooks/[slug] keeps the Notebooks tab highlighted.
   if (pathname.startsWith('/notebooks/')) return 'notebooks';
   const map: Record<string, TasksTab | JournalTab> = {
@@ -248,7 +267,11 @@ export function tabForPath(pathname: string): TasksTab | JournalTab | null {
     '/notebooks': 'notebooks',
     '/history': 'notebooks', // legacy — history fell into notebooks
     '/journal': 'journal',
-    '/intentions': 'intentions',
+    '/guided': 'guided',
+    // '/presence' intentionally NOT mapped — route redirects to /home
+    // (which maps to 'pulse'). No tab highlight needed in transit.
+    // '/intentions' intentionally NOT mapped — DISABLED tab. Direct
+    // visitors see the page render but no tab gets highlighted.
     '/patterns': 'patterns',
   };
   return map[pathname] ?? null;

@@ -8,21 +8,86 @@
 // only block delete (server-side too: deleteList early-returns).
 
 import { use, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  pointerWithin,
+  useDraggable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+  type Modifier,
+} from '@dnd-kit/core';
 import { useListStore } from '@/stores/listStore';
 import { useTaskStore, type Task } from '@/stores/taskStore';
 import { MatrixView, type MatrixTask } from '@/components/MatrixView';
 import { TaskCard } from '@/components/TaskCard';
 import { TaskEditSheet } from '@/components/TaskEditSheet';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
+import InboxTriageStrip from '@/components/InboxTriageStrip';
 import { useUiStore } from '@/stores/uiStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
 
 const ICON_PRESETS = ['📁', '📋', '📝', '🎯', '💼', '🏠', '🛒', '✅', '📌', '⭐', '📅', '💡'];
+
+// Re-anchor the drag overlay so its center sits under the cursor. The
+// inbox source row is full-width while the overlay is a small chip;
+// without this, dnd-kit preserves the cursor's relative offset inside
+// the source element and the overlay drifts way off the user's thumb.
+const snapCenterToCursor: Modifier = ({
+  activatorEvent,
+  draggingNodeRect,
+  transform,
+}) => {
+  if (!draggingNodeRect || !activatorEvent) return transform;
+  const activator = activatorEvent as PointerEvent;
+  const offsetX =
+    activator.clientX - draggingNodeRect.left - draggingNodeRect.width / 2;
+  const offsetY =
+    activator.clientY - draggingNodeRect.top - draggingNodeRect.height / 2;
+  return {
+    ...transform,
+    x: transform.x + offsetX,
+    y: transform.y + offsetY,
+  };
+};
+
+// Wraps an Inbox task row in a useDraggable so the user can press-and-
+// hold + drag onto an InboxTriageStrip folder tile. touchAction: 'pan-y'
+// (NOT 'none') so the page still scrolls vertically when the user
+// swipes — dnd-kit's 250ms press delay + 5px tolerance means a moving
+// touch cancels activation and falls through to native scroll, while a
+// stationary press promotes to a drag.
+function DraggableInboxRow({
+  taskId,
+  children,
+}: {
+  taskId: string;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: taskId,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ touchAction: 'pan-y', opacity: isDragging ? 0 : 1 }}
+      {...listeners}
+      {...attributes}
+    >
+      {children}
+    </div>
+  );
+}
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -37,6 +102,7 @@ export default function ListDetailPage({ params }: PageProps) {
   const renameList = useListStore((s) => s.renameList);
   const updateListIcon = useListStore((s) => s.updateListIcon);
   const deleteList = useListStore((s) => s.deleteList);
+  const createList = useListStore((s) => s.createList);
   const tasks = useTaskStore((s) => s.tasks);
   const fetchTasks = useTaskStore((s) => s.fetchAll);
   const addTask = useTaskStore((s) => s.addTask);
@@ -138,6 +204,59 @@ export default function ListDetailPage({ params }: PageProps) {
     router.push('/lists');
   };
 
+  // ── Inbox triage DnD ──────────────────────────────────────────────
+  // Recipe lifted verbatim from MatrixView (sensors + portal +
+  // touchAction). 250ms press-and-hold to start drag; tap is still a
+  // tap. Only wired when the current list is the Inbox — other lists
+  // keep the simpler rendering path.
+  const isInbox = list?.is_inbox === true;
+  const triageLists = useMemo(
+    () => lists.filter((l) => !l.is_inbox && !l.archived),
+    [lists],
+  );
+  const triageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const l of triageLists) {
+      counts.set(
+        l.id,
+        tasks.filter((t) => t.list_id === l.id && !t.completed).length,
+      );
+    }
+    return counts;
+  }, [triageLists, tasks]);
+
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const pointerSensor = useSensor(PointerSensor, {
+    activationConstraint: { delay: 250, tolerance: 5 },
+  });
+  const touchSensor = useSensor(TouchSensor, {
+    activationConstraint: { delay: 250, tolerance: 5 },
+  });
+  const dragSensors = useSensors(pointerSensor, touchSensor);
+
+  const handleTriageDragStart = (e: DragStartEvent) => {
+    setActiveDragId(e.active.id as string);
+  };
+  const handleTriageDragEnd = async (e: DragEndEvent) => {
+    setActiveDragId(null);
+    const { active, over } = e;
+    if (!over) return;
+    const targetListId = String(over.id);
+    const target = triageLists.find((l) => l.id === targetListId);
+    if (!target) return;
+    const task = tasks.find((task) => task.id === active.id);
+    if (!task) return;
+    // Move + reset sort_order so it lands at the top of the destination
+    // list. today_sort_order intentionally not touched — the row's
+    // /today position (if it has a due_date today) stays put.
+    await updateTask(task.id, { list_id: target.id, sort_order: 0 });
+    showToast(`Moved to ${target.name}`, 'success');
+  };
+
+  const activeDragTask = activeDragId
+    ? tasks.find((t) => t.id === activeDragId) ?? null
+    : null;
+
   if (!list) {
     return (
       <div className="max-w-lg mx-auto px-5 pt-16 pb-24 space-y-4">
@@ -149,7 +268,10 @@ export default function ListDetailPage({ params }: PageProps) {
     );
   }
 
-  return (
+  // Inbox view wraps the page in a DndContext so the triage strip
+  // (droppable folder tiles) and the task rows (draggable) share one
+  // gesture root. Other lists render the page without DnD overhead.
+  const pageContent = (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-24 space-y-5">
       <div className="flex items-center justify-between">
         <Link href="/lists" className="text-sm text-primary font-medium">
@@ -183,6 +305,15 @@ export default function ListDetailPage({ params }: PageProps) {
         <span>{list.is_inbox ? '📥' : list.icon ?? '📁'}</span>
         <span>{list.is_inbox ? t('inbox.label') : list.name}</span>
       </h1>
+
+      {/* Inbox triage strip — drop targets for press-and-hold drag. */}
+      {isInbox && (
+        <InboxTriageStrip
+          lists={triageLists}
+          taskCounts={triageCounts}
+          onCreateList={(name) => createList(name)}
+        />
+      )}
 
       {/* Add task */}
       <div className="flex gap-2">
@@ -265,15 +396,8 @@ export default function ListDetailPage({ params }: PageProps) {
                       fade) before unmounting. The matching task
                       then appears at the top of Done. */}
                   <AnimatePresence initial={false}>
-                    {open.map((task) => (
-                      <motion.div
-                        key={task.id}
-                        layout
-                        initial={prefersReducedMotion ? false : { opacity: 0 }}
-                        animate={prefersReducedMotion ? undefined : { opacity: 1 }}
-                        exit={prefersReducedMotion ? { opacity: 0 } : { x: 80, opacity: 0 }}
-                        transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-                      >
+                    {open.map((task) => {
+                      const row = (
                         <SwipeToDelete
                           onDelete={() => handleSwipeDelete(task)}
                           onSecondary={() => handleMoveToTomorrow(task)}
@@ -296,8 +420,24 @@ export default function ListDetailPage({ params }: PageProps) {
                             showDate
                           />
                         </SwipeToDelete>
-                      </motion.div>
-                    ))}
+                      );
+                      return (
+                        <motion.div
+                          key={task.id}
+                          layout
+                          initial={prefersReducedMotion ? false : { opacity: 0 }}
+                          animate={prefersReducedMotion ? undefined : { opacity: 1 }}
+                          exit={prefersReducedMotion ? { opacity: 0 } : { x: 80, opacity: 0 }}
+                          transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                        >
+                          {isInbox ? (
+                            <DraggableInboxRow taskId={task.id}>{row}</DraggableInboxRow>
+                          ) : (
+                            row
+                          )}
+                        </motion.div>
+                      );
+                    })}
                   </AnimatePresence>
                 </div>
               )}
@@ -474,5 +614,41 @@ export default function ListDetailPage({ params }: PageProps) {
         )}
       </AnimatePresence>
     </div>
+  );
+
+  if (!isInbox) return pageContent;
+
+  // Inbox: wrap the page in a single DndContext so the triage strip's
+  // droppable folder tiles and the task rows below share one gesture
+  // root. Portal the DragOverlay to <body> to escape any transformed
+  // ancestor (matches the MatrixView portal pattern).
+  return (
+    <DndContext
+      sensors={dragSensors}
+      // pointerWithin resolves the active droppable from the cursor's
+      // screen position — so the folder under the user's THUMB is what
+      // gets selected, not the folder under the (possibly offset) drag
+      // overlay's bounding rect.
+      collisionDetection={pointerWithin}
+      // Snap the visual overlay's center to the cursor so it tracks
+      // the thumb regardless of source-vs-overlay size mismatch.
+      modifiers={[snapCenterToCursor]}
+      onDragStart={handleTriageDragStart}
+      onDragEnd={handleTriageDragEnd}
+      onDragCancel={() => setActiveDragId(null)}
+    >
+      {pageContent}
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <DragOverlay dropAnimation={null}>
+            {activeDragTask ? (
+              <div className="px-3 py-2 rounded-xl bg-surface border border-primary shadow-warm-md text-sm text-text-primary leading-snug max-w-[240px] line-clamp-2">
+                {activeDragTask.text}
+              </div>
+            ) : null}
+          </DragOverlay>,
+          document.body,
+        )}
+    </DndContext>
   );
 }

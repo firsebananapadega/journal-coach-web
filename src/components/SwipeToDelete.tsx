@@ -77,6 +77,11 @@ export function SwipeToDelete({
   const movedVertically = useRef(false);
   const tapTarget = useRef<EventTarget | null>(null);
   const directionLock = useRef<'horizontal' | 'vertical' | null>(null);
+  // True when the gesture began inside a textarea/input/contenteditable.
+  // While this is set, we never engage the swipe-reveal — otherwise a
+  // user trying to drag the cursor inside an inline-edit textarea would
+  // accidentally reveal Delete instead of positioning the caret.
+  const touchedInTextField = useRef(false);
 
   // Timestamp of the most recent settle-from-drag. Used to reject
   // click events that iOS synthesizes on the action buttons right
@@ -136,12 +141,19 @@ export function SwipeToDelete({
       movedVertically.current = false;
       directionLock.current = null;
       tapTarget.current = target;
+      const el = target as HTMLElement | null;
+      touchedInTextField.current = !!el?.closest?.(
+        'textarea, input, [contenteditable="true"]',
+      );
     },
     [],
   );
 
   const moveGesture = useCallback(
     (dx: number, dy: number) => {
+      // Touch began inside a text input — don't fight the input's own
+      // gesture handling (cursor placement, text selection).
+      if (touchedInTextField.current) return;
       if (directionLock.current === null) {
         const absDx = Math.abs(dx);
         const absDy = Math.abs(dy);

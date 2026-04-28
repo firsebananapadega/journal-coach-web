@@ -5,11 +5,13 @@
 // time/date chips + a trailing menu trigger.
 //
 // Behaviors:
-//   - Tap checkbox → onToggle (completed flip)
+//   - Tap checkbox → onToggle (immediate, no delay)
 //   - Tap text →
-//       inlineEdit=true  → swap text with auto-focused textarea so
-//         the user can fix typos with just the keyboard (used on
-//         /today; no full sheet)
+//       inlineEdit=true  → single-tap toggles via onTap (delayed
+//         220ms so a second tap can promote to inline edit); double-
+//         tap opens the auto-focused textarea for keyboard-only
+//         typo fixes. Mirrors PriorityRowContent on /today so the
+//         whole task wall has one gesture contract.
 //       inlineEdit=false → click bubbles up to the row's onTap
 //         (used on /lists and /upcoming, where tap-text means toggle)
 //   - Tap empty area of the row → onTap (callers wire to onToggle on
@@ -25,6 +27,17 @@ import type { Task } from '@/stores/taskStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import TaskReminderChip from '@/components/tasks/TaskReminderChip';
 import { useTaskStore } from '@/stores/taskStore';
+
+// Chip palette for the auto-tagged category. Keys mirror the
+// PriorityCategory enum values that the capture engine writes to
+// task.category. Unknown keys fall through to a neutral chip.
+const CATEGORY_CHIP_CLASS: Record<string, string> = {
+  medications: 'bg-pink-500/10 text-pink-600 dark:text-pink-400',
+  errands: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  work: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+  home: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  bills: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+};
 
 interface Props {
   task: Task;
@@ -109,6 +122,36 @@ export function TaskCard({
     });
     return () => window.cancelAnimationFrame(id);
   }, [isEditingInline]);
+
+  // Double-tap discrimination on the text button (only matters when
+  // inlineEdit=true). 220ms matches PriorityRowContent on /today so
+  // both halves of the task wall feel identical: single tap on text
+  // → toggles after the window; second tap inside the window cancels
+  // the pending toggle and opens inline edit. Direct checkbox taps
+  // remain instant (no delay) — only this surface needs to
+  // disambiguate two gestures.
+  const DOUBLE_TAP_WINDOW_MS = 220;
+  const tapTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (tapTimerRef.current !== null) {
+        window.clearTimeout(tapTimerRef.current);
+      }
+    };
+  }, []);
+  const handleTextTap = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (tapTimerRef.current !== null) {
+      window.clearTimeout(tapTimerRef.current);
+      tapTimerRef.current = null;
+      setIsEditingInline(true);
+      return;
+    }
+    tapTimerRef.current = window.setTimeout(() => {
+      tapTimerRef.current = null;
+      onTap?.();
+    }, DOUBLE_TAP_WINDOW_MS);
+  };
 
   const exitInlineEdit = (commit: boolean) => {
     if (commit) {
@@ -212,22 +255,21 @@ export function TaskCard({
               }
             }}
             rows={1}
-            className="w-full text-sm leading-snug bg-transparent text-text-primary outline-none border-b border-primary resize-none py-0.5"
+            className="w-full text-base bg-transparent text-text-primary outline-none border-b border-primary resize-none py-0.5"
           />
         ) : inlineEdit ? (
-          // Tapping the text itself starts inline edit (only when
-          // the caller opted in). Row onTap (toggle) doesn't fire
-          // because we stopPropagation here.
+          // Single-tap → onTap (toggle) after the double-tap window;
+          // double-tap → inline edit. handleTextTap stops propagation
+          // so the row's onClick doesn't also fire — we don't want a
+          // single tap to both schedule a delayed toggle and trigger
+          // an immediate one through the row.
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsEditingInline(true);
-            }}
+            onClick={handleTextTap}
             className="block w-full text-left"
           >
             <p
-              className={`text-sm leading-snug ${
+              className={`text-base ${
                 task.completed
                   ? 'text-text-tertiary line-through'
                   : 'text-text-primary'
@@ -242,7 +284,7 @@ export function TaskCard({
           // Pencil button (when onEdit is set) is the explicit way
           // to open the full edit sheet.
           <p
-            className={`text-sm leading-snug ${
+            className={`text-base ${
               task.completed
                 ? 'text-text-tertiary line-through'
                 : 'text-text-primary'
@@ -255,6 +297,20 @@ export function TaskCard({
           className="flex items-center gap-1.5 mt-1 flex-wrap"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Auto-tagged category chip from the capture engine
+              (home/work/errands/bills/medications). 'other' renders no
+              chip — un-categorized rows stay clean. */}
+          {task.category && task.category !== 'other' && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${CATEGORY_CHIP_CLASS[task.category] ?? 'bg-surface-elevated text-text-tertiary'}`}>
+              {task.category}
+            </span>
+          )}
+          {/* Subgroup chip (e.g. morning/evening for medications) */}
+          {task.subgroup && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-elevated text-text-tertiary font-medium capitalize">
+              {task.subgroup}
+            </span>
+          )}
           {showDate && task.due_date && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
               {task.due_date}
@@ -280,14 +336,25 @@ export function TaskCard({
               }}
             />
           )}
-          {task.urgent && (
+          {/* One quadrant chip per row, color-matched to the matrix
+              bucket and the row's left stripe. Replaces the old
+              dual-chip setup so Q1 doesn't double-render and Q3's
+              chip color stops contradicting its blue stripe. Untriaged
+              rows (neither flag) render no chip — that's the default
+              "haven't decided yet" state. */}
+          {task.urgent && task.important && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-600 dark:text-red-400 font-medium">
-              Urgent
+              Urgent + Important
             </span>
           )}
-          {task.important && (
+          {!task.urgent && task.important && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
               Important
+            </span>
+          )}
+          {task.urgent && !task.important && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium">
+              Urgent
             </span>
           )}
         </div>

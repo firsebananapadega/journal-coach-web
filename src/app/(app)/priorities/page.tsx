@@ -18,7 +18,9 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from '@dnd-kit/sortable';
-import { usePriorityStore, type PriorityItem, type GroceryGroup, type PriorityCategory, PRIORITY_CATEGORY_ORDER } from '@/stores/priorityStore';
+import { usePriorityStore, type PriorityItem } from '@/stores/priorityStore';
+import { useGroceryStore } from '@/stores/groceryStore';
+import type { GroceryGroup } from '@/components/CapturePreviewSheet';
 import { useHabitStore } from '@/stores/habitStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { t } from '@/lib/translations';
@@ -32,7 +34,6 @@ import { useUiStore } from '@/stores/uiStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { CapturePreviewSheet, type CompletionMatch, type PriorityDestinations } from '@/components/CapturePreviewSheet';
 import { MatrixView } from '@/components/MatrixView';
-import { TaskQuadrantSheet } from '@/components/TaskQuadrantSheet';
 import { TaskCard } from '@/components/TaskCard';
 import { TaskEditSheet } from '@/components/TaskEditSheet';
 import { useTaskStore, type Task } from '@/stores/taskStore';
@@ -61,260 +62,8 @@ function formatDateBubble(date: Date, todayStr: string): { label: string; dateNu
   return { label: dayName, dateNum };
 }
 
-// ---------- Sortable priority row ----------
-
-// Static row content — shared between in-list render and drag overlay
-function PriorityRowContent({
-  item,
-  index,
-  onToggle,
-  onCommitText,
-  isDragOverlay,
-  dragHandleProps,
-}: {
-  item: PriorityItem;
-  index: number;
-  onToggle?: () => void;
-  /** Persist a new value for `item.text`. When supplied, tapping the
-   *  text swaps in an auto-focused textarea so the user can fix
-   *  typos with just the keyboard — no modal, no full edit sheet
-   *  (per the user's Today-tab spec). When omitted (e.g. drag
-   *  overlay), the text is rendered as a plain span. */
-  onCommitText?: (next: string) => void;
-  isDragOverlay?: boolean;
-  dragHandleProps?: Record<string, unknown>;
-}) {
-  const [isEditingInline, setIsEditingInline] = useState(false);
-  const [editText, setEditText] = useState(item.text);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Sync the draft when the item's text changes from outside while
-  // we're not editing (e.g. another device, or sheet edit).
-  useEffect(() => {
-    if (!isEditingInline) setEditText(item.text);
-  }, [item.text, isEditingInline]);
-  // Auto-grow textarea so multi-line items don't clip.
-  useEffect(() => {
-    if (!isEditingInline) return;
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = `${ta.scrollHeight}px`;
-  }, [isEditingInline, editText]);
-
-  // Place the caret at the end on first focus — iOS otherwise puts
-  // it at index 0 so typing prepends, which doesn't match the
-  // typo-fix mental model.
-  useEffect(() => {
-    if (!isEditingInline) return;
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const id = window.requestAnimationFrame(() => {
-      const len = ta.value.length;
-      try {
-        ta.setSelectionRange(len, len);
-      } catch {
-        // Harmless on older Safari if focus hasn't propagated.
-      }
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [isEditingInline]);
-
-  const exitInlineEdit = (commit: boolean) => {
-    if (commit) {
-      const trimmed = editText.trim();
-      if (trimmed && trimmed !== item.text && onCommitText) {
-        onCommitText(trimmed);
-      } else if (!trimmed) {
-        setEditText(item.text);
-      }
-    } else {
-      setEditText(item.text);
-    }
-    setIsEditingInline(false);
-  };
-
-  // Quadrant-colored left border, mirroring TaskCard. Lets the user
-  // glance at /today's list view and immediately see which items
-  // they bucketed into Q1/Q2/Q3 in the matrix. Untriaged or zero-
-  // flag items render without a stripe.
-  const u = !!item.urgent;
-  const i = !!item.important;
-  let stripeClass = '';
-  if (u && i) stripeClass = 'border-l-4 border-l-red-500';
-  else if (!u && i) stripeClass = 'border-l-4 border-l-amber-500';
-  else if (u && !i) stripeClass = 'border-l-4 border-l-blue-500';
-
-  return (
-    <div
-      role={onToggle && !isEditingInline ? 'button' : undefined}
-      tabIndex={onToggle && !isEditingInline ? 0 : -1}
-      onClick={() => {
-        if (isEditingInline) return;
-        if (onToggle) onToggle();
-      }}
-      onKeyDown={(e) => {
-        if (isEditingInline) return;
-        if ((e.key === 'Enter' || e.key === ' ') && onToggle) {
-          e.preventDefault();
-          onToggle();
-        }
-      }}
-      className={`flex items-center gap-3 p-3.5 rounded-xl cursor-pointer ${
-        isDragOverlay
-          ? 'bg-surface border border-primary shadow-lg'
-          : item.completed
-          ? 'bg-success/5'
-          : 'bg-surface'
-      } ${stripeClass}`}
-    >
-      <span className={`w-6 text-right text-base font-bold tabular-nums ${
-        item.completed ? 'text-text-tertiary' : 'text-text-secondary'
-      }`}>
-        {index + 1}
-      </span>
-      <motion.button
-        whileTap={prefersReducedMotion ? undefined : { scale: 0.85 }}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (onToggle) onToggle();
-        }}
-        className="p-2 -m-2 flex-shrink-0"
-      >
-        <motion.div
-          animate={prefersReducedMotion ? undefined : item.completed ? { scale: [1, 1.25, 1] } : { scale: 1 }}
-          transition={{ duration: 0.35, ease: 'easeOut' }}
-          className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors ${
-            item.completed ? 'bg-success border-success' : 'border-border hover:border-primary'
-          }`}
-        >
-          {item.completed && <span className="text-white text-sm font-bold">✓</span>}
-        </motion.div>
-      </motion.button>
-      {isEditingInline ? (
-        <textarea
-          ref={textareaRef}
-          value={editText}
-          autoFocus
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => setEditText(e.target.value)}
-          onBlur={() => exitInlineEdit(true)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              e.currentTarget.blur();
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              exitInlineEdit(false);
-            }
-          }}
-          rows={1}
-          className="flex-1 text-base bg-transparent text-text-primary outline-none border-b border-primary resize-none py-0.5"
-        />
-      ) : onCommitText && !isDragOverlay ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsEditingInline(true);
-          }}
-          className="flex-1 text-left"
-        >
-          <span
-            className={`text-base ${
-              item.completed
-                ? 'text-text-tertiary line-through'
-                : 'text-text-primary'
-            }`}
-          >
-            {item.text}
-          </span>
-        </button>
-      ) : (
-        <span className={`text-base flex-1 ${item.completed ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>
-          {item.text}
-        </span>
-      )}
-      {!isDragOverlay && (
-        <div
-          className="p-2 -m-1 text-text-tertiary"
-          style={{ touchAction: 'none' }}
-          onClick={(e) => e.stopPropagation()}
-          {...(dragHandleProps || {})}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <circle cx="5" cy="3" r="1.5" />
-            <circle cx="11" cy="3" r="1.5" />
-            <circle cx="5" cy="8" r="1.5" />
-            <circle cx="11" cy="8" r="1.5" />
-            <circle cx="5" cy="13" r="1.5" />
-            <circle cx="11" cy="13" r="1.5" />
-          </svg>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SortablePriorityRow({
-  item,
-  index,
-  onToggle,
-  onDelete,
-  onCommitText,
-  onMoveToTomorrow,
-}: {
-  item: PriorityItem;
-  index: number;
-  onToggle: () => void;
-  onDelete: () => void;
-  onCommitText?: (next: string) => void;
-  onMoveToTomorrow?: () => void;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    isDragging,
-  } = useSortable({ id: item.id, transition: null });
-
-  return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      style={{ opacity: isDragging ? 0 : 1 }}
-    >
-      <SwipeToDelete
-        onDelete={onDelete}
-        onSecondary={onMoveToTomorrow}
-        secondaryLabel={onMoveToTomorrow ? 'Tomorrow' : undefined}
-        secondaryIcon={
-          onMoveToTomorrow ? (
-            <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-              <path d="M9 15l3 3 3-3" />
-            </svg>
-          ) : undefined
-        }
-      >
-        <PriorityRowContent
-          item={item}
-          index={index}
-          onToggle={onToggle}
-          onCommitText={onCommitText}
-          dragHandleProps={listeners}
-        />
-      </SwipeToDelete>
-    </div>
-  );
-}
-
-// Sortable row wrapping a TaskCard — used by the Scheduled-today
-// section and reusable for any surface that needs priority-ordered
-// task-table rows. Index is the 1-based priority number.
+// Sortable row wrapping a TaskCard. Index is the 1-based priority
+// number. /today and /lists/[id] both render this.
 function SortableTaskCard({
   task,
   index,
@@ -384,103 +133,37 @@ function SortableTaskCard({
   );
 }
 
-// "Scheduled today" section — tasks from the new tasks table whose
-// due_date matches selectedDate. Wrapped in its own DndContext so
-// reorder events only affect this subgroup (and don't accidentally
-// renumber the legacy priorityStore.items above).
-function ScheduledTodaySection({
-  tasks,
-  lists,
-  sensors,
-  onToggle,
-  onDelete,
-  onReorder,
-  onTapTask,
-  onEditTask,
-  onMoveToTomorrow,
-}: {
-  tasks: Task[];
-  lists: ListRecord[];
-  sensors: ReturnType<typeof useSensors>;
-  onToggle: (id: string) => void;
-  onDelete: (id: string) => void;
-  onReorder: (ids: string[]) => void;
-  onTapTask: (task: Task) => void;
-  onEditTask?: (task: Task) => void;
-  onMoveToTomorrow?: (task: Task) => void;
-}) {
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
-  const activeIndex = activeId ? tasks.findIndex((t) => t.id === activeId) : -1;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
-          {t('priorities.scheduledToday')}
-        </h2>
-        <span className="text-xs text-text-tertiary">
-          {tasks.filter((t) => t.completed).length}/{tasks.length}
-        </span>
-      </div>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={(e) => setActiveId(e.active.id as string)}
-        onDragEnd={(e) => {
-          setActiveId(null);
-          const { active, over } = e;
-          if (!over || active.id === over.id) return;
-          const oldIdx = tasks.findIndex((t) => t.id === active.id);
-          const newIdx = tasks.findIndex((t) => t.id === over.id);
-          if (oldIdx === -1 || newIdx === -1) return;
-          const reordered = arrayMove(tasks, oldIdx, newIdx);
-          onReorder(reordered.map((t) => t.id));
-        }}
-        onDragCancel={() => setActiveId(null)}
-      >
-        <SortableContext
-          items={tasks.map((t) => t.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          <div className="space-y-1">
-            {tasks.map((task, i) => (
-              <SortableTaskCard
-                key={task.id}
-                task={task}
-                index={i}
-                lists={lists}
-                onToggle={() => onToggle(task.id)}
-                onTap={() => onTapTask(task)}
-                onEdit={onEditTask ? () => onEditTask(task) : undefined}
-                onDelete={() => onDelete(task.id)}
-                onSecondary={onMoveToTomorrow ? () => onMoveToTomorrow(task) : undefined}
-                inlineEdit
-              />
-            ))}
-          </div>
-        </SortableContext>
-        <DragOverlay dropAnimation={null}>
-          {activeTask ? (
-            <div className="bg-surface border border-primary rounded-xl shadow-lg">
-              <TaskCard
-                task={activeTask}
-                index={activeIndex}
-                onToggle={() => {}}
-              />
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
-    </div>
-  );
-}
-
 export default function PrioritiesPage() {
   const todayDateStr = useMemo(() => toLocalDateStr(new Date()), []);
   const weekDates = useMemo(() => buildWeekDates(), []);
   const [selectedDate, setSelectedDate] = useState(todayDateStr);
 
-  const { items, groceries, fetchPriorities, savePriorities, saveGroceries, toggleItem, toggleGroceryItem, removeItem, removeGroceryItem, removeGroceryGroup, loading } = usePriorityStore();
+  // Legacy priorityStore kept around solely for the capture-preview
+  // completion-match path (see commitCapture below) which still resolves
+  // checkoff matches against pre-unification daily_priorities items.
+  // /today render itself now reads exclusively from the tasks table.
+  const items = usePriorityStore((s) => s.items);
+  const fetchPriorities = usePriorityStore((s) => s.fetchPriorities);
+  const savePriorities = usePriorityStore((s) => s.savePriorities);
+  // Groceries moved to their own normalized + realtime store; the
+  // /today page reads from it for capture context + completion routing
+  // even though the grocery list is rendered on /groceries.
+  const groceryGroups = useGroceryStore((s) => s.groups);
+  const groceryItems = useGroceryStore((s) => s.items);
+  const loadActiveGrocery = useGroceryStore((s) => s.loadActive);
+  // Reconstruct the legacy nested-items shape that CapturePreviewSheet
+  // needs for fuzzy matching of "I bought X" completions.
+  const groceries: GroceryGroup[] = useMemo(
+    () =>
+      groceryGroups.map((g) => ({
+        id: g.id,
+        store: g.store,
+        items: groceryItems
+          .filter((i) => i.group_id === g.id)
+          .map((i) => ({ id: i.id, name: i.name, completed: i.completed })),
+      })),
+    [groceryGroups, groceryItems],
+  );
   const celebrate = useUiStore((s) => s.celebrate);
   const showToast = useUiStore((s) => s.showToast);
   const lastAllDone = useRef(false);
@@ -501,24 +184,21 @@ export default function PrioritiesPage() {
   const [pendingCapture, setPendingCapture] = useState<CaptureResult | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
 
-  // List | Matrix view toggle. Matrix view replaces the categorized
-  // items grid with an Eisenhower 2×2 grid + Unsorted stack. Tap any
-  // task in matrix view → open TaskQuadrantSheet to set urgent/important.
+  // List | Matrix view toggle. Matrix view replaces the unified list
+  // with an Eisenhower 2×2 grid + Unsorted stack. Tap any task in
+  // matrix view → opens TaskEditSheet to set urgent/important + edit.
   const [viewMode, setViewMode] = useState<'list' | 'matrix'>('list');
-  const [quadrantTask, setQuadrantTask] = useState<PriorityItem | null>(null);
 
-  // Tasks scheduled for today via the new Lists/Upcoming flow live in
-  // the tasks table (taskStore). Today's agenda needs to be the
-  // SUPERSET of everything due today — otherwise tasks captured via
-  // "project Wellbloom, …" land in the tasks table with due_date=today
-  // and never appear on Today (the tab looks empty). We now union them
-  // in a "Scheduled today" section below the legacy priorities.
+  // /today now reads exclusively from the tasks table. Loose priorities
+  // were migrated into this same table (Inbox + due_date) so there's a
+  // single source for both list-assigned and unassigned-but-dated rows.
   const scheduledTasks = useTaskStore((s) => s.tasks);
+  const tasksLoading = useTaskStore((s) => s.loading);
   const fetchScheduled = useTaskStore((s) => s.fetchAll);
   const toggleScheduledComplete = useTaskStore((s) => s.toggleComplete);
   const removeScheduledTask = useTaskStore((s) => s.removeTask);
-  const reorderScheduledTasks = useTaskStore((s) => s.reorderTasks);
   const updateScheduledTask = useTaskStore((s) => s.updateTask);
+  const reorderForToday = useTaskStore((s) => s.reorderForToday);
   const [scheduledQuadrantTask, setScheduledQuadrantTask] = useState<Task | null>(null);
   // Project lists for the destination dropdown in the preview sheet
   // AND for showing list names on the scheduled-today rows.
@@ -532,9 +212,19 @@ export default function PrioritiesPage() {
     () =>
       scheduledTasks
         .filter((t) => t.due_date === selectedDate)
-        .sort((a, b) => a.sort_order - b.sort_order),
+        .sort((a, b) => {
+          const ao = a.today_sort_order ?? a.sort_order;
+          const bo = b.today_sort_order ?? b.sort_order;
+          if (ao !== bo) return ao - bo;
+          return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+        }),
     [scheduledTasks, selectedDate],
   );
+
+  // The unified /today list reads exclusively from tasks. Loose
+  // priorities have been backfilled into tasks (Inbox + due_date),
+  // so there's nothing to merge anymore — scheduledForSelectedDate
+  // IS the page's data.
 
   // DnD sensors — long press (500ms) to start drag
   const pointerSensor = useSensor(PointerSensor, {
@@ -553,21 +243,25 @@ export default function PrioritiesPage() {
     fetchPriorities(selectedDate);
     fetchHabits();
     fetchCompletions(selectedDate, selectedDate);
-  }, [fetchPriorities, fetchHabits, fetchCompletions, selectedDate]);
+    // Make sure the shared grocery list is loaded so capture context
+    // (existing items) is fresh. /groceries owns the realtime channel;
+    // we just need a one-shot read here.
+    void loadActiveGrocery();
+  }, [fetchPriorities, fetchHabits, fetchCompletions, loadActiveGrocery, selectedDate]);
 
-  // Celebrate when user completes the last priority of the day
+  // Celebrate when user completes the last task of the day.
   useEffect(() => {
-    if (items.length === 0) {
+    if (scheduledForSelectedDate.length === 0) {
       lastAllDone.current = false;
       return;
     }
-    const allDone = items.every((i) => i.completed);
+    const allDone = scheduledForSelectedDate.every((t) => t.completed);
     if (allDone && !lastAllDone.current) {
       celebrate();
       showToast(t('priorities.allDone'));
     }
     lastAllDone.current = allDone;
-  }, [items, celebrate, showToast]);
+  }, [scheduledForSelectedDate, celebrate, showToast]);
 
   const handleAddItem = () => {
     if (!newItem.trim()) return;
@@ -586,52 +280,33 @@ export default function PrioritiesPage() {
     setActiveDragId(event.active.id as string);
   }, []);
 
+  // Drag-end on the unified /today list. Every row is a task now, so we
+  // just rewrite today_sort_order with the new positions. /lists/[id]
+  // order is left untouched (those are sort_order, not today_sort_order).
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       setActiveDragId(null);
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      const activeItem = items.find((i) => i.id === active.id);
-      const overItem = items.find((i) => i.id === over.id);
-      if (!activeItem || !overItem) return;
-      const cat = activeItem.category ?? 'other';
-      // Cross-category drops are blocked because each SortableContext
-      // only contains its own category's ids; over.id will always be in
-      // the same category as active.id.
-      if ((overItem.category ?? 'other') !== cat) return;
-
-      // Reorder within the category slice, then re-stitch into the
-      // global items array preserving the relative order of all OTHER
-      // categories' items.
-      const catItems = items.filter((i) => (i.category ?? 'other') === cat);
-      const oldIdx = catItems.findIndex((i) => i.id === active.id);
-      const newIdx = catItems.findIndex((i) => i.id === over.id);
+      const oldIdx = scheduledForSelectedDate.findIndex((t) => t.id === active.id);
+      const newIdx = scheduledForSelectedDate.findIndex((t) => t.id === over.id);
       if (oldIdx === -1 || newIdx === -1) return;
-      const reorderedCat = arrayMove(catItems, oldIdx, newIdx);
-
-      let cursor = 0;
-      const merged = items.map((it) => {
-        if ((it.category ?? 'other') === cat) {
-          const next = reorderedCat[cursor++];
-          return next;
-        }
-        return it;
-      });
-      const renumbered = merged.map((item, idx) => ({ ...item, sort_order: idx }));
-
-      usePriorityStore.setState({ items: renumbered });
+      const reordered = arrayMove(scheduledForSelectedDate, oldIdx, newIdx);
+      const positions = new Map<string, number>();
+      reordered.forEach((task, position) => positions.set(task.id, position));
       try {
-        await savePriorities(selectedDate, renumbered);
-        addLog(`Reordered ${cat}`);
+        await reorderForToday(positions);
+        addLog('Reordered today');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to save order');
       }
     },
-    [items, savePriorities, selectedDate, addLog]
+    [scheduledForSelectedDate, reorderForToday, addLog],
   );
 
-  const activeDragItem = activeDragId ? items.find((i) => i.id === activeDragId) : null;
-  const activeDragIndex = activeDragId ? items.findIndex((i) => i.id === activeDragId) : -1;
+  const activeDragTask = activeDragId
+    ? scheduledForSelectedDate.find((t) => t.id === activeDragId) ?? null
+    : null;
 
   const handleAddTasks = async (inputText?: string) => {
     const text = (inputText || newItem).trim();
@@ -729,13 +404,13 @@ export default function PrioritiesPage() {
           if (m.target.kind === 'priority') {
             await usePriorityStore.getState().removeItem(m.target.item.id);
           } else {
-            await usePriorityStore.getState().removeGroceryItem(m.target.group.id, m.target.item.id);
+            await useGroceryStore.getState().removeItem(m.target.item.id);
           }
         } else {
           if (m.target.kind === 'priority') {
             await usePriorityStore.getState().markItemDone(m.target.item.id);
           } else {
-            await usePriorityStore.getState().markGroceryDone(m.target.group.id, m.target.item.id);
+            await useGroceryStore.getState().markItemDone(m.target.item.id);
           }
         }
         checkoffCount += 1;
@@ -830,9 +505,9 @@ export default function PrioritiesPage() {
         )}
       </div>
 
-      {/* List | Matrix toggle — applies to the priority items section
-          only. Habits stay rendered the same way regardless. */}
-      {items.length > 0 && (
+      {/* List | Matrix toggle — applies to the unified task list only.
+          Habits stay rendered the same way regardless. */}
+      {scheduledForSelectedDate.length > 0 && (
         <div className="flex items-center gap-2">
           <div className="inline-flex p-0.5 rounded-xl bg-surface border border-border">
             <button
@@ -861,129 +536,96 @@ export default function PrioritiesPage() {
         </div>
       )}
 
-      {/* Matrix view — replaces the categorized items grid when active. */}
-      {items.length > 0 && viewMode === 'matrix' && (
+      {/* Matrix view — Eisenhower 2×2 over today's tasks. Same data
+          source as the list view; just a different layout. */}
+      {scheduledForSelectedDate.length > 0 && viewMode === 'matrix' && (
         <MatrixView
-          items={items}
+          items={scheduledForSelectedDate}
           onTapTask={(mt) => {
-            const pi = items.find((i) => i.id === mt.id) ?? null;
-            setQuadrantTask(pi);
+            const t = scheduledForSelectedDate.find((x) => x.id === mt.id) ?? null;
+            setScheduledQuadrantTask(t);
           }}
           onSetFlags={(id, flags) =>
-            usePriorityStore.getState().setQuadrant(id, flags)
+            useTaskStore.getState().setQuadrant(id, flags)
           }
           onDeleteTask={(id) => {
-            const item = items.find((i) => i.id === id);
+            const task = scheduledForSelectedDate.find((x) => x.id === id);
             if (typeof window !== 'undefined') {
-              const ok = window.confirm(`Delete "${item?.text ?? 'this item'}"?`);
+              const ok = window.confirm(`Delete "${task?.text ?? 'this item'}"?`);
               if (!ok) return;
             }
-            void usePriorityStore.getState().removeItem(id);
+            void useTaskStore.getState().removeTask(id);
           }}
         />
       )}
 
-      {/* Priority items — grouped by category. Each category is its own
-          DnD context (so you can only reorder within a category). Order
-          across sections is fixed (Medications → Errands → Work → Home →
-          Bills → Other). Empty categories collapse silently. */}
-      {items.length > 0 && viewMode === 'list' && (
-        <div className="space-y-5">
-          {PRIORITY_CATEGORY_ORDER.map((cat) => {
-            const catItems = items.filter((i) => (i.category ?? 'other') === cat);
-            if (catItems.length === 0) return null;
-            const doneCount = catItems.filter((i) => i.completed).length;
-            return (
-              <div key={cat} className="space-y-1">
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                    {t(`category.${cat}`)}
-                  </h2>
-                  <span className="text-xs text-text-tertiary">
-                    {doneCount}/{catItems.length}
-                  </span>
-                </div>
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragStart={handleDragStart}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext items={catItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-                    {catItems.map((item, index) => (
-                      <SortablePriorityRow
-                        key={item.id}
-                        item={item}
-                        index={index}
-                        onToggle={() => toggleItem(item.id)}
-                        onDelete={() => removeItem(item.id)}
-                        onCommitText={(next) =>
-                          usePriorityStore.getState().updateItemText(item.id, next)
-                        }
-                        onMoveToTomorrow={async () => {
-                          const tomorrow = new Date();
-                          tomorrow.setDate(tomorrow.getDate() + 1);
-                          const tomorrowStr = toLocalDateStr(tomorrow);
-                          // Append to tomorrow's row, then drop from
-                          // today (current selectedDate). addItems
-                          // operates on the supplied date, removeItem
-                          // operates on the currently-loaded date.
-                          await usePriorityStore.getState().addItems(tomorrowStr, [
-                            { ...item, completed: false },
-                          ]);
-                          await usePriorityStore.getState().removeItem(item.id);
-                          showToast('Moved to tomorrow', 'success');
-                        }}
-                      />
-                    ))}
-                  </SortableContext>
-                  <DragOverlay dropAnimation={null}>
-                    {activeDragItem && (activeDragItem.category ?? 'other') === cat ? (
-                      <PriorityRowContent
-                        item={activeDragItem}
-                        index={activeDragIndex}
-                        isDragOverlay
-                      />
-                    ) : null}
-                  </DragOverlay>
-                </DndContext>
+      {/* Unified /today list — every row is a task. Categories ride as
+          chips on the row; list assignment shows as a small line under
+          the row. Drag-reorder writes today_sort_order only, so the
+          /lists/[id] order stays untouched. Habits sit in their own
+          section below. */}
+      {scheduledForSelectedDate.length > 0 && viewMode === 'list' && (
+        <div className="space-y-1">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={scheduledForSelectedDate.map((t) => t.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-1">
+                {scheduledForSelectedDate.map((task, index) => (
+                  <SortableTaskCard
+                    key={task.id}
+                    task={task}
+                    index={index}
+                    lists={lists}
+                    onToggle={() => toggleScheduledComplete(task.id)}
+                    onTap={() => toggleScheduledComplete(task.id)}
+                    onDelete={() => removeScheduledTask(task.id)}
+                    onSecondary={async () => {
+                      const tomorrow = new Date();
+                      tomorrow.setDate(tomorrow.getDate() + 1);
+                      const tomorrowStr = toLocalDateStr(tomorrow);
+                      // Preserve list_id + time. Bump remind_at by
+                      // exactly +24h so the same wall-clock time
+                      // fires tomorrow; clear remind_sent_at so cron
+                      // re-evaluates.
+                      const nextRemindAt = task.remind_at
+                        ? new Date(new Date(task.remind_at).getTime() + 86_400_000).toISOString()
+                        : null;
+                      await updateScheduledTask(task.id, {
+                        due_date: tomorrowStr,
+                        remind_at: nextRemindAt,
+                        remind_sent_at: null,
+                      });
+                      showToast('Moved to tomorrow', 'success');
+                    }}
+                    inlineEdit
+                  />
+                ))}
               </div>
-            );
-          })}
+            </SortableContext>
+            <DragOverlay dropAnimation={null}>
+              {activeDragTask ? (
+                <div className="bg-surface border border-primary rounded-xl shadow-lg">
+                  <TaskCard
+                    task={activeDragTask}
+                    index={scheduledForSelectedDate.findIndex((t) => t.id === activeDragTask.id)}
+                    onToggle={() => {}}
+                  />
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
         </div>
       )}
 
       {/* Groceries section moved to its own /groceries tab — Today
           shows only categorized priorities + habits now. */}
-
-      {/* Scheduled today — tasks from the new tasks table whose
-          due_date matches the selected date. Includes list-assigned
-          tasks (from captures like "project Wellbloom, …") so Today
-          is the true superset of everything due today. Draggable to
-          reorder; tap opens the quadrant sheet. */}
-      {scheduledForSelectedDate.length > 0 && (
-        <ScheduledTodaySection
-          tasks={scheduledForSelectedDate}
-          lists={lists}
-          sensors={sensors}
-          onToggle={(id) => toggleScheduledComplete(id)}
-          onDelete={(id) => removeScheduledTask(id)}
-          onReorder={(ids) => reorderScheduledTasks(ids)}
-          // Tap on the empty area of the row toggles done. Per
-          // user spec for the Today tab: no pencil edit affordance —
-          // tap-text starts inline edit (TaskCard's inlineEdit
-          // prop), tap-empty toggles. Full edit sheet is reachable
-          // from /lists or /upcoming if needed.
-          onTapTask={(task) => toggleScheduledComplete(task.id)}
-          onMoveToTomorrow={async (task) => {
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            const yyyymmdd = toLocalDateStr(tomorrow);
-            await updateScheduledTask(task.id, { due_date: yyyymmdd });
-            showToast('Moved to tomorrow', 'success');
-          }}
-        />
-      )}
 
       {/* Habits */}
       {(() => {
@@ -1034,7 +676,7 @@ export default function PrioritiesPage() {
       })()}
 
       {/* Empty state */}
-      {items.length === 0 && habits.filter((h) => h.is_active).length === 0 && !loading && !processing && (
+      {scheduledForSelectedDate.length === 0 && habits.filter((h) => h.is_active).length === 0 && !tasksLoading && !processing && (
         <EmptyState pose="wave" title={t('priorities.empty')} />
       )}
 
@@ -1072,18 +714,9 @@ export default function PrioritiesPage() {
         }}
       />
 
-      <TaskQuadrantSheet
-        task={quadrantTask}
-        onClose={() => setQuadrantTask(null)}
-        onSetFlags={(id, flags) =>
-          usePriorityStore.getState().setQuadrant(id, flags)
-        }
-      />
-
-      {/* Tasks from the new tasks table (scheduled for today, list-
-          assigned, etc.) use the richer TaskEditSheet — same sheet as
-          /upcoming and /lists/[id] so the editing experience is
-          consistent across the app. */}
+      {/* Matrix-tap and other quadrant flows on /today now go straight
+          to the richer TaskEditSheet — same sheet as /upcoming and
+          /lists/[id] so editing is consistent across the app. */}
       <TaskEditSheet
         task={scheduledQuadrantTask}
         onClose={() => setScheduledQuadrantTask(null)}
