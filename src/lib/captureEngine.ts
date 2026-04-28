@@ -164,9 +164,10 @@ CATEGORIES:
    Examples: "get milk from Costco", "spinach and mushrooms from the Indian store", "I need bananas"
    Group items by the store they mentioned. If they say "from Costco" then following items belong to Costco until they mention another store.
    SPEECH QUIRK: "by" and "buy" often sound identical in transcription; treat both as the verb "buy" (e.g. "from Trader Joe's by kale and celery" is the same as "from Trader Joe's buy kale and celery").
+   FORMATTING: Each item name MUST be sentence case — first letter capitalized, the rest lowercase EXCEPT for proper nouns / brand names. Examples: "Milk", "Bell peppers", "Trader Joe's pasta", "Costco rotisserie chicken". Never return ALL-CAPS items, never return all-lowercase items.
    CANONICAL GROCERY EXAMPLES:
-   - "from Trader Joe's buy kale and celery" → groceries: [{"store": "Trader Joe's", "items": ["kale", "celery"]}]
-   - "at Costco I need milk, eggs, bread" → groceries: [{"store": "Costco", "items": ["milk", "eggs", "bread"]}]
+   - "from Trader Joe's buy kale and celery" → groceries: [{"store": "Trader Joe's", "items": ["Kale", "Celery"]}]
+   - "at Costco I need milk, eggs, bread" → groceries: [{"store": "Costco", "items": ["Milk", "Eggs", "Bread"]}]
 
    CRITICAL DISAMBIGUATION — GROCERY vs TASK:
    Groceries are things to BUY from a store. Tasks (priorities) are things to DO. The phrase "I need" is ambiguous:

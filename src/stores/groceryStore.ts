@@ -4,6 +4,7 @@ import type {
   RealtimePostgresChangesPayload,
 } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { toSentenceCase } from '../lib/stringUtils';
 
 // Shared, real-time grocery lists.
 //
@@ -576,7 +577,12 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         if (!group) continue;
       }
       for (const itemName of g.items) {
-        await get().addItem(group.id, itemName);
+        // Sentence-case AI-captured items (Gemini is also instructed
+        // to do this in the prompt; this is a safety net for misses
+        // like transcription artifacts returning "BEETROOT" verbatim).
+        // Manual entry / inline rename intentionally bypass this so
+        // the user's typed casing is preserved.
+        await get().addItem(group.id, toSentenceCase(itemName));
       }
     }
   },
