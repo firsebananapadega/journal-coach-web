@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useTheme } from '@/lib/theme';
 import { installPromptBridge } from '@/hooks/usePwaInstall';
 import { refreshSubscription } from '@/lib/push';
+import { drainOutbox } from '@/lib/syncQueue';
 
 // Arm the install-prompt bridge at module load so we catch the event
 // even if it fires before any UI mounts.
@@ -36,6 +37,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshSubscription().catch(() => {});
     }, 1500);
     return () => window.clearTimeout(id);
+  }, [session]);
+
+  // Offline-first hooks for authed users:
+  //   1. Request persistent storage so iOS Safari doesn't evict
+  //      Dexie / Cache Storage after 7 days of no interaction. Daily
+  //      users are safe regardless; this just hardens the corner case.
+  //   2. Drain any outbox rows queued during a previous offline
+  //      session as soon as auth is ready.
+  useEffect(() => {
+    if (!session) return;
+    if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
+    void drainOutbox();
   }, [session]);
 
   return <>{children}</>;

@@ -16,6 +16,7 @@
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.101.1",
     "chrono-node": "^2.9.0",
+    "dexie": "^4.4.2",
     "framer-motion": "^11.18.2",
     "next": "16.2.2",
     "react": "19.2.4",

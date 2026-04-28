@@ -12,6 +12,8 @@ import { WallShell } from '@/components/WallShell';
 import { WallNav } from '@/components/WallNav';
 import { wallForPath } from '@/lib/wallState';
 import GuideTour from '@/components/tour/GuideTour';
+import OfflineIndicator from '@/components/OfflineIndicator';
+import { drainOutbox } from '@/lib/syncQueue';
 
 // Wall-home destinations used when redirecting a user who has
 // scoped to a single wall but landed on the other side.
@@ -86,6 +88,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => {
       window.removeEventListener('pageshow', onPageShow);
       document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
+  // Offline outbox drain triggers — fire on every reasonable
+  // "we might be online again" signal. drainOutbox is idempotent and
+  // a no-op when offline, so over-triggering is safe.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const fire = () => { void drainOutbox(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') fire(); };
+    window.addEventListener('online', fire);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', fire);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
@@ -329,6 +346,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className={outerClass}>
       <UIOverlayRoot />
       <GuideTour />
+      <OfflineIndicator />
 
       {/* Settings gear — fixed top-right, hidden on full-screen and
           settings itself. Also hidden inside a specific notebook —
