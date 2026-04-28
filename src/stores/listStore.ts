@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
+import { getDB } from '../lib/db';
+import { enqueue } from '../lib/syncQueue';
 
 // Project lists. Inbox is a system-created list (is_inbox = true)
 // that lives at the top of the Lists tab. ensureInbox() creates it
@@ -61,6 +63,19 @@ export const useListStore = create<ListState>((set, get) => ({
   fetchLists: async () => {
     try {
       set({ loading: true, error: null });
+
+      // Hydrate from Dexie first for offline cold-opens.
+      const db = getDB();
+      if (db) {
+        try {
+          const cached = await db.lists.toArray();
+          if (cached.length > 0) {
+            const inbox = cached.find((l) => l.is_inbox) ?? null;
+            set({ lists: cached as ListRecord[], inboxId: inbox?.id ?? null, hasFetched: true });
+          }
+        } catch {}
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         set({ lists: [], inboxId: null, hasFetched: true });
@@ -78,6 +93,13 @@ export const useListStore = create<ListState>((set, get) => ({
       const lists = (data ?? []) as ListRecord[];
       const inbox = lists.find((l) => l.is_inbox) ?? null;
       set({ lists, inboxId: inbox?.id ?? null, hasFetched: true });
+
+      if (db) {
+        try {
+          await db.lists.clear();
+          if (lists.length > 0) await db.lists.bulkPut(lists);
+        } catch {}
+      }
     } catch (err) {
       if (isMissingTableError(err)) {
         // Migration not applied yet — surface a friendly empty state.
@@ -133,80 +155,53 @@ export const useListStore = create<ListState>((set, get) => ({
   },
 
   createList: async (name, opts) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-      const trimmed = name.trim();
-      if (!trimmed) return null;
-      const baseSort = get().lists.filter((l) => !l.is_inbox).length + 1;
-      const { data, error } = await supabase
-        .from('lists')
-        .insert({
-          user_id: user.id,
-          name: trimmed,
-          color: opts?.color ?? null,
-          icon: opts?.icon ?? null,
-          sort_order: baseSort,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      const created = data as ListRecord;
-      set((s) => ({ lists: [...s.lists, created] }));
-      return created;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to create list';
-      set({ error: msg });
-      return null;
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+
+    const now = new Date().toISOString();
+    const created: ListRecord = {
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      name: trimmed,
+      color: opts?.color ?? null,
+      icon: opts?.icon ?? null,
+      sort_order: get().lists.filter((l) => !l.is_inbox).length + 1,
+      is_inbox: false,
+      archived: false,
+      created_at: now,
+      updated_at: now,
+    };
+    set((s) => ({ lists: [...s.lists, created] }));
+    await enqueue({ op: 'insert', table: 'lists', row_id: created.id, payload: created });
+    return created;
   },
 
   renameList: async (id, name) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const prev = get().lists;
+    const next = { name: trimmed, updated_at: new Date().toISOString() };
     set({
-      lists: prev.map((l) => (l.id === id ? { ...l, name: trimmed } : l)),
+      lists: get().lists.map((l) => (l.id === id ? { ...l, ...next } : l)),
     });
-    try {
-      const { error } = await supabase
-        .from('lists')
-        .update({ name: trimmed })
-        .eq('id', id);
-      if (error) throw error;
-    } catch {
-      set({ lists: prev });
-    }
+    await enqueue({ op: 'update', table: 'lists', row_id: id, payload: next });
   },
 
   updateListIcon: async (id, icon) => {
-    const next = icon.trim() || null;
-    const prev = get().lists;
+    const iconValue = icon.trim() || null;
+    const next = { icon: iconValue, updated_at: new Date().toISOString() };
     set({
-      lists: prev.map((l) => (l.id === id ? { ...l, icon: next } : l)),
+      lists: get().lists.map((l) => (l.id === id ? { ...l, ...next } : l)),
     });
-    try {
-      const { error } = await supabase
-        .from('lists')
-        .update({ icon: next })
-        .eq('id', id);
-      if (error) throw error;
-    } catch {
-      set({ lists: prev });
-    }
+    await enqueue({ op: 'update', table: 'lists', row_id: id, payload: next });
   },
 
   deleteList: async (id) => {
     const list = get().lists.find((l) => l.id === id);
     if (!list || list.is_inbox) return; // Can't delete Inbox.
-    const prev = get().lists;
-    set({ lists: prev.filter((l) => l.id !== id) });
-    try {
-      const { error } = await supabase.from('lists').delete().eq('id', id);
-      if (error) throw error;
-    } catch {
-      set({ lists: prev });
-    }
+    set({ lists: get().lists.filter((l) => l.id !== id) });
+    await enqueue({ op: 'delete', table: 'lists', row_id: id, payload: null });
   },
 
   reset: () => set({ lists: [], inboxId: null, hasFetched: false, error: null }),

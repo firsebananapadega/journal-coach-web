@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
+import { useOnline } from '@/lib/networkStatus';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { useJournalStore } from '@/stores/journalStore';
@@ -47,6 +48,10 @@ export default function VoiceEntryPage() {
   const showToast = useUiStore((s) => s.showToast);
   const [transcript, setTranscript] = useState('');
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
+  // AI capture requires Gemini classification, which needs network.
+  // Block the Capture button when offline so the user gets a clear
+  // signal instead of a silent failure mid-flow.
+  const online = useOnline();
   const startTime = useRef(Date.now());
   const transcriptRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -626,10 +631,11 @@ export default function VoiceEntryPage() {
               }
               void triggerCapturePreview();
             }}
-            disabled={classifying || !transcript.trim()}
+            disabled={classifying || !transcript.trim() || !online}
+            title={!online ? 'Offline — capture needs internet. Use the + button on Today or Groceries instead.' : undefined}
             className="flex-1 h-14 rounded-full bg-primary text-white text-base font-semibold transition-colors hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20"
           >
-            {classifying ? t('preview.saving') : t('voice.capture')}
+            {!online ? 'Offline' : classifying ? t('preview.saving') : t('voice.capture')}
           </button>
         </div>
 

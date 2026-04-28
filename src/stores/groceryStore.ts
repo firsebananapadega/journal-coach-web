@@ -5,6 +5,8 @@ import type {
 } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { toSentenceCase } from '../lib/stringUtils';
+import { getDB } from '../lib/db';
+import { enqueue } from '../lib/syncQueue';
 
 // Shared, real-time grocery lists.
 //
@@ -307,11 +309,13 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
             .order('created_at', { ascending: false }),
         ]);
 
+      const freshGroups = (groups as GroceryGroup[]) ?? [];
+      const freshItems = (items as GroceryItem[]) ?? [];
       set({
         listId,
         ownerId: (list?.owner_id as string) ?? null,
-        groups: (groups as GroceryGroup[]) ?? [],
-        items: (items as GroceryItem[]) ?? [],
+        groups: freshGroups,
+        items: freshItems,
         members: (members as GroceryListMember[]) ?? [],
         invites: (invites as GroceryInvite[]) ?? [],
       });
@@ -319,6 +323,20 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       // Refresh the cache with the live snapshot (now that we know
       // listId is current — covers the post-share-accept switch).
       persistCurrent(get());
+
+      // Mirror to Dexie so cross-store offline hydration works even
+      // when this page is the cold-start entry point.
+      const db = getDB();
+      if (db) {
+        try {
+          await db.transaction('rw', [db.grocery_groups, db.grocery_items], async () => {
+            await db.grocery_groups.clear();
+            await db.grocery_items.clear();
+            if (freshGroups.length > 0) await db.grocery_groups.bulkPut(freshGroups);
+            if (freshItems.length > 0) await db.grocery_items.bulkPut(freshItems);
+          });
+        } catch {}
+      }
 
       // Pending invites + recent contacts in parallel — both are
       // independent of the list-data fetches above.
@@ -498,24 +516,25 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     const sort = groups.length;
     const optimistic: GroceryGroup = { id, list_id: listId, store: trimmed, sort_order: sort };
     set({ groups: [...groups, optimistic] });
-    const { error } = await supabase
-      .from('grocery_groups')
-      .insert({ id, list_id: listId, store: trimmed, sort_order: sort });
-    if (error) {
-      set({ groups });
-      return null;
-    }
+    await enqueue({
+      op: 'insert',
+      table: 'grocery_groups',
+      row_id: id,
+      payload: { id, list_id: listId, store: trimmed, sort_order: sort },
+    });
     return optimistic;
   },
 
   removeGroup: async (groupId) => {
-    const { groups, items } = get();
+    // Filter both in-memory (the DB will cascade-delete items via the
+    // grocery_items.group_id FK; Phase 1 doesn't enqueue per-item
+    // deletes — orphan rows in the local Dexie cache are cleaned up
+    // on the next fetchAll).
     set({
-      groups: groups.filter((g) => g.id !== groupId),
-      items: items.filter((i) => i.group_id !== groupId),
+      groups: get().groups.filter((g) => g.id !== groupId),
+      items: get().items.filter((i) => i.group_id !== groupId),
     });
-    const { error } = await supabase.from('grocery_groups').delete().eq('id', groupId);
-    if (error) set({ groups, items });
+    await enqueue({ op: 'delete', table: 'grocery_groups', row_id: groupId, payload: null });
   },
 
   // ── Item CRUD ──────────────────────────────────────────────
@@ -544,24 +563,19 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       sort_order: items.filter((i) => i.group_id === groupId).length,
     };
     set({ items: [...items, optimistic] });
-    const { error } = await supabase.from('grocery_items').insert({
-      id,
-      list_id: listId,
-      group_id: groupId,
-      name: trimmed,
-      added_by: userId,
-      sort_order: optimistic.sort_order,
+    await enqueue({
+      op: 'insert',
+      table: 'grocery_items',
+      row_id: id,
+      payload: {
+        id,
+        list_id: listId,
+        group_id: groupId,
+        name: trimmed,
+        added_by: userId,
+        sort_order: optimistic.sort_order,
+      },
     });
-    // 23505 = unique_violation from grocery_items_no_dup_active. Means
-    // someone else added the same item milliseconds ago — drop our local
-    // copy and let the realtime event surface theirs.
-    if (error) {
-      if ((error as { code?: string }).code === '23505') {
-        set({ items });
-      } else {
-        set({ items });
-      }
-    }
   },
 
   addGroupsFromCapture: async (newGroups) => {
@@ -593,40 +607,40 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     if (!target) return;
     const next = !target.completed;
     const userId = await getUserId();
-    const optimistic = items.map((i) =>
-      i.id === itemId
-        ? { ...i, completed: next, completed_at: next ? new Date().toISOString() : null, completed_by: next ? userId : null }
-        : i,
-    );
-    set({ items: optimistic });
-    const { error } = await supabase
-      .from('grocery_items')
-      .update({
-        completed: next,
-        completed_at: next ? new Date().toISOString() : null,
-        completed_by: next ? userId : null,
-      })
-      .eq('id', itemId);
-    if (error) set({ items });
+    const completed_at = next ? new Date().toISOString() : null;
+    const completed_by = next ? userId : null;
+    set({
+      items: items.map((i) =>
+        i.id === itemId
+          ? { ...i, completed: next, completed_at, completed_by }
+          : i,
+      ),
+    });
+    await enqueue({
+      op: 'update',
+      table: 'grocery_items',
+      row_id: itemId,
+      payload: { completed: next, completed_at, completed_by },
+    });
   },
 
   renameItem: async (itemId, name) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const { items } = get();
-    const target = items.find((i) => i.id === itemId);
+    const target = get().items.find((i) => i.id === itemId);
     if (!target || target.name === trimmed) return;
-    const optimistic = items.map((i) => (i.id === itemId ? { ...i, name: trimmed } : i));
-    set({ items: optimistic });
-    const { error } = await supabase.from('grocery_items').update({ name: trimmed }).eq('id', itemId);
-    if (error) set({ items });
+    set({ items: get().items.map((i) => (i.id === itemId ? { ...i, name: trimmed } : i)) });
+    await enqueue({
+      op: 'update',
+      table: 'grocery_items',
+      row_id: itemId,
+      payload: { name: trimmed },
+    });
   },
 
   removeItem: async (itemId) => {
-    const { items } = get();
-    set({ items: items.filter((i) => i.id !== itemId) });
-    const { error } = await supabase.from('grocery_items').delete().eq('id', itemId);
-    if (error) set({ items });
+    set({ items: get().items.filter((i) => i.id !== itemId) });
+    await enqueue({ op: 'delete', table: 'grocery_items', row_id: itemId, payload: null });
   },
 
   markItemDone: async (itemId) => {
@@ -659,12 +673,11 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       added_by: userId,
       sort_order: 0,
     }));
-    set({ items: [...get().items, ...rows.map((r) => ({ ...r })) as GroceryItem[]] });
-    const { error } = await supabase.from('grocery_items').insert(rows);
-    if (error) {
-      // 23505 from a concurrent add of the same active item is harmless;
-      // the realtime event will reconcile our optimistic insert.
-      set({ items: get().items.filter((i) => !rows.some((r) => r.id === i.id)) });
+    set({ items: [...get().items, ...rows as GroceryItem[]] });
+    // One outbox row per item so partial failures stop at the first
+    // bad row instead of dropping the whole batch silently.
+    for (const row of rows) {
+      await enqueue({ op: 'insert', table: 'grocery_items', row_id: row.id, payload: row });
     }
   },
 

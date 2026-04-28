@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
+import { getDB } from '../lib/db';
+import { enqueue } from '../lib/syncQueue';
 
 // Tasks live in their own table now. Each task belongs to a list
 // (Inbox by default for unassigned), has an optional due_date for
@@ -113,6 +115,20 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   fetchAll: async () => {
     try {
       set({ loading: true, error: null });
+
+      // Hydrate from Dexie first so offline cold-opens (and slow
+      // networks) paint immediately. Supabase fetch below overrides
+      // with fresh data when it returns.
+      const db = getDB();
+      if (db) {
+        try {
+          const cached = await db.tasks.toArray();
+          if (cached.length > 0) {
+            set({ tasks: cached as Task[], hasFetched: true });
+          }
+        } catch {}
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         set({ tasks: [], hasFetched: true });
@@ -125,7 +141,17 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true });
       if (error) throw error;
-      set({ tasks: (data ?? []) as Task[], hasFetched: true });
+      const fresh = (data ?? []) as Task[];
+      set({ tasks: fresh, hasFetched: true });
+
+      // Mirror to Dexie so the next cold-start has fresh data even
+      // if the user is offline at that point.
+      if (db) {
+        try {
+          await db.tasks.clear();
+          if (fresh.length > 0) await db.tasks.bulkPut(fresh);
+        } catch {}
+      }
     } catch (err) {
       if (isMissingTableError(err)) {
         set({ tasks: [], hasFetched: true, error: 'tasks table not found' });
@@ -139,52 +165,48 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 
   addTask: async (input) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-      const trimmed = input.text.trim();
-      if (!trimmed) return null;
-      const baseSort = get().tasks.filter((t) => t.list_id === (input.list_id ?? null)).length;
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert({
-          user_id: user.id,
-          list_id: input.list_id ?? null,
-          text: trimmed,
-          due_date: input.due_date ?? null,
-          time: input.time ?? null,
-          urgent: !!input.urgent,
-          important: !!input.important,
-          completed: false,
-          sort_order: baseSort,
-          remind_at: input.remind_at ?? null,
-          reminder_message: input.reminder_message ?? null,
-          category: input.category ?? null,
-          subgroup: input.subgroup ?? null,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      const created = data as Task;
-      set((s) => ({ tasks: [...s.tasks, created] }));
-      return created;
-    } catch (err) {
-      if (isMissingTableError(err)) return null;
-      const msg = err instanceof Error ? err.message : 'Failed to add task';
-      set({ error: msg });
-      return null;
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const trimmed = input.text.trim();
+    if (!trimmed) return null;
+
+    // Build the full row client-side so it can be persisted to Dexie
+    // immediately and replayed verbatim when the outbox drains.
+    const now = new Date().toISOString();
+    const baseSort = get().tasks.filter((t) => t.list_id === (input.list_id ?? null)).length;
+    const created: Task = {
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      list_id: input.list_id ?? null,
+      text: trimmed,
+      due_date: input.due_date ?? null,
+      time: input.time ?? null,
+      urgent: !!input.urgent,
+      important: !!input.important,
+      triaged: false,
+      completed: false,
+      sort_order: baseSort,
+      today_sort_order: null,
+      category: input.category ?? null,
+      subgroup: input.subgroup ?? null,
+      notes: null,
+      remind_at: input.remind_at ?? null,
+      remind_sent_at: null,
+      remind_snoozed_until: null,
+      reminder_message: input.reminder_message ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    set((s) => ({ tasks: [...s.tasks, created] }));
+    await enqueue({ op: 'insert', table: 'tasks', row_id: created.id, payload: created });
+    return created;
   },
 
   updateTask: async (id, patch) => {
-    const prev = get().tasks;
-    set({ tasks: prev.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
-    try {
-      const { error } = await supabase.from('tasks').update(patch).eq('id', id);
-      if (error) throw error;
-    } catch {
-      set({ tasks: prev });
-    }
+    const next = { ...patch, updated_at: new Date().toISOString() };
+    set({ tasks: get().tasks.map((t) => (t.id === id ? { ...t, ...next } : t)) });
+    await enqueue({ op: 'update', table: 'tasks', row_id: id, payload: next });
   },
 
   toggleComplete: async (id) => {
@@ -204,62 +226,47 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 
   removeTask: async (id) => {
-    const prev = get().tasks;
-    set({ tasks: prev.filter((t) => t.id !== id) });
-    try {
-      const { error } = await supabase.from('tasks').delete().eq('id', id);
-      if (error) throw error;
-    } catch {
-      set({ tasks: prev });
-    }
+    set({ tasks: get().tasks.filter((t) => t.id !== id) });
+    await enqueue({ op: 'delete', table: 'tasks', row_id: id, payload: null });
   },
 
   reorderTasks: async (orderedIds) => {
     if (orderedIds.length === 0) return;
-    const prev = get().tasks;
-    // Assign new sort_orders based on position. We use simple
-    // integers; the rest of the store already sorts ascending, so any
-    // contiguous sequence works.
     const nextOrderById = new Map<string, number>();
     orderedIds.forEach((id, i) => nextOrderById.set(id, i));
-    const optimistic = prev.map((t) => {
-      const next = nextOrderById.get(t.id);
-      return next != null ? { ...t, sort_order: next } : t;
+    set({
+      tasks: get().tasks.map((t) => {
+        const next = nextOrderById.get(t.id);
+        return next != null ? { ...t, sort_order: next } : t;
+      }),
     });
-    set({ tasks: optimistic });
-    try {
-      // Batch-update all touched rows. A single upsert with a minimal
-      // payload per row keeps the round-trip small. Any failure rolls
-      // back the whole batch.
-      const updates = Array.from(nextOrderById.entries()).map(([id, so]) =>
-        supabase.from('tasks').update({ sort_order: so, updated_at: new Date().toISOString() }).eq('id', id),
-      );
-      const results = await Promise.all(updates);
-      for (const r of results) if (r.error) throw r.error;
-    } catch {
-      set({ tasks: prev });
+    const now = new Date().toISOString();
+    for (const [id, sort_order] of nextOrderById.entries()) {
+      await enqueue({
+        op: 'update',
+        table: 'tasks',
+        row_id: id,
+        payload: { sort_order, updated_at: now },
+      });
     }
   },
 
   reorderForToday: async (positionsById) => {
     if (positionsById.size === 0) return;
-    const prev = get().tasks;
-    const optimistic = prev.map((t) => {
-      const next = positionsById.get(t.id);
-      return next != null ? { ...t, today_sort_order: next } : t;
+    set({
+      tasks: get().tasks.map((t) => {
+        const next = positionsById.get(t.id);
+        return next != null ? { ...t, today_sort_order: next } : t;
+      }),
     });
-    set({ tasks: optimistic });
-    try {
-      const updates = Array.from(positionsById.entries()).map(([id, tso]) =>
-        supabase
-          .from('tasks')
-          .update({ today_sort_order: tso, updated_at: new Date().toISOString() })
-          .eq('id', id),
-      );
-      const results = await Promise.all(updates);
-      for (const r of results) if (r.error) throw r.error;
-    } catch {
-      set({ tasks: prev });
+    const now = new Date().toISOString();
+    for (const [id, today_sort_order] of positionsById.entries()) {
+      await enqueue({
+        op: 'update',
+        table: 'tasks',
+        row_id: id,
+        payload: { today_sort_order, updated_at: now },
+      });
     }
   },
 

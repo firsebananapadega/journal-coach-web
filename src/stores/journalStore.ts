@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
+import { getDB } from '../lib/db';
+import { enqueue } from '../lib/syncQueue';
 
 // Deadlines for each Supabase operation. The app was shipping "Saving…"
 // spinners that hung forever when a round-trip stalled — converting
@@ -82,6 +84,22 @@ export const useJournalStore = create<JournalState>((set, get) => ({
   fetchEntries: async () => {
     try {
       set({ loading: true, error: null });
+
+      // Hydrate from Dexie first for offline-friendly cold-opens.
+      const db = getDB();
+      if (db) {
+        try {
+          const cached = await db.journal_entries.toArray();
+          if (cached.length > 0) {
+            // Sort newest-first to match Supabase ordering.
+            const sorted = [...cached].sort((a, b) =>
+              a.created_at < b.created_at ? 1 : -1,
+            );
+            set({ entries: sorted as JournalEntry[] });
+          }
+        } catch {}
+      }
+
       let user = (await withTimeout(supabase.auth.getUser(), AUTH_MS, 'auth.getUser')).data.user;
       // Retry once if auth not ready yet
       if (!user) {
@@ -99,7 +117,15 @@ export const useJournalStore = create<JournalState>((set, get) => ({
         'fetchEntries',
       );
       if (error) throw error;
-      set({ entries: (data as JournalEntry[]) ?? [] });
+      const entries = (data as JournalEntry[]) ?? [];
+      set({ entries });
+
+      if (db) {
+        try {
+          await db.journal_entries.clear();
+          if (entries.length > 0) await db.journal_entries.bulkPut(entries);
+        } catch {}
+      }
     } catch (error: unknown) {
       set({ error: error instanceof Error ? error.message : 'Failed to fetch entries' });
     } finally {
@@ -117,8 +143,10 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       );
       if (!user) throw new Error('No authenticated user');
       // Auto-assign the Journal system notebook when none is provided.
-      // Callers that know the target notebook (capture flow, per-notebook
-      // pages) pass `notebook_id` explicitly and skip this.
+      // This best-effort lookup needs the network — offline the entry
+      // just lands with null notebook_id and gets refiled when caller
+      // wants. Wrapped in try/catch so an offline lookup doesn't
+      // block creation.
       let notebookId: string | null = input.notebook_id ?? null;
       if (!notebookId) {
         try {
@@ -138,7 +166,9 @@ export const useJournalStore = create<JournalState>((set, get) => ({
           // user can refile later.
         }
       }
-      const entry = {
+      const now = new Date().toISOString();
+      const created: JournalEntry = {
+        id: crypto.randomUUID(),
         user_id: user.id,
         template_id: null,
         tags: [],
@@ -149,17 +179,16 @@ export const useJournalStore = create<JournalState>((set, get) => ({
         mood_score: null,
         mood_label: null,
         metadata: null,
+        content_structured: null,
+        structured_generated_at: null,
+        structured_gemini_model: null,
         ...input,
         notebook_id: notebookId,
+        created_at: now,
+        updated_at: now,
       };
-      const { data, error } = await withTimeout(
-        supabase.from('journal_entries').insert(entry).select().single(),
-        WRITE_MS,
-        'createEntry.insert',
-      );
-      if (error) throw error;
-      const created = data as JournalEntry;
       set({ entries: [created, ...get().entries] });
+      await enqueue({ op: 'insert', table: 'journal_entries', row_id: created.id, payload: created });
 
       // Pre-generate the structured view in the background so the
       // next notebook-feed render is instant. Don't await — the
@@ -209,53 +238,21 @@ export const useJournalStore = create<JournalState>((set, get) => ({
   },
 
   updateEntry: async (id: string, updates: Partial<JournalEntry>) => {
-    try {
-      set({ loading: true, error: null });
-      // If the raw content changed, invalidate the cached structured
-      // view so the next toggle regenerates it.
-      const invalidatesStructured =
-        Object.prototype.hasOwnProperty.call(updates, 'content_text') &&
-        !Object.prototype.hasOwnProperty.call(updates, 'content_structured');
-      const payload = invalidatesStructured
-        ? { ...updates, content_structured: null, structured_generated_at: null, updated_at: new Date().toISOString() }
-        : { ...updates, updated_at: new Date().toISOString() };
-      const { data, error } = await withTimeout(
-        supabase
-          .from('journal_entries')
-          .update(payload)
-          .eq('id', id)
-          .select()
-          .single(),
-        WRITE_MS,
-        'updateEntry',
-      );
-      if (error) throw error;
-      const updated = data as JournalEntry;
-      set({ entries: get().entries.map((e) => (e.id === id ? updated : e)) });
-    } catch (error: unknown) {
-      set({ error: error instanceof Error ? error.message : 'Failed to update entry' });
-      throw error;
-    } finally {
-      set({ loading: false });
-    }
+    // If the raw content changed, invalidate the cached structured
+    // view so the next toggle regenerates it.
+    const invalidatesStructured =
+      Object.prototype.hasOwnProperty.call(updates, 'content_text') &&
+      !Object.prototype.hasOwnProperty.call(updates, 'content_structured');
+    const payload = invalidatesStructured
+      ? { ...updates, content_structured: null, structured_generated_at: null, updated_at: new Date().toISOString() }
+      : { ...updates, updated_at: new Date().toISOString() };
+    set({ entries: get().entries.map((e) => (e.id === id ? { ...e, ...payload } : e)) });
+    await enqueue({ op: 'update', table: 'journal_entries', row_id: id, payload });
   },
 
   deleteEntry: async (id: string) => {
-    try {
-      set({ loading: true, error: null });
-      const { error } = await withTimeout(
-        supabase.from('journal_entries').delete().eq('id', id),
-        WRITE_MS,
-        'deleteEntry',
-      );
-      if (error) throw error;
-      set({ entries: get().entries.filter((e) => e.id !== id) });
-    } catch (error: unknown) {
-      set({ error: error instanceof Error ? error.message : 'Failed to delete entry' });
-      throw error;
-    } finally {
-      set({ loading: false });
-    }
+    set({ entries: get().entries.filter((e) => e.id !== id) });
+    await enqueue({ op: 'delete', table: 'journal_entries', row_id: id, payload: null });
   },
 
   softDeleteEntry: (id: string, delayMs = 5000) => {
@@ -271,28 +268,12 @@ export const useJournalStore = create<JournalState>((set, get) => ({
         delete rest[id];
         return { pendingDeletes: rest };
       });
-      // Fire-and-forget; errors surface via store.error.
-      (async () => {
-        try {
-          const { error } = await withTimeout(
-            supabase.from('journal_entries').delete().eq('id', id),
-            WRITE_MS,
-            'softDeleteEntry.commit',
-          );
-          if (error) throw error;
-        } catch (err) {
-          // Restore the entry if the DB delete failed so the user's
-          // data isn't silently lost. Keeps ordering by re-sorting on
-          // created_at so it lands back where it was.
-          const restored = entry;
-          set((s) => ({
-            entries: [...s.entries, restored].sort((a, b) =>
-              a.created_at < b.created_at ? 1 : -1,
-            ),
-            error: err instanceof Error ? err.message : 'Failed to delete entry',
-          }));
-        }
-      })();
+      // Route the commit through the outbox so it works offline too —
+      // a queued delete drains as soon as the network returns. The
+      // previous version called supabase directly and re-inserted on
+      // failure, which is incompatible with offline-first because every
+      // offline delete would re-appear immediately.
+      void enqueue({ op: 'delete', table: 'journal_entries', row_id: id, payload: null });
     };
 
     const timer = setTimeout(commit, delayMs);
@@ -322,31 +303,39 @@ export const useJournalStore = create<JournalState>((set, get) => ({
   },
 
   toggleFavorite: async (id: string) => {
-    try {
-      const entry = get().entries.find((e) => e.id === id);
-      if (!entry) throw new Error('Entry not found');
-      set({ loading: true, error: null });
-      const { data, error } = await withTimeout(
-        supabase
-          .from('journal_entries')
-          .update({ is_favorite: !entry.is_favorite, updated_at: new Date().toISOString() })
-          .eq('id', id)
-          .select()
-          .single(),
-        WRITE_MS,
-        'toggleFavorite',
-      );
-      if (error) throw error;
-      const updated = data as JournalEntry;
-      set({ entries: get().entries.map((e) => (e.id === id ? updated : e)) });
-    } catch (error: unknown) {
-      set({ error: error instanceof Error ? error.message : 'Failed to toggle favorite' });
-    } finally {
-      set({ loading: false });
-    }
+    const entry = get().entries.find((e) => e.id === id);
+    if (!entry) return;
+    const next = { is_favorite: !entry.is_favorite, updated_at: new Date().toISOString() };
+    set({ entries: get().entries.map((e) => (e.id === id ? { ...e, ...next } : e)) });
+    await enqueue({ op: 'update', table: 'journal_entries', row_id: id, payload: next });
   },
 
   fetchEntryById: async (id: string) => {
+    // Try the local cache first — useful for offline read of a row
+    // the user just navigated to.
+    const db = getDB();
+    if (db) {
+      try {
+        const cached = await db.journal_entries.get(id);
+        if (cached) {
+          // Fire a Supabase fetch in the background to refresh, but
+          // return the cache row immediately. (A page that needs the
+          // freshest version can read from `entries` after the bg
+          // refresh writes through.)
+          void (async () => {
+            try {
+              const { data } = await withTimeout(
+                supabase.from('journal_entries').select('*').eq('id', id).single(),
+                READ_MS,
+                'fetchEntryById.bg',
+              );
+              if (data && db) await db.journal_entries.put(data as JournalEntry);
+            } catch {}
+          })();
+          return cached as JournalEntry;
+        }
+      } catch {}
+    }
     try {
       set({ loading: true, error: null });
       const { data, error } = await withTimeout(

@@ -18,6 +18,7 @@ import type { ConversationExchange } from '@/lib/guideEngine';
 import { getGuideOrDefault, getLocalizedGreetings, type GuideId } from '@/lib/guideConfigs';
 import { getLocale } from '@/lib/language';
 import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
+import { useOnline } from '@/lib/networkStatus';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { useJournalStore } from '@/stores/journalStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -469,6 +470,11 @@ export default function GuidedSessionPage() {
   type TraceEvent = { t: number; label: string; meta?: Record<string, unknown> };
   const [traceEvents, setTraceEvents] = useState<TraceEvent[]>([]);
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
+  // Guided sessions require Gemini for Ben's reply, so the Send path
+  // is gated when offline. The textarea + mic stay enabled so users
+  // can still capture thoughts; on reconnect they tap Send and Ben
+  // replies normally.
+  const online = useOnline();
 
   const draftEntryIdRef = useRef<string | null>(null);
   const lastFailedAnswer = useRef<string | null>(null);
@@ -1258,7 +1264,8 @@ export default function GuidedSessionPage() {
             )}
             <button
               onClick={() => submitAnswer()}
-              disabled={!currentAnswer.trim() || isListening || thinking}
+              disabled={!currentAnswer.trim() || isListening || thinking || !online}
+              title={!online ? "Offline — Ben can't reply right now" : undefined}
               className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center transition-colors hover:bg-primary-dark disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
               aria-label={t('common.send')}
             >
