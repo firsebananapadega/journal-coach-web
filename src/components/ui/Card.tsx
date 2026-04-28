@@ -12,11 +12,11 @@ interface CardProps {
 }
 
 const variantClasses: Record<string, string> = {
-  default: 'bg-surface rounded-2xl border border-border p-4 shadow-sm',
-  glass: 'glass-card rounded-2xl p-4',
-  'gradient-primary': 'card-gradient-primary rounded-2xl p-4 text-white',
-  'gradient-warm': 'card-gradient-warm rounded-2xl p-4 text-white',
-  elevated: 'bg-surface-elevated rounded-2xl p-4 shadow-md',
+  default: 'bg-surface rounded-2xl border border-border p-4 shadow-warm-sm',
+  glass: 'glass-card rounded-2xl p-4 shadow-warm-sm',
+  'gradient-primary': 'card-gradient-primary rounded-2xl p-4 text-white shadow-warm-md',
+  'gradient-warm': 'card-gradient-warm rounded-2xl p-4 text-white shadow-warm-md',
+  elevated: 'bg-surface-elevated rounded-2xl p-4 shadow-warm-lg',
 };
 
 export default function Card({ variant = 'default', className = '', children, onClick }: CardProps) {

@@ -3,50 +3,27 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { t } from '@/lib/translations';
-
-// Per-wall path maps. Mirrors wallState's lastTabPerWall keys so the
-// root redirect can return the user to whichever tab they last viewed
-// on whichever wall they last had active.
-const TASKS_PATHS: Record<string, string> = {
-  today: '/today',
-  lists: '/lists',
-  upcoming: '/upcoming',
-  groceries: '/groceries',
-};
-const JOURNAL_PATHS: Record<string, string> = {
-  // The pulse-tab destination is /home, not /pulse — /pulse is the
-  // legacy analytics view. WallNav routes the pulse tab to /home, so
-  // the redirect must match.
-  pulse: '/home',
-  notebooks: '/notebooks',
-  journal: '/journal',
-  intentions: '/intentions',
-  patterns: '/patterns',
-};
+import LoadingScreen from '@/components/LoadingScreen';
 
 interface PersistedWallState {
   activeWall?: 'tasks' | 'journal';
-  lastTabPerWall?: { tasks?: string; journal?: string };
 }
 
-/** Decide where a returning, onboarded user should land. Reads
- *  wallState.v1 localStorage; falls back to profile.primary_use; final
- *  fallback is /home. Exported so /auth/sign-up can reuse it. */
+/** Decide where a returning, onboarded user should land. Returns the
+ *  HOME of whichever wall they last had active — Today for tasks,
+ *  Pulse (= /home) for journal. We deliberately do NOT restore the
+ *  last-visited sub-tab because the user prefers a consistent home-
+ *  tab landing per cold-start ("doesn't have to remember the specific
+ *  tab"). Falls back to profile.primary_use, then /home. Exported so
+ *  /auth/sign-up can reuse it. */
 export function lastWallDestination(primaryUse?: string | null): string {
   if (typeof window !== 'undefined') {
     try {
       const raw = window.localStorage.getItem('wallState.v1');
       if (raw) {
         const p = JSON.parse(raw) as PersistedWallState;
-        if (p.activeWall === 'tasks') {
-          const tab = p.lastTabPerWall?.tasks ?? 'today';
-          return TASKS_PATHS[tab] ?? '/today';
-        }
-        if (p.activeWall === 'journal') {
-          const tab = p.lastTabPerWall?.journal ?? 'pulse';
-          return JOURNAL_PATHS[tab] ?? '/home';
-        }
+        if (p.activeWall === 'tasks') return '/today';
+        if (p.activeWall === 'journal') return '/home';
       }
     } catch {
       // localStorage parse failed — fall through.
@@ -73,9 +50,5 @@ export default function RootPage() {
     }
   }, [session, profile, initialized, router]);
 
-  return (
-    <div className="flex items-center justify-center min-h-screen bg-bg">
-      <div className="animate-pulse text-primary text-lg">{t('common.loading')}</div>
-    </div>
-  );
+  return <LoadingScreen />;
 }

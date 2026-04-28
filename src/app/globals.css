@@ -48,6 +48,37 @@
   --theme-primary-glow: rgba(245, 166, 35, 0.12);
 }
 
+/* ─── Guide-matched theme (opt-in via Settings → Appearance) ───
+   When [data-guide-theme="{guide}"] is set on the root, the primary
+   accent color shifts to match the user's selected guide. All other
+   theme tokens (bg, surface, text) remain governed by [data-theme].
+   The attribute is absent by default so users get the warm-gold
+   palette unless they opt in. */
+[data-guide-theme="bodhi"] {
+  --theme-primary: #D87B3D;
+  --theme-primary-dark: #B5612A;
+  --theme-primary-light: #E8A468;
+  --theme-primary-glow: rgba(216, 123, 61, 0.18);
+}
+[data-guide-theme="ben"] {
+  --theme-primary: #C4553D;
+  --theme-primary-dark: #9E4236;
+  --theme-primary-light: #E07968;
+  --theme-primary-glow: rgba(196, 85, 61, 0.18);
+}
+[data-guide-theme="quinn"] {
+  --theme-primary: #2AA198;
+  --theme-primary-dark: #1F7F78;
+  --theme-primary-light: #5BC9C0;
+  --theme-primary-glow: rgba(42, 161, 152, 0.18);
+}
+[data-guide-theme="sage"] {
+  --theme-primary: #7CA585;
+  --theme-primary-dark: #5A8268;
+  --theme-primary-light: #9EC4A4;
+  --theme-primary-glow: rgba(124, 165, 133, 0.18);
+}
+
 /* Light theme */
 [data-theme="light"] {
   --theme-bg: #FAFAF8;
@@ -169,6 +200,11 @@ textarea:focus-visible {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-card {
+    background: var(--theme-surface);
+  }
+}
 [data-theme="light"] .glass-card {
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -179,4 +215,51 @@ textarea:focus-visible {
 
 .card-gradient-warm {
   background: linear-gradient(135deg, var(--theme-accent) 0%, #D4726A 100%);
+}
+
+/* Warm-tinted shadows (replaces Tailwind's bluish defaults) */
+.shadow-warm-sm {
+  box-shadow: 0 1px 2px var(--theme-shadow-color);
+}
+.shadow-warm-md {
+  box-shadow: 0 4px 12px -2px var(--theme-shadow-color);
+}
+.shadow-warm-lg {
+  box-shadow: 0 12px 28px -8px var(--theme-shadow-color);
+}
+.glow-primary {
+  box-shadow: 0 0 40px var(--theme-primary-glow), 0 0 80px var(--theme-primary-glow);
+}
+
+/* Spinner for buttons */
+@keyframes spin-smooth {
+  to { transform: rotate(360deg); }
+}
+.spin-smooth {
+  animation: spin-smooth 0.7s linear infinite;
+}
+
+/* Bodhi idle breathing — applied on inline SVG via className */
+@keyframes bodhi-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.015); }
+}
+.bodhi-breathe {
+  animation: bodhi-breathe 3.5s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+/* iOS PWA bfcache wrong-wall flash mitigation. The inline script in
+   src/app/layout.tsx adds `wall-pending` to <html> on pagehide so the
+   bfcache snapshot taken by iOS hides the previous-wall content the
+   moment the cached frame is repainted on resume. The class is removed
+   either synchronously by the inline script (when the URL is on the
+   correct wall) or by AppLayout's effect after React redirects.
+   Visibility cascades, but a descendant can override — that's how
+   .loading-screen-root stays visible inside the hidden body tree. */
+html.wall-pending body > * {
+  visibility: hidden;
+}
+html.wall-pending .loading-screen-root {
+  visibility: visible;
 }
