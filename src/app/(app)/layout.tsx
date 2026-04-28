@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Link from 'next/link';
 import { t } from '@/lib/translations';
@@ -21,7 +21,6 @@ const JOURNAL_HOME = '/home';
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const session = useAuthStore((s) => s.session);
   const initialized = useAuthStore((s) => s.initialized);
   const profile = useAuthStore((s) => s.profile);
@@ -116,7 +115,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // wall they had open last. Branch (a) above still applies because
     // primary_use is a permanent scope, not session state. The strip
     // effect below removes the param after consumption.
-    if (searchParams?.get('n') === '1') return null;
+    //
+    // Reading window.location instead of useSearchParams: the latter
+    // would force every (app) page to require a Suspense boundary or
+    // opt out of static prerendering. Window-based reads are
+    // client-only (the layout is 'use client') and skip cleanly on
+    // the server prerender path.
+    if (
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('n') === '1'
+    ) {
+      return null;
+    }
 
     // (b) wallState restore — only applies on cold-start / resume.
     if (!wallCheckPending.current) return null;
@@ -173,18 +183,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Strip the SW-injected ?n=1 flag once we've consumed it for the
   // wall-restore skip above. Keeping it in the URL would leak it into
   // shared links, the address bar, and back-button history. The ref
-  // guard prevents an infinite loop in case searchParams updates
-  // mid-pass.
+  // guard prevents repeating on subsequent re-renders.
   const stripNotifFlagRef = useRef(false);
   useEffect(() => {
     if (stripNotifFlagRef.current) return;
-    if (!searchParams || searchParams.get('n') !== '1') return;
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('n') !== '1') return;
     stripNotifFlagRef.current = true;
-    const params = new URLSearchParams(searchParams.toString());
     params.delete('n');
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
-  }, [pathname, searchParams, router]);
+  }, [pathname, router]);
 
   // Companion to the inline `wall-pending` script in src/app/layout.tsx.
   // The inline script puts the class on at pagehide so iOS's bfcache
