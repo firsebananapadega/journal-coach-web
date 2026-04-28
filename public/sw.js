@@ -2,17 +2,37 @@
 // Sprint 1: basic install + fetch cache.
 // Sprint 3: push + notificationclick handlers for task reminders.
 
-const CACHE_NAME = 'journalcoach-v2';
+// Bumped to v4: shared-grocery release ships a new fetch rule that
+// bypasses cache for /share/grocery/ accept routes — invalidate any
+// clients still serving the v3 worker.
+const CACHE_NAME = 'journalcoach-v4';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim());
+  // Drop old caches when the new SW activates so users on the
+  // previous version pick up fresh HTML on next reload.
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)),
+      ),
+    ).then(() => clients.claim()),
+  );
 });
 
 self.addEventListener('fetch', (event) => {
+  // Share-accept routes must always hit the network — a cached page
+  // would serve stale "invite invalid" or skip the RPC entirely.
+  try {
+    const url = new URL(event.request.url);
+    if (url.pathname.startsWith('/share/grocery/')) {
+      event.respondWith(fetch(event.request));
+      return;
+    }
+  } catch {}
   // Network-first — always try fresh, fall back to cache.
   event.respondWith(
     fetch(event.request).catch(() => caches.match(event.request))

@@ -43,3 +43,12 @@ next-env.d.ts
 *.MP4
 *.mp4
 Gentler streak reference/
+
+# scratch
+/.tmp/
+
+# supabase cli cache
+/supabase/.temp/
+
+# local Claude config
+/.claude/
