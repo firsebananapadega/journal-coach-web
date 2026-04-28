@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
+import { useGroceryStore } from './groceryStore';
 
 // Every Supabase round-trip is capped so a stalled request can't pin
 // a "Saving…" spinner forever. The onboarding flow and the daily-pulse
@@ -27,7 +28,16 @@ export interface Profile {
   notification_preferences: {
     morning_reminder: boolean;
     evening_reminder: boolean;
-    reminder_times: { morning: string; evening: string };
+    /** Mid-day Presence pause reminder. Default ON for users who
+     *  haven't explicitly toggled — surfaces the new tab the way
+     *  morning/evening surface the pulse. */
+    presence_reminder?: boolean;
+    reminder_times: {
+      morning: string;
+      evening: string;
+      /** HH:MM 24-hour, user-local. Defaults to 13:00 if missing. */
+      presence?: string;
+    };
   };
   /** How often the weekly guide letter should fire. Default 'weekly'. */
   letter_cadence: LetterCadence;
@@ -59,7 +69,7 @@ interface AuthState {
   signUp: (email: string, password: string) => Promise<{ error?: string; hasSession?: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
-  signInWithGoogle: () => Promise<{ error?: string }>;
+  signInWithGoogle: (next?: string) => Promise<{ error?: string }>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
   fetchProfile: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<void>;
@@ -113,6 +123,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         if (event === 'SIGNED_OUT') {
           set({ profile: null });
+          // Drop cached grocery state so a different account on the
+          // same device starts from a clean slate. reset() also tears
+          // down the realtime subscription and purges localStorage.
+          useGroceryStore.getState().reset();
+        }
+
+        // Forward fresh JWT to the realtime socket — without this,
+        // RLS-protected channels (e.g. shared grocery lists) silently
+        // stop receiving events after the access token rotates.
+        if (event === 'TOKEN_REFRESHED' && session?.access_token) {
+          supabase.realtime.setAuth(session.access_token);
         }
       });
     } catch (error: unknown) {
@@ -191,14 +212,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  signInWithGoogle: async () => {
+  signInWithGoogle: async (next?: string) => {
     try {
       set({ loading: true, error: null });
+      // When there's a `next` (share-link round-trip), route through
+      // /auth/callback so the post-OAuth landing page can preserve the
+      // destination — `detectSessionInUrl` would otherwise consume the
+      // hash at the origin root and we'd lose the share path. The
+      // /auth/callback URL must be on the project's Redirect URLs
+      // allow-list in the Supabase dashboard.
+      //
+      // When there's no `next`, fall back to the legacy bare-origin
+      // redirect so existing Google sign-ins keep working without any
+      // dashboard change.
+      let redirectTo: string | undefined;
+      if (typeof window !== 'undefined') {
+        if (next) {
+          const cb = new URL('/auth/callback', window.location.origin);
+          cb.searchParams.set('next', next);
+          redirectTo = cb.toString();
+        } else {
+          redirectTo = window.location.origin;
+        }
+      }
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
-        },
+        options: { redirectTo },
       });
       if (error) return { error: error.message };
       return {};
@@ -234,7 +273,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         'fetchProfile',
       );
       if (error) throw error;
-      set({ profile: data as Profile });
+      const profile = data as Profile;
+      set({ profile });
+      // Cache identity hints in localStorage so the next cold-start
+      // can render the correct guide and language synchronously
+      // BEFORE the Supabase round-trip completes. Without this, the
+      // mascot shown in the loading state flashes from a generic
+      // fallback to the user's actual guide once the profile lands.
+      if (typeof window !== 'undefined') {
+        try {
+          if (profile.preferred_guide) {
+            window.localStorage.setItem('preferred_guide', profile.preferred_guide);
+          }
+          if (profile.language) {
+            window.localStorage.setItem('app_language', profile.language);
+          }
+          // Read by the inline `wall-pending` script in src/app/layout.tsx
+          // to decide synchronously whether the resumed URL is on the
+          // user's correct wall (without waiting for React to hydrate).
+          if (profile.primary_use) {
+            window.localStorage.setItem('cached_primary_use', profile.primary_use);
+          }
+        } catch {
+          /* quota/private-mode — harmless */
+        }
+      }
     } catch (error: unknown) {
       set({ error: error instanceof Error ? error.message : 'Failed to fetch profile' });
     }
@@ -256,7 +319,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         'updateProfile',
       );
       if (error) throw error;
-      set({ profile: data as Profile });
+      const updatedProfile = data as Profile;
+      set({ profile: updatedProfile });
+      // Mirror the identity-cache writes from fetchProfile so a change
+      // made in Settings (e.g. switching primary_use to tasks-only)
+      // propagates to localStorage immediately. Without this, the
+      // inline wall-pending script would read a stale value on the
+      // very next PWA resume.
+      if (typeof window !== 'undefined') {
+        try {
+          if (updatedProfile.preferred_guide) {
+            window.localStorage.setItem('preferred_guide', updatedProfile.preferred_guide);
+          }
+          if (updatedProfile.language) {
+            window.localStorage.setItem('app_language', updatedProfile.language);
+          }
+          if (updatedProfile.primary_use) {
+            window.localStorage.setItem('cached_primary_use', updatedProfile.primary_use);
+          }
+        } catch {
+          /* quota/private-mode — harmless */
+        }
+      }
     } catch (error: unknown) {
       set({ error: error instanceof Error ? error.message : 'Failed to update profile' });
       throw error;

@@ -1,13 +1,26 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Link from 'next/link';
 import { t } from '@/lib/translations';
+import { safeNextPath } from '@/lib/safeNextPath';
 
 export default function SignInPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignInInner />
+    </Suspense>
+  );
+}
+
+function SignInInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Same-origin path only — blocks open-redirect attacks like
+  // ?next=https://evil.com or ?next=//evil.com.
+  const next = safeNextPath(searchParams.get('next'));
   const { signIn, signInWithGoogle, loading } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,12 +33,12 @@ export default function SignInPage() {
     if (result.error) {
       setError(result.error);
     } else {
-      router.replace('/home');
+      router.replace(next ?? '/home');
     }
   };
 
   const handleGoogle = async () => {
-    const result = await signInWithGoogle();
+    const result = await signInWithGoogle(next ?? undefined);
     if (result.error) setError(result.error);
   };
 
@@ -52,7 +65,17 @@ export default function SignInPage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-text-secondary mb-1">{t('signIn.password')}</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm text-text-secondary">
+                {t('signIn.password')}
+              </label>
+              <Link
+                href="/auth/forgot-password"
+                className="text-xs text-primary hover:underline"
+              >
+                {t('signIn.forgotPassword')}
+              </Link>
+            </div>
             <input
               type="password"
               value={password}
@@ -88,7 +111,10 @@ export default function SignInPage() {
 
         <p className="text-sm text-text-secondary text-center">
           {t('signIn.noAccount')}{' '}
-          <Link href="/auth/sign-up" className="text-primary hover:underline">
+          <Link
+            href={next ? `/auth/sign-up?next=${encodeURIComponent(next)}` : '/auth/sign-up'}
+            className="text-primary hover:underline"
+          >
             {t('signIn.signUp')}
           </Link>
         </p>

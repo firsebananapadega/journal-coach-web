@@ -107,7 +107,19 @@ export default function OnboardingPage() {
         } catch {}
       }
       celebrate();
-      const destination = chosenUse === 'tasks' ? '/today' : '/home';
+      // If the user got here via a share link, route them straight to
+      // the invite acceptance after onboarding instead of the default
+      // wall destination.
+      let destination = chosenUse === 'tasks' ? '/today' : '/home';
+      if (typeof window !== 'undefined') {
+        try {
+          const pending = window.sessionStorage.getItem('pendingShareNext');
+          if (pending && pending.startsWith('/') && !pending.startsWith('//')) {
+            destination = pending;
+            window.sessionStorage.removeItem('pendingShareNext');
+          }
+        } catch {}
+      }
       window.setTimeout(
         () => router.replace(destination),
         prefersReducedMotion ? 200 : 900,

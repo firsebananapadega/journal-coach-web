@@ -1,15 +1,26 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { lastWallDestination } from '@/app/page';
 import Link from 'next/link';
 import { t } from '@/lib/translations';
+import { safeNextPath } from '@/lib/safeNextPath';
 
 export default function SignUpPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignUpInner />
+    </Suspense>
+  );
+}
+
+function SignUpInner() {
   const router = useRouter();
+  const params = useSearchParams();
+  const next = safeNextPath(params.get('next'));
   const { signUp, loading } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -43,11 +54,17 @@ export default function SignUpPage() {
           .eq('id', user.id)
           .maybeSingle();
         const needsOnboarding = !profile || !profile.onboarding_completed;
-        router.replace(
-          needsOnboarding
-            ? '/auth/onboarding'
-            : lastWallDestination(profile?.primary_use),
-        );
+        if (needsOnboarding) {
+          // Brand new user: stash the share-link target so the
+          // onboarding-complete handler can route them straight to
+          // the invite acceptance after they finish setup.
+          if (next && typeof window !== 'undefined') {
+            try { window.sessionStorage.setItem('pendingShareNext', next); } catch {}
+          }
+          router.replace('/auth/onboarding');
+        } else {
+          router.replace(next ?? lastWallDestination(profile?.primary_use));
+        }
         return;
       }
     }
@@ -120,7 +137,10 @@ export default function SignUpPage() {
 
         <p className="text-sm text-text-secondary text-center">
           {t('signUp.hasAccount')}{' '}
-          <Link href="/auth/sign-in" className="text-primary hover:underline">
+          <Link
+            href={next ? `/auth/sign-in?next=${encodeURIComponent(next)}` : '/auth/sign-in'}
+            className="text-primary hover:underline"
+          >
             {t('signUp.signIn')}
           </Link>
         </p>
