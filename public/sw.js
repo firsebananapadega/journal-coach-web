@@ -1,14 +1,50 @@
 // Service Worker for JournalCoach PWA.
 // Sprint 1: basic install + fetch cache.
 // Sprint 3: push + notificationclick handlers for task reminders.
+// v5: offline shell — pre-cache the app's main routes on install
+// and lazily cache successful GET responses so a cold-open with no
+// network serves the previously-loaded shell + chunks instead of a
+// browser "no internet" page.
 
-// Bumped to v4: shared-grocery release ships a new fetch rule that
-// bypasses cache for /share/grocery/ accept routes — invalidate any
-// clients still serving the v3 worker.
-const CACHE_NAME = 'journalcoach-v4';
+const CACHE_NAME = 'journalcoach-v5';
+
+// Routes the user is likely to land on after install. Pre-fetched in
+// `install` so the very first offline cold-open has them. Hashed JS
+// chunks aren't here because we don't know their names at SW source
+// time — those land in the runtime cache below the first time they
+// load online.
+const PRECACHE_URLS = [
+  '/',
+  '/today',
+  '/home',
+  '/pulse',
+  '/journal',
+  '/lists',
+  '/groceries',
+  '/settings',
+  '/icon',
+  '/manifest.json',
+];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) =>
+      // Use individual put-or-skip to avoid one 404 (e.g. a route the
+      // user can't reach due to RLS) torpedoing the whole precache.
+      Promise.all(
+        PRECACHE_URLS.map(async (url) => {
+          try {
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (res.ok) await cache.put(url, res);
+          } catch {
+            // Offline at install time — skip. The lazy cache below
+            // will fill in once we have network.
+          }
+        }),
+      ),
+    ),
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -24,18 +60,64 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  const req = event.request;
+
+  // Only handle GET. Mutations (POST/PATCH/DELETE) must always reach
+  // the network — they're either Supabase calls (handled by the
+  // app's outbox when offline) or Edge Function POSTs.
+  if (req.method !== 'GET') return;
+
   // Share-accept routes must always hit the network — a cached page
   // would serve stale "invite invalid" or skip the RPC entirely.
+  let url;
   try {
-    const url = new URL(event.request.url);
-    if (url.pathname.startsWith('/share/grocery/')) {
-      event.respondWith(fetch(event.request));
-      return;
-    }
-  } catch {}
-  // Network-first — always try fresh, fall back to cache.
+    url = new URL(req.url);
+  } catch {
+    return;
+  }
+  if (url.pathname.startsWith('/share/grocery/')) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
+  // Skip cross-origin requests — leave them to the network. We only
+  // want to cache our own assets + pages.
+  if (url.origin !== self.location.origin) return;
+
+  // Network-first with cache fallback. On success, write the response
+  // into the runtime cache so the next offline visit can serve it.
+  // Skip caching of API / auth / supabase responses — those are
+  // user-state-dependent and we don't want stale credentials served.
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+    (async () => {
+      try {
+        const fresh = await fetch(req);
+        if (
+          fresh.ok &&
+          !url.pathname.startsWith('/api/') &&
+          !url.pathname.startsWith('/auth/')
+        ) {
+          // Clone before consuming — Response bodies are single-use.
+          const cache = await caches.open(CACHE_NAME);
+          cache.put(req, fresh.clone()).catch(() => {});
+        }
+        return fresh;
+      } catch {
+        // Network failed. Try the cache. For navigation requests, fall
+        // back to the precached /today shell so the user lands on a
+        // working page even if the exact URL wasn't visited online
+        // before.
+        const cached = await caches.match(req);
+        if (cached) return cached;
+        if (req.mode === 'navigate') {
+          const shellFallback = await caches.match('/today');
+          if (shellFallback) return shellFallback;
+        }
+        // Last resort: return a synthetic 503 so the page can detect
+        // the failure mode.
+        return new Response('Offline', { status: 503, statusText: 'Offline' });
+      }
+    })(),
   );
 });
 
