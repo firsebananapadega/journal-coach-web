@@ -346,7 +346,7 @@ function GroceryItemRow({
   // /today behavior). Double tap inside 220ms → opens inline edit. The
   // checkbox button (separate) stays as instant toggle so users who
   // know that target still get the no-delay path.
-  const TAP_WINDOW_MS = 220;
+  const TAP_WINDOW_MS = 180;
   const tapTimerRef = useRef<number | null>(null);
   useEffect(() => {
     return () => {

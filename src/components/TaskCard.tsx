@@ -136,7 +136,7 @@ export function TaskCard({
   // the pending toggle and opens inline edit. Direct checkbox taps
   // remain instant (no delay) — only this surface needs to
   // disambiguate two gestures.
-  const DOUBLE_TAP_WINDOW_MS = 220;
+  const DOUBLE_TAP_WINDOW_MS = 180;
   const tapTimerRef = useRef<number | null>(null);
   useEffect(() => {
     return () => {
