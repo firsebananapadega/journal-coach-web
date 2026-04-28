@@ -33,6 +33,7 @@ import {
 } from '@/lib/weeklyReflection';
 import WeeklyReflectionCard from '@/components/WeeklyReflectionCard';
 import DailyPulseCard from '@/components/DailyPulseCard';
+import PresenceCapture from '@/components/PresenceCapture';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import GuideMascot from '@/components/mascot/GuideMascot';
@@ -188,47 +189,28 @@ function DroppableSlot({
 
 // ---------- Main page ----------
 
-// PWA cached-manifest fallback. Old installs still launch at /home
-// (the previous start_url). If the user's last-active wall was
-// tasks, send them there once per browser session — sessionStorage
-// flag means subsequent in-session /home visits aren't disrupted.
-const TASKS_TAB_PATHS: Record<string, string> = {
-  today: '/today',
-  lists: '/lists',
-  upcoming: '/upcoming',
-  groceries: '/groceries',
-};
+// Templates + bubble grid disabled while exploring the consolidated
+// Pulse-tab shape (mid-day Presence pause moved here too). Flip to
+// true to restore in one edit — all underlying state, fetchers, and
+// drag-and-drop wiring stay intact behind this flag.
+const SHOW_BUBBLE_GRID = false;
+
+// Mid-day Presence pause renders on /home from this hour onward
+// (and through to the 4 AM pulse-day rollover handled inside the
+// component). Before this hour it's "too early for mid-day," so we
+// hide it to keep the morning pulse visually un-cluttered.
+const PRESENCE_VISIBLE_FROM_HOUR = 11;
 
 export default function HomePage() {
   const router = useRouter();
   const profile = useAuthStore((s) => s.profile);
 
-  // Run before any other side-effect: if this is the first /home
-  // landing of the browser session AND wallState localStorage says
-  // the user was last on the tasks wall, redirect to the last-
-  // visited tasks tab. Catches the iOS PWA cached-manifest case
-  // where old installs still launch at /home regardless of the new
-  // start_url=/. Subsequent in-session /home visits skip this
-  // (sessionStorage flag), so normal pulse-tab navigation works.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (window.sessionStorage.getItem('homeWallRedirectChecked') === '1') return;
-    window.sessionStorage.setItem('homeWallRedirectChecked', '1');
-    try {
-      const raw = window.localStorage.getItem('wallState.v1');
-      if (!raw) return;
-      const p = JSON.parse(raw) as {
-        activeWall?: string;
-        lastTabPerWall?: { tasks?: string };
-      };
-      if (p.activeWall !== 'tasks') return;
-      const tab = p.lastTabPerWall?.tasks ?? 'today';
-      const dest = TASKS_TAB_PATHS[tab] ?? '/today';
-      router.replace(dest);
-    } catch {
-      // localStorage unreadable — leave the user on /home.
-    }
-  }, [router]);
+  // Note: cold-start wall restoration used to live here as a useEffect
+  // that bounced the user to /today if wallState said tasks-was-last.
+  // It has moved to (app)/layout.tsx where it runs SYNCHRONOUSLY in
+  // render, so the wrong-wall page (this page, /home) never paints
+  // before the redirect fires. The previous useEffect-based version
+  // caused a brief flash of the weekly letter banner before bouncing.
 
   const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
   const { entries, fetchEntries } = useJournalStore();
@@ -239,6 +221,7 @@ export default function HomePage() {
   const letters = useLettersStore((s) => s.letters);
   const patterns = useLettersStore((s) => s.patterns);
   const quarterlies = useLettersStore((s) => s.quarterlies);
+  const lettersHasFetched = useLettersStore((s) => s.hasFetched);
   const fetchLetters = useLettersStore((s) => s.fetchLetters);
   const markLetterSeen = useLettersStore((s) => s.markSeen);
   const [templates, setTemplates] = useState<TemplateInfo[]>(() => {
@@ -307,6 +290,23 @@ export default function HomePage() {
 
   const todayCompletions = completions[today] || new Set<string>();
   const activeHabits = habits.filter((h) => h.is_active);
+
+  // Has the user already done today's mid-day Presence pause? Mirrors
+  // DailyPulseCard's pulse-day boundary (rolls at 04:00) so an 11 PM
+  // capture still counts as "today." When true, /home hides the
+  // PresenceCapture compose form — DailyPulseCard renders the entry
+  // as a compact done card in its chronological list instead.
+  const todaysPresenceDone = useMemo(() => {
+    return entries.some((e) => {
+      if (e.entry_type !== 'pulse') return false;
+      const m = (e.metadata ?? {}) as Record<string, unknown>;
+      if (m.pulseMode !== 'presence') return false;
+      const d = new Date(e.created_at);
+      // Pulse-day rollover at 04:00 — same as DailyPulseCard.
+      if (d.getHours() < 4) d.setDate(d.getDate() - 1);
+      return toLocalDateStr(d) === today;
+    });
+  }, [entries, today]);
 
   // Most-recent archive item — interleaves weekly letters, monthly
   // patterns, and quarterly narrative-arc letters by generated_at so
@@ -557,8 +557,11 @@ export default function HomePage() {
           monthly pattern, or quarterly arc, whichever is fresher.
           Tapping routes to /letters/[id] (which handles all three
           kinds) and marks seen. Quarterly cards get the strongest
-          treatment because they only land ~4×/year. */}
-      {unreadItem && (() => {
+          treatment because they only land ~4×/year.
+          Gated on lettersHasFetched so we never pop in (or out)
+          during the fetch window — the card only appears once we
+          have the authoritative answer. */}
+      {lettersHasFetched && unreadItem && (() => {
         const isMonthly = unreadItem.kind === 'monthly';
         const isQuarterly = unreadItem.kind === 'quarterly';
         const gradientClass = isQuarterly
@@ -609,55 +612,76 @@ export default function HomePage() {
           ritual instead of a separate always-visible card. */}
       <DailyPulseCard entries={entries} />
 
-      {/* Drag-and-drop bubble grid — trims trailing empty rows unless editing */}
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="grid grid-cols-3 gap-2">
-          {(() => {
-            if (editMode) return gridSlots;
-            // Round the last-filled index up to the end of its row (3 cols)
-            // so each visible row is complete and doesn't leave a ragged edge.
-            let lastFilled = -1;
-            for (let i = gridSlots.length - 1; i >= 0; i--) {
-              if (gridSlots[i] !== null) { lastFilled = i; break; }
-            }
-            if (lastFilled === -1) return [];
-            const cols = 3;
-            const end = Math.ceil((lastFilled + 1) / cols) * cols;
-            return gridSlots.slice(0, end);
-          })().map((itemId, slotIndex) => {
-            const item = itemId ? itemMap.get(itemId) ?? null : null;
-            return (
-              <DroppableSlot
-                key={slotIndex}
-                slotIndex={slotIndex}
-                item={item}
-                editMode={editMode}
-                isDraggedOver={false}
-                isBeingDragged={activeSlot === slotIndex}
-                onTap={() => item && router.push(item.href)}
-              />
-            );
-          })}
-        </div>
+      {/* Mid-day Presence pause — folded into /home so the Pulse tab
+          becomes the single throughout-the-day check-in surface
+          (morning + mid-day + evening). Two gates:
+            (a) Time-gated to mid-day onward so the form isn't visible
+                before it's relevant.
+            (b) Hidden once today's presence is already done — the
+                completed entry then renders inside DailyPulseCard as
+                a compact done card sorted chronologically with
+                morning + evening. */}
+      {new Date().getHours() >= PRESENCE_VISIBLE_FROM_HOUR && !todaysPresenceDone && (
+        <PresenceCapture />
+      )}
 
-        {/* Drag overlay — the floating bubble that follows your finger */}
-        <DragOverlay>
-          {activeSlot !== null && gridSlots[activeSlot] ? (
-            <BubbleContent
-              item={itemMap.get(gridSlots[activeSlot]!)!}
-              editMode={false}
-              isDragging
-            />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      {/* Drag-and-drop bubble grid — trims trailing empty rows unless editing.
+          DISABLED via SHOW_BUBBLE_GRID flag while exploring the consolidated
+          shape. Underlying state (templates, gridSlots, drag sensors) all
+          stays wired so flipping the flag back to true restores the feature
+          exactly as it was. */}
+      {SHOW_BUBBLE_GRID && (
+        <>
+          <DndContext
+            sensors={sensors}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <div className="grid grid-cols-3 gap-2">
+              {(() => {
+                if (editMode) return gridSlots;
+                // Round the last-filled index up to the end of its row (3 cols)
+                // so each visible row is complete and doesn't leave a ragged edge.
+                let lastFilled = -1;
+                for (let i = gridSlots.length - 1; i >= 0; i--) {
+                  if (gridSlots[i] !== null) { lastFilled = i; break; }
+                }
+                if (lastFilled === -1) return [];
+                const cols = 3;
+                const end = Math.ceil((lastFilled + 1) / cols) * cols;
+                return gridSlots.slice(0, end);
+              })().map((itemId, slotIndex) => {
+                const item = itemId ? itemMap.get(itemId) ?? null : null;
+                return (
+                  <DroppableSlot
+                    key={slotIndex}
+                    slotIndex={slotIndex}
+                    item={item}
+                    editMode={editMode}
+                    isDraggedOver={false}
+                    isBeingDragged={activeSlot === slotIndex}
+                    onTap={() => item && router.push(item.href)}
+                  />
+                );
+              })}
+            </div>
 
-      {editMode && (
-        <p className="text-xs text-text-tertiary text-center">{t('home.dragHint')}</p>
+            {/* Drag overlay — the floating bubble that follows your finger */}
+            <DragOverlay>
+              {activeSlot !== null && gridSlots[activeSlot] ? (
+                <BubbleContent
+                  item={itemMap.get(gridSlots[activeSlot]!)!}
+                  editMode={false}
+                  isDragging
+                />
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+
+          {editMode && (
+            <p className="text-xs text-text-tertiary text-center">{t('home.dragHint')}</p>
+          )}
+        </>
       )}
 
       {/* Weekly reflection — once a server-delivered letter has been
@@ -665,8 +689,15 @@ export default function HomePage() {
           re-read it from /letters; cluttering /home with a letter
           they've already opened buries the day's actual ritual.
           The client-cached fallback below only renders when no
-          server letter exists at all (legacy users pre-cron). */}
-      {!unreadItem && !latestLetter && reflection ? (
+          server letter exists at all (legacy users pre-cron).
+          Gated on lettersHasFetched: without this, on cold start the
+          server letters array is empty so latestLetter is null, and
+          this card flashes in for one paint with the title
+          "Quinn's Weekly Reflection" (Q + W) before fetchLetters
+          resolves and it correctly unmounts. The flash was reported
+          as "I see a letter and then it goes away" — fix is to
+          delay the fallback decision until we KNOW. */}
+      {lettersHasFetched && !unreadItem && !latestLetter && reflection ? (
         <WeeklyReflectionCard
           reflection={{ letter: reflection.letter, themes: reflection.themes }}
           guideName={guide.name}

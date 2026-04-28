@@ -2,11 +2,15 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
 
-// Sprint 2: notebooks are user-owned collections for journal entries.
-// Three "system" notebooks are seeded at signup: journal / gratitude /
-// prompts. Users add "project" notebooks themselves. The capture
-// classifier picks a notebook slug; the preview sheet lets the user
-// override before save.
+// Notebooks are user-owned collections for journal entries.
+// Four "system" notebooks are seeded at signup: journal / gratitude /
+// prompts / pulse. Users add "project" notebooks themselves. The
+// capture classifier picks a notebook slug; the preview sheet lets
+// the user override before save.
+//
+// System notebooks are non-deletable (archiveNotebook refuses them)
+// because they back app-level surfaces: Journal is the default for
+// free-form entries, Pulse holds morning/evening check-ins, etc.
 
 const READ_MS = 15000;
 const WRITE_MS = 15000;
@@ -20,7 +24,7 @@ export interface Notebook {
   color: string;
   icon: string;
   kind: 'system' | 'project';
-  system_key: 'journal' | 'gratitude' | 'prompts' | null;
+  system_key: 'journal' | 'gratitude' | 'prompts' | 'pulse' | null;
   is_default: boolean;
   sort_order: number;
   archived: boolean;
@@ -51,6 +55,7 @@ interface NotebookState {
   byId: (id: string | null | undefined) => Notebook | null;
   bySlug: (slug: string | null | undefined) => Notebook | null;
   journalId: () => string | null;
+  pulseId: () => string | null;
 }
 
 function slugify(name: string): string {
@@ -163,8 +168,16 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   archiveNotebook: async (id: string) => {
-    // System notebooks should never archive — UI enforces this. Here
-    // we just flip the flag; server RLS covers ownership.
+    // System notebooks are persistent app surfaces (Journal default,
+    // Pulse check-ins, etc.) — refuse to archive them even if a caller
+    // somehow gets an id. UI doesn't surface a delete button for
+    // system notebooks; this is the belt-and-braces check.
+    const target = get().notebooks.find((n) => n.id === id);
+    if (target && target.kind === 'system') {
+      const err = new Error('System notebooks cannot be archived');
+      set({ error: err.message });
+      throw err;
+    }
     try {
       set({ loading: true, error: null });
       const { error } = await withTimeout(
@@ -200,5 +213,10 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   journalId: () => {
     const j = get().notebooks.find((n) => n.system_key === 'journal');
     return j?.id ?? null;
+  },
+
+  pulseId: () => {
+    const p = get().notebooks.find((n) => n.system_key === 'pulse');
+    return p?.id ?? null;
   },
 }));

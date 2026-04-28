@@ -10,6 +10,7 @@ import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useTheme } from '@/lib/theme';
+import { useWallState } from '@/lib/wallState';
 import { GuideSelector } from '@/components/GuideSelector';
 import { getGuideOrDefault, ALL_GUIDES } from '@/lib/guideConfigs';
 import { getLanguage, getLocale, setLanguage, LANGUAGES, type AppLanguage } from '@/lib/language';
@@ -165,9 +166,21 @@ export default function SettingsPage() {
                           if (active) return;
                           try {
                             await updateProfile({ primary_use: opt.value });
-                            // The (app)/layout effect will redirect
-                            // off a now-mismatched wall on the next
-                            // render. No router push needed here.
+                            // Stay on /settings — the user wants to
+                            // see the toast confirmation and continue
+                            // configuring without being yanked away.
+                            // We DO update the wall store so the
+                            // bottom WallNav re-renders with the new
+                            // wall's tabs (Today/Lists/Upcoming/etc.
+                            // for tasks, Pulse/Notebooks/etc. for
+                            // journal). When the user later navigates
+                            // out of Settings, AppLayout's wall guard
+                            // takes them to the right wall's home.
+                            if (opt.value === 'tasks') {
+                              useWallState.getState().setWall('tasks');
+                            } else if (opt.value === 'journal') {
+                              useWallState.getState().setWall('journal');
+                            }
                             showToast(
                               opt.value === 'both'
                                 ? 'Both walls enabled'
@@ -237,7 +250,9 @@ export default function SettingsPage() {
         </motion.div>
       )}
 
-      {/* Reflections — letter cadence */}
+      {/* Reflections — letter cadence. Hidden in tasks-only mode
+          since the weekly letter is a journal-side feature. */}
+      {profile?.primary_use !== 'tasks' && (
       <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Reflections</h2>
         <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-3">
@@ -287,6 +302,7 @@ export default function SettingsPage() {
           </div>
         </div>
       </motion.div>
+      )}
 
       {/* Templates — nav link */}
       <motion.div {...sectionMotion} className="space-y-2">
@@ -319,18 +335,25 @@ export default function SettingsPage() {
         const prefs = profile?.notification_preferences ?? {
           morning_reminder: false,
           evening_reminder: false,
-          reminder_times: { morning: '08:00', evening: '21:30' },
+          presence_reminder: true,
+          reminder_times: { morning: '08:00', evening: '21:30', presence: '13:00' },
         };
         const morningOn = prefs.morning_reminder === true;
         const eveningOn = prefs.evening_reminder === true;
+        // Presence defaults to ON for users who haven't toggled — surfaces
+        // the new tab the way morning/evening surface the pulse. Existing
+        // users won't have the field; treat undefined as default-on.
+        const presenceOn = prefs.presence_reminder !== false;
         const morningTime = prefs.reminder_times?.morning || '08:00';
         const eveningTime = prefs.reminder_times?.evening || '21:30';
+        const presenceTime = prefs.reminder_times?.presence || '13:00';
 
         const updatePrefs = async (
           patch: Partial<{
             morning_reminder: boolean;
             evening_reminder: boolean;
-            reminder_times: { morning: string; evening: string };
+            presence_reminder: boolean;
+            reminder_times: Partial<{ morning: string; evening: string; presence: string }>;
           }>,
         ) => {
           const next = {
@@ -338,9 +361,12 @@ export default function SettingsPage() {
               patch.morning_reminder !== undefined ? patch.morning_reminder : morningOn,
             evening_reminder:
               patch.evening_reminder !== undefined ? patch.evening_reminder : eveningOn,
+            presence_reminder:
+              patch.presence_reminder !== undefined ? patch.presence_reminder : presenceOn,
             reminder_times: {
               morning: patch.reminder_times?.morning ?? morningTime,
               evening: patch.reminder_times?.evening ?? eveningTime,
+              presence: patch.reminder_times?.presence ?? presenceTime,
             },
           };
           try {
@@ -386,6 +412,41 @@ export default function SettingsPage() {
                   <span
                     className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${
                       morningOn ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Mid-day Presence pause */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">{t('settings.presenceReminder')}</p>
+                  <p className="text-xs text-text-tertiary leading-snug mt-0.5">
+                    {t('settings.presenceReminderDesc')}
+                  </p>
+                </div>
+                <input
+                  type="time"
+                  value={presenceTime}
+                  disabled={!presenceOn}
+                  onChange={(e) =>
+                    updatePrefs({
+                      reminder_times: { presence: e.target.value },
+                    })
+                  }
+                  className="px-2 py-1.5 bg-surface-elevated border border-border rounded-lg text-xs text-text-primary outline-none w-[100px] disabled:opacity-40"
+                />
+                <button
+                  role="switch"
+                  aria-checked={presenceOn}
+                  onClick={() => updatePrefs({ presence_reminder: !presenceOn })}
+                  className={`relative w-12 h-7 rounded-full transition-colors flex-shrink-0 ${
+                    presenceOn ? 'bg-primary' : 'bg-border'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                      presenceOn ? 'translate-x-5' : 'translate-x-0'
                     }`}
                   />
                 </button>
@@ -518,46 +579,51 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Intentions — compact display + nav link */}
-      <motion.div {...sectionMotion} className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.intentions')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4 space-y-3 shadow-warm-sm">
-          {intentions.length > 0 ? (
-            <div className="space-y-2">
-              {intentions.map((intention, i) => (
-                <div key={i} className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-text-primary flex-1">{intention}</span>
-                  <button onClick={() => removeIntention(i)} className="text-text-tertiary hover:text-error text-xs px-2">✕</button>
-                </div>
-              ))}
+      {/* DISABLED: intentions UI hidden — feature replaced by Presence pause.
+          Block kept (not deleted) so reverting is a single-edit unblock.
+          The /intentions route still resolves if URL is typed manually
+          and existing profile.intentions data is preserved verbatim. */}
+      {false && (
+        <motion.div {...sectionMotion} className="space-y-2">
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.intentions')}</h2>
+          <div className="bg-surface rounded-2xl border border-border p-4 space-y-3 shadow-warm-sm">
+            {intentions.length > 0 ? (
+              <div className="space-y-2">
+                {intentions.map((intention, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-text-primary flex-1">{intention}</span>
+                    <button onClick={() => removeIntention(i)} className="text-text-tertiary hover:text-error text-xs px-2">✕</button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-text-tertiary">{t('settings.noIntentions')}</p>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={newIntention}
+                onChange={(e) => setNewIntention(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addIntention()}
+                placeholder={t('settings.addIntentionPlaceholder')}
+                className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-xl text-text-primary text-sm focus:border-primary outline-none"
+              />
+              <button
+                onClick={addIntention}
+                disabled={!newIntention.trim()}
+                className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-40 hover:bg-primary-dark transition-colors"
+              >
+                {t('common.add')}
+              </button>
             </div>
-          ) : (
-            <p className="text-sm text-text-tertiary">{t('settings.noIntentions')}</p>
-          )}
-          <div className="flex gap-2">
-            <input
-              value={newIntention}
-              onChange={(e) => setNewIntention(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addIntention()}
-              placeholder={t('settings.addIntentionPlaceholder')}
-              className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-xl text-text-primary text-sm focus:border-primary outline-none"
-            />
             <button
-              onClick={addIntention}
-              disabled={!newIntention.trim()}
-              className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-40 hover:bg-primary-dark transition-colors"
+              onClick={() => router.push('/intentions/gallery')}
+              className="w-full py-2.5 bg-surface-elevated text-primary rounded-xl text-sm font-medium hover:bg-primary/10 transition-colors"
             >
-              {t('common.add')}
+              {t('settings.browseIntentions')} &#8250;
             </button>
           </div>
-          <button
-            onClick={() => router.push('/intentions/gallery')}
-            className="w-full py-2.5 bg-surface-elevated text-primary rounded-xl text-sm font-medium hover:bg-primary/10 transition-colors"
-          >
-            {t('settings.browseIntentions')} &#8250;
-          </button>
-        </div>
-      </motion.div>
+        </motion.div>
+      )}
 
       {/* Habits — compact display + nav link */}
       <motion.div {...sectionMotion} className="space-y-2">

@@ -70,15 +70,53 @@ export type SessionMode = 'open' | 'naikan' | 'nvc' | 'aar';
 export interface SessionModeOption {
   id: SessionMode;
   label: string;
-  /** One-sentence description shown in the picker. */
+  /** One-sentence summary used as the chip subtitle / sheet header. */
   hint: string;
+  /** Two- or three-paragraph explanation shown in the info sheet
+   *  when the user taps the chip. Plain text; rendered as paragraphs. */
+  description: string;
+  /** A concrete sample exchange so the user can see what choosing
+   *  this mode actually feels like before committing. */
+  example: string;
 }
 
 export const SESSION_MODE_OPTIONS: SessionModeOption[] = [
-  { id: 'open', label: 'Open', hint: 'Wherever the conversation goes.' },
-  { id: 'naikan', label: 'Naikan', hint: 'What did I receive, give, and trouble?' },
-  { id: 'nvc', label: 'NVC', hint: 'Observation → feeling → need → request.' },
-  { id: 'aar', label: 'After-action', hint: 'Expected vs. actual; what to keep, what to change.' },
+  {
+    id: 'open',
+    label: 'Open',
+    hint: 'Wherever the conversation goes.',
+    description:
+      'Default mode. The guide follows your lead — no fixed structure, no required questions. Best for working through whatever\'s on your mind without a method getting in the way.',
+    example:
+      'You: "I had a hard meeting today."\nGuide: "What made it hard?"\n(Conversation continues based on what you bring up.)',
+  },
+  {
+    id: 'naikan',
+    label: 'Naikan',
+    hint: 'What did I receive, give, and trouble?',
+    description:
+      'A Japanese self-inquiry practice. The guide walks you through three questions about a relationship or period of your life: what you received from others, what you gave to others, and what trouble or difficulty you caused others. Naikan deliberately omits "what others did wrong to me" — the goal is to widen perspective and lift you out of victimhood, not to produce shame.',
+    example:
+      '1. What did your partner do for you this week?\n2. What did you do for them?\n3. What trouble or burden did you cause them?\n\nFacts beat generalities — "she made me coffee Tuesday" rather than "she\'s supportive."',
+  },
+  {
+    id: 'nvc',
+    label: 'NVC',
+    hint: 'Observation → feeling → need → request.',
+    description:
+      'Nonviolent Communication (Marshall Rosenberg). The guide walks you through four steps, in order: a strict observation (facts, no evaluation), a pure feeling (the emotion, not a thought about someone), the underlying need, and a specific present-tense request — of yourself or someone else. Useful when you\'re stuck in blame or judgment and want to find clarity about what you actually need.',
+    example:
+      '1. Observation: "She arrived at 8:30." (Not: "She was late.")\n2. Feeling: "I felt frustrated." (Not: "I felt betrayed.")\n3. Need: "I need predictability."\n4. Request: "Would you text me if you\'re running more than 10 minutes behind?"',
+  },
+  {
+    id: 'aar',
+    label: 'After-action',
+    hint: 'Expected vs. actual; what to keep, what to change.',
+    description:
+      'After-Action Review — a structured debrief borrowed from the U.S. Army. Four questions, in order: what did you expect to happen, what actually happened, why was there a gap, and what will you sustain (worked) vs. change (didn\'t). Tone is learning-focused, not self-critical. Best after a meeting, conversation, project beat, or decision you want to learn from.',
+    example:
+      '1. Expected: "I thought the pitch would land cleanly."\n2. Actual: "They had three concerns I hadn\'t prepared for."\n3. Gap: "I assumed they\'d already seen the deck."\n4. Sustain: opening story. Change: send the deck 24h before next time.',
+  },
 ];
 
 const SESSION_MODE_PROMPTS: Record<Exclude<SessionMode, 'open'>, string> = {

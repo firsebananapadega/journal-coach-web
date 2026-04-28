@@ -148,12 +148,12 @@ export default function JournalWritingPage() {
             className="
               w-full min-h-[40vh]
               bg-transparent
-              text-base leading-relaxed text-text-primary
+              text-[19px] leading-relaxed text-text-primary
               placeholder:text-text-tertiary/60
               border-0 outline-none focus:outline-none focus:ring-0
-              resize-none
+              resize-none tracking-[0.005em]
             "
-            style={{ lineHeight: 1.7 }}
+            style={{ lineHeight: 1.65 }}
           />
           {wordCount > 0 && (
             <p className="mt-4 text-[10px] text-text-tertiary tracking-wider uppercase">

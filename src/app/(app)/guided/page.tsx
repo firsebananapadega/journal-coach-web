@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import Mascot from '@/components/mascot/Mascot';
@@ -22,7 +22,7 @@ import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { useJournalStore } from '@/stores/journalStore';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
-import { MoodSelector } from '@/components/MoodSelector';
+// MoodSelector import removed — wrap-up flow no longer used.
 import { getLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
 
@@ -30,6 +30,353 @@ interface Exchange {
   question: string;
   answer: string;
   timestamp: string;
+}
+
+// Auto-grow input that starts as a single line and expands up to ~6
+// lines as content is added. Past that it scrolls internally so the
+// dock height never overwhelms the chat above. Uses an imperative
+// ref-passed textarea + a `scrollHeight`-based effect — simpler than
+// a CSS-only solution (which would need `field-sizing: content`,
+// not yet broadly supported on iOS Safari).
+const AutoGrowTextarea = (() => {
+  function Inner(
+    {
+      value,
+      onChange,
+      onSubmit,
+      placeholder,
+      isListening,
+    }: {
+      value: string;
+      onChange: (v: string) => void;
+      onSubmit: () => void;
+      placeholder: string;
+      isListening: boolean;
+    },
+    ref: React.ForwardedRef<HTMLTextAreaElement>,
+  ) {
+    const localRef = useRef<HTMLTextAreaElement>(null);
+    // Forward the ref so the parent can imperatively focus / inject
+    // mic transcript via useSelectionAwareMic's textareaRef.
+    useImperativeHandle(ref, () => localRef.current as HTMLTextAreaElement);
+
+    // Resize on every value change — set height to 'auto' first so
+    // shrink-back works when the user deletes content.
+    useEffect(() => {
+      const ta = localRef.current;
+      if (!ta) return;
+      ta.style.height = 'auto';
+      // Cap at ~6 lines (line-height ~22px * 6 ≈ 132px + padding ≈ 152).
+      const max = 152;
+      ta.style.height = `${Math.min(ta.scrollHeight, max)}px`;
+      ta.style.overflowY = ta.scrollHeight > max ? 'auto' : 'hidden';
+    }, [value]);
+
+    return (
+      <textarea
+        ref={localRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter sends; Shift+Enter inserts a newline (matches every
+          // chat-input convention).
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+        placeholder={placeholder}
+        rows={1}
+        className={`w-full min-h-10 px-4 py-2.5 bg-surface-elevated border rounded-2xl text-text-primary text-[15px] leading-snug resize-none outline-none placeholder:text-text-tertiary transition-colors ${
+          isListening ? 'border-error' : 'border-border/60 focus:border-primary'
+        }`}
+      />
+    );
+  }
+  return forwardRef<HTMLTextAreaElement, {
+    value: string;
+    onChange: (v: string) => void;
+    onSubmit: () => void;
+    placeholder: string;
+    isListening: boolean;
+  }>(Inner);
+})();
+
+// Info + select sheet for the session-mode picker. Renders the full
+// description and a concrete example for whichever mode the user
+// tapped, with Choose / Cancel below. Same bottom-sheet motion +
+// safe-area handling as PushPermissionSheet for visual consistency.
+function SessionModeInfoSheet({
+  modeId,
+  currentlySelectedId,
+  onChoose,
+  onClose,
+}: {
+  modeId: SessionMode | null;
+  currentlySelectedId: SessionMode;
+  onChoose: (id: SessionMode) => void;
+  onClose: () => void;
+}) {
+  const opt = modeId ? SESSION_MODE_OPTIONS.find((o) => o.id === modeId) : null;
+  const isCurrent = !!opt && opt.id === currentlySelectedId;
+  return (
+    <AnimatePresence>
+      {opt && (
+        <>
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/50"
+            onClick={onClose}
+          />
+          <motion.div
+            key="sheet"
+            initial={prefersReducedMotion ? undefined : { y: '100%' }}
+            animate={prefersReducedMotion ? undefined : { y: 0 }}
+            exit={prefersReducedMotion ? undefined : { y: '100%' }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            className="fixed inset-x-0 bottom-0 z-[70] bg-bg rounded-t-3xl shadow-warm-xl max-h-[85vh] overflow-y-auto"
+          >
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-border" />
+            </div>
+            <div
+              className="px-6 pt-2 pb-6 max-w-md mx-auto space-y-5"
+              style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+            >
+              <div>
+                <h2 className="text-xl font-bold text-text-primary">{opt.label}</h2>
+                <p className="text-sm text-text-secondary mt-1">{opt.hint}</p>
+              </div>
+
+              <p className="text-[15px] text-text-primary leading-relaxed whitespace-pre-line">
+                {opt.description}
+              </p>
+
+              <div className="rounded-2xl bg-surface border border-border p-4 space-y-1">
+                <p className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold mb-1">
+                  Example
+                </p>
+                <p className="text-[14px] text-text-secondary leading-relaxed whitespace-pre-line">
+                  {opt.example}
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-3 rounded-2xl border border-border text-text-primary text-sm font-medium hover:bg-surface-elevated"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChoose(opt.id)}
+                  disabled={isCurrent}
+                  className="flex-1 py-3 rounded-2xl bg-primary text-white text-sm font-semibold hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isCurrent ? 'Currently selected' : 'Choose'}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// Past-conversations history. LEFT-side drawer (Claude pattern) that
+// lists the user's completed guided sessions, newest first, with a
+// human-readable title derived from the first user answer so they're
+// distinguishable. Tapping a row navigates to /guided?resume=<id> —
+// the existing resume effect (page.tsx:529-560) hydrates exchanges
+// from the entry's metadata and the user can keep typing with full
+// AI context preserved.
+interface PastSession {
+  id: string;
+  journal_entry_id: string | null;
+  created_at: string;
+  exchanges: { question: string; answer: string }[];
+}
+function GuidedHistoryDrawer({
+  open,
+  onClose,
+  onContinue,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onContinue: (journalEntryId: string) => void;
+}) {
+  const [sessions, setSessions] = useState<PastSession[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reload list every time the drawer opens.
+  useEffect(() => {
+    if (!open) return;
+    setError(null);
+    setSessions(null);
+    void (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setSessions([]);
+          return;
+        }
+        // Query journal_entries directly — it's the source of truth for
+        // ongoing AND past conversations now (the wrap-up flow that
+        // wrote to guided_sessions is gone). Order by updated_at so
+        // recently-touched conversations float to the top, even if the
+        // user resumes a 3-week-old chat today.
+        const { data, error: dbErr } = await supabase
+          .from('journal_entries')
+          .select('id, updated_at, metadata')
+          .eq('user_id', user.id)
+          .eq('entry_type', 'guided')
+          .order('updated_at', { ascending: false })
+          .limit(50);
+        if (dbErr) throw dbErr;
+        setSessions(
+          (data ?? [])
+            .map((r) => {
+              const meta = (r.metadata ?? {}) as Record<string, unknown>;
+              const exchanges = Array.isArray(meta.exchanges)
+                ? (meta.exchanges as PastSession['exchanges'])
+                : [];
+              return {
+                id: r.id as string,
+                journal_entry_id: r.id as string,
+                created_at: r.updated_at as string,
+                exchanges,
+              };
+            })
+            // Filter out empty drafts — stub rows from sessions the
+            // user opened but never typed in. Surfacing them clutters
+            // the drawer with "(unanswered start)" entries.
+            .filter((s) => s.exchanges.length > 0),
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load history');
+        setSessions([]);
+      }
+    })();
+  }, [open]);
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/50"
+            onClick={onClose}
+          />
+          <motion.div
+            key="drawer"
+            initial={prefersReducedMotion ? undefined : { x: '-100%' }}
+            animate={prefersReducedMotion ? undefined : { x: 0 }}
+            exit={prefersReducedMotion ? undefined : { x: '-100%' }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            className="fixed inset-y-0 left-0 z-[70] w-[86%] max-w-[360px] bg-bg shadow-warm-xl flex flex-col"
+          >
+            <div
+              className="flex items-center justify-between px-5 border-b border-border/60 flex-shrink-0"
+              style={{
+                paddingTop: 'max(1rem, env(safe-area-inset-top))',
+                paddingBottom: '0.75rem',
+              }}
+            >
+              <h2 className="text-base font-bold text-text-primary">Past conversations</h2>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="w-9 h-9 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div
+              className="flex-1 overflow-y-auto"
+              style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+            >
+              {sessions === null ? (
+                <div className="px-5 py-10 text-center text-sm text-text-tertiary">Loading…</div>
+              ) : error ? (
+                <div className="px-5 py-10 text-center text-sm text-error">{error}</div>
+              ) : sessions.length === 0 ? (
+                <div className="px-5 py-12 text-center space-y-2">
+                  <p className="text-base text-text-primary font-medium">No past sessions yet.</p>
+                  <p className="text-sm text-text-tertiary">
+                    Once you finish a guided session, it&rsquo;ll show up here.
+                  </p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-border/50">
+                  {sessions.map((s) => {
+                    // Title from the user's FIRST answer — way more
+                    // identifiable than Ben's greeting (which is
+                    // generic across sessions). Falls back if the
+                    // session has no answer yet.
+                    const firstAnswer = s.exchanges[0]?.answer?.trim() ?? '';
+                    const title = firstAnswer
+                      ? firstAnswer.length > 60
+                        ? `${firstAnswer.slice(0, 60).trim()}…`
+                        : firstAnswer
+                      : '(unanswered start)';
+                    const exchangeCount = s.exchanges.length;
+                    const disabled = !s.journal_entry_id;
+                    return (
+                      <li key={s.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (s.journal_entry_id) onContinue(s.journal_entry_id);
+                          }}
+                          disabled={disabled}
+                          className="w-full text-left px-5 py-4 hover:bg-surface-elevated transition-colors disabled:opacity-40"
+                        >
+                          <p className="text-sm text-text-primary font-medium leading-snug line-clamp-2 mb-1.5">
+                            {title}
+                          </p>
+                          <div className="flex items-center justify-between text-[11px] text-text-tertiary">
+                            <span>{formatSessionDate(s.created_at)}</span>
+                            <span>
+                              {exchangeCount} {exchangeCount === 1 ? 'exchange' : 'exchanges'}
+                            </span>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function formatSessionDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const yest = new Date(now);
+  yest.setDate(yest.getDate() - 1);
+  const isYesterday = d.toDateString() === yest.toDateString();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (isToday) return `Today · ${time}`;
+  if (isYesterday) return `Yesterday · ${time}`;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function ThinkingDots({ color }: { color: string }) {
@@ -91,27 +438,27 @@ export default function GuidedSessionPage() {
       window.localStorage.setItem('guided_session_mode', m);
     } catch {}
   }, []);
+  // null = sheet closed; otherwise the chip the user just tapped to
+  // see info about. Tapping a chip opens the info sheet (description
+  // + example + Choose / Cancel) instead of selecting immediately.
+  const [sessionInfoMode, setSessionInfoMode] = useState<SessionMode | null>(null);
+  // History sheet — past completed guided sessions, read-only.
+  // Triggered by the clock icon in the header (only when there are
+  // no in-progress exchanges; mid-session the End button takes
+  // priority).
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentAnswer, setCurrentAnswer] = useState('');
-  const [isComplete, setIsComplete] = useState(false);
-  const [moodScore, setMoodScore] = useState<number | null>(null);
-  const [moodLabel, setMoodLabel] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(false);
+  // Wrap-up flow (isComplete + mood scoring + if-then plan) was
+  // dropped: conversations now flow continuously and never need to
+  // be explicitly "ended." Tap "+" to start fresh; the previous
+  // conversation lives in the history drawer.
   const [thinking, setThinking] = useState(false);
   const [geminiError, setGeminiError] = useState(false);
   // Rate-limit state. 'fallback' = pro hit, flash served (silent badge +
   // one-time guide line); 'exhausted' = both engines gone, full card.
   const [rateLimitState, setRateLimitState] = useState<'none' | 'fallback' | 'exhausted'>('none');
   const [detectedGoal, setDetectedGoal] = useState<string | null>(null);
-  const [sessionWasDeep, setSessionWasDeep] = useState(false);
-  // If-then plan (Gollwitzer's implementation intentions). Optional
-  // closing step: "When ___ this week, I will ___." Filled values
-  // become a task row tagged as an if-then plan so the next weekly
-  // letter can reference it. Empty values mean the user skipped — no
-  // task is created.
-  const [ifThenSituation, setIfThenSituation] = useState('');
-  const [ifThenAction, setIfThenAction] = useState('');
   const [liteMode, setLiteMode] = useState(false);
   const [thinkingLong, setThinkingLong] = useState(false);
   const [debugCopied, setDebugCopied] = useState(false);
@@ -176,8 +523,7 @@ export default function GuidedSessionPage() {
       if (entry && resumedExchanges && resumedExchanges.length > 0) {
         setExchanges(resumedExchanges);
         setCurrentQuestion(lastQuestion || getGuideGreeting());
-        setMoodScore(entry.mood_score);
-        setMoodLabel(entry.mood_label);
+        // Mood/mood_label setters dropped along with the wrap-up flow.
         draftEntryIdRef.current = entry.id;
       } else if (entry) {
         // Draft exists but is empty — keep the row and start from greeting
@@ -312,7 +658,7 @@ export default function GuidedSessionPage() {
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [isComplete, geminiError, rateLimitState]);
+  }, [geminiError, rateLimitState]);
 
   // Auto-scroll to bottom on NEW content only (new exchange, thinking
   // state change, new guide question). Intentionally NOT triggered by
@@ -391,14 +737,9 @@ export default function GuidedSessionPage() {
       setDetectedGoal(null);
     }
 
-    if (updatedExchanges.length >= 7) {
-      const allText = updatedExchanges.map((e) => e.answer).join(' ').toLowerCase();
-      const deepIndicators = ['grief', 'loss', 'death', 'trauma', 'abuse', 'divorce', 'breakup', 'fired', 'failed', 'worthless', 'hopeless', 'scared', 'terrified', 'panic', 'crying', 'depressed', 'suicid', 'self-harm'];
-      setSessionWasDeep(deepIndicators.some((w) => allText.includes(w)));
-      setIsComplete(true);
-      autoSave(updatedExchanges, currentQuestion);
-      return;
-    }
+    // The auto-end-after-7-exchanges block was dropped along with the
+    // wrap-up flow. Conversations now flow indefinitely; the user
+    // taps "+" to start a fresh one when they want a new topic.
 
     setThinking(true);
     const conversationHistory: ConversationExchange[] = updatedExchanges.map((e) => ({
@@ -411,7 +752,7 @@ export default function GuidedSessionPage() {
         guideId: guide.id,
         exchanges: conversationHistory,
         activeGoals: profile?.intentions || [],
-        mood: moodLabel || undefined,
+        // mood removed along with the wrap-up flow — no longer captured.
         mode: sessionMode,
         onTrace: trace,
       });
@@ -457,136 +798,31 @@ export default function GuidedSessionPage() {
     }
   };
 
-  const handleSave = async () => {
-    if (exchanges.length === 0) return;
-    setSaving(true);
-    setSaveError(false);
-
-    const contentParts = exchanges.map((e) => `Q: ${e.question}\nA: ${e.answer}`);
-    const contentText = contentParts.join('\n\n');
-    const allAnswers = exchanges.map((e) => e.answer).join(' ');
-    const wordCount = allAnswers.split(/\s+/).filter(Boolean).length;
-
-    // Wrap the entire save in a timeout so it never hangs forever
-    const saveWithTimeout = async () => {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Save timed out')), 12000)
-      );
-
-      const save = async () => {
-        if (draftEntryIdRef.current) {
-          await updateEntry(draftEntryIdRef.current, {
-            content_text: contentText,
-            mood_score: moodScore,
-            mood_label: moodLabel,
-            word_count: wordCount,
-            metadata: { exchanges, guide_id: guide.id, is_draft: false },
-          });
-
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await supabase.from('guided_sessions').insert({
-              user_id: user.id,
-              journal_entry_id: draftEntryIdRef.current,
-              session_type: 'daily_reflection',
-              guide_id: guide.id,
-              exchanges,
-              completed: true,
-            });
-          }
-        } else {
-          const entry = await createEntry({
-            entry_type: 'guided',
-            title: `Guided session — ${new Date().toLocaleDateString()}`,
-            content_text: contentText,
-            mood_score: moodScore,
-            mood_label: moodLabel,
-            word_count: wordCount,
-            metadata: { exchanges, guide_id: guide.id, is_draft: false },
-          });
-
-          if (entry) {
-            await supabase.from('guided_sessions').insert({
-              user_id: entry.user_id,
-              journal_entry_id: entry.id,
-              session_type: 'daily_reflection',
-              guide_id: guide.id,
-              exchanges,
-              completed: true,
-            });
-          }
-        }
-      };
-
-      await Promise.race([save(), timeout]);
-    };
-
-    try {
-      await saveWithTimeout();
-      // If-then plan: best-effort fire-and-forget. Either field
-      // empty = user skipped, no task. Failure here is silent —
-      // the journal entry already saved cleanly above and the
-      // user shouldn't be blocked on a side effect.
-      const situation = ifThenSituation.trim();
-      const action = ifThenAction.trim();
-      if (situation && action) {
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            // Default the cue date to one week out so the if-then
-            // shows up in the user's Upcoming view + becomes
-            // surfaceable in next week's letter.
-            const dueDate = new Date();
-            dueDate.setDate(dueDate.getDate() + 7);
-            await supabase.from('tasks').insert({
-              user_id: user.id,
-              text: `When ${situation}, I'll ${action}`,
-              due_date: dueDate.toISOString().slice(0, 10),
-              notes: '[if-then plan from guided session]',
-              important: true,
-            });
-          }
-        } catch (planErr) {
-          console.warn('If-then save failed:', planErr);
-        }
-      }
-      setSaving(false);
-      router.push('/home');
-    } catch (err) {
-      console.warn('Save failed:', err);
-      setSaving(false);
-      setSaveError(true);
-      // Don't navigate — let user retry or go home manually
-    }
-  };
-
-  const handleEndSession = () => {
-    const allText = exchanges.map((e) => e.answer).join(' ').toLowerCase();
-    const deepIndicators = ['grief', 'loss', 'death', 'trauma', 'abuse', 'divorce', 'breakup', 'fired', 'failed', 'worthless', 'hopeless'];
-    setSessionWasDeep(deepIndicators.some((w) => allText.includes(w)));
-    setIsComplete(true);
-  };
+  // handleSave + handleEndSession dropped along with the wrap-up flow.
+  // Conversations are continuously autosaved via autoSave() — no
+  // explicit "end" needed. Tap "+" to start a fresh conversation.
 
   // Is the keyboard open? Detected by comparing visual to layout
   // viewport — a gap bigger than ~60px almost certainly means the
-  // soft keyboard is up. We use this to pick the right dock offset:
-  // a small lift above the screen bottom when the keyboard is DOWN
-  // (so the dock isn't visually glued to the edge), and flush
-  // against the keyboard when it's UP (so we don't waste any of the
-  // shrunken visible area).
+  // soft keyboard is up.
   const keyboardOpen = vv?.keyboardOpen ?? false;
-  // When the keyboard is DOWN: lift the dock 20px above the bottom
-  // edge so it floats rather than sitting flush.
-  // When the keyboard is UP: push the dock DOWN by ~one button
-  // height + gap (≈56px) so the Send button tucks behind the
-  // keyboard's suggestion bar and "Tap to Speak" moves into where
-  // Send used to sit. This reclaims vertical room for the chat above
-  // so the guide's question stays fully visible. The keyboard's
-  // Enter key still submits, so losing the visible Send button here
-  // doesn't block sending.
-  const dockBottomOffset = keyboardOpen ? -56 : 20;
+  // Keyboard DOWN: small lift (12px) so the dock isn't glued to the
+  // bottom safe-area edge. Keyboard UP: 0 — dock sits flush against
+  // the keyboard's top edge so the input + the line being typed are
+  // both fully visible. The previous design pushed the dock DOWN by
+  // 56px to "tuck Send behind the suggestion bar" — that hid the
+  // text being typed, which is what the user reported.
+  const dockBottomOffset = keyboardOpen ? 0 : 12;
 
-  const chatStyle: React.CSSProperties = vv
+  // Use vv-based positioning ONLY while the keyboard is open. When
+  // the keyboard is closed, fall back to plain fixed-bottom anchoring
+  // (with 100dvh height for the chat). Reason: iOS Safari shrinks
+  // visualViewport.height as its URL bar appears mid-scroll, so a
+  // vv-bound layout re-positions on every scroll-driven URL-bar
+  // toggle — visible as a small layout "jitter" in the chat surface.
+  // Stable anchoring kills the jitter while keyboard handling stays
+  // intact (since we still go vv-bound the moment the keyboard rises).
+  const chatStyle: React.CSSProperties = vv && keyboardOpen
     ? {
         position: 'fixed',
         top: `${vv.offsetTop}px`,
@@ -606,7 +842,7 @@ export default function GuidedSessionPage() {
   const dockTop = vv
     ? vv.offsetTop + vv.height - dockHeight - dockBottomOffset
     : 0;
-  const dockStyle: React.CSSProperties = vv
+  const dockStyle: React.CSSProperties = vv && keyboardOpen
     ? {
         position: 'fixed',
         top: `${dockTop}px`,
@@ -653,16 +889,23 @@ export default function GuidedSessionPage() {
       style={chatStyle}
     >
       {/* Header — doesn't shrink */}
-      <div className="flex-shrink-0 flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+      <div className="flex-shrink-0 flex items-center justify-between px-3 pt-4 pb-3 border-b border-border">
+        {/* LEFT: hamburger (3 horizontal lines) — opens past-
+            conversations drawer. Claude-style convention. */}
         <button
-          onClick={() => {
-            if (exchanges.length > 0 && !confirm(t('guided.leaveConfirm'))) return;
-            router.push('/home');
-          }}
-          className="text-text-secondary hover:text-text-primary text-lg"
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          aria-label="Past conversations"
+          className="w-9 h-9 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors"
         >
-          ✕
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
         </button>
+
+        {/* CENTER: Mascot + session title (unchanged). */}
         <div className="flex items-center gap-2">
           <Mascot guide={guide.id as GuideId} pose="listen" size="sm" animate />
           <span className="text-sm font-semibold text-text-primary">{t('guided.sessionWith', { name: guide.name })}</span>
@@ -678,20 +921,49 @@ export default function GuidedSessionPage() {
             </motion.span>
           )}
         </div>
-        {exchanges.length > 0 && !isComplete ? (
-          <button onClick={handleEndSession} className="text-sm text-primary font-semibold">{t('guided.end')}</button>
-        ) : (
-          <div className="w-10" />
-        )}
+
+        {/* RIGHT: + (new conversation) + ✕ (close). Both are icons.
+            No End button — conversations autosave continuously and
+            never need to be explicitly "ended." Tapping + starts a
+            fresh conversation; the previous one stays in history.
+            Tapping ✕ returns to /home (no confirm: nothing to lose). */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              // Hard navigation forces a fresh page mount: draftEntryIdRef
+              // resets to null, exchanges to [], currentQuestion to greeting.
+              // The previous draft stays in journal_entries via autoSave
+              // and shows up in the history drawer.
+              window.location.assign('/guided');
+            }}
+            aria-label="New conversation"
+            className="w-9 h-9 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/home')}
+            aria-label="Close"
+            className="w-9 h-9 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors text-lg"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {/* Session-mode picker — only before the first exchange so it
-          can't be changed mid-conversation (which would whipsaw the
-          guide's question shape). Defaults to "Open" (current
-          behavior); switching to Naikan / NVC / AAR overlays a
-          structural directive on the guide's system prompt. */}
-      {exchanges.length === 0 && !isComplete && (
-        <div className="flex-shrink-0 px-5 pt-3 pb-2 border-b border-border/60">
+          can't be changed mid-conversation. Tapping a chip opens an
+          info sheet (description + concrete example), with Choose /
+          Cancel inside the sheet — selection is two taps so users
+          don't pick a mode they don't understand. The currently-
+          active mode is highlighted in the chip strip. */}
+      {exchanges.length === 0 && (
+        <div className="flex-shrink-0 px-5 pt-3 pb-3 border-b border-border/60">
           <div className="flex items-center gap-2 overflow-x-auto" role="radiogroup" aria-label="Session mode">
             {SESSION_MODE_OPTIONS.map((opt) => {
               const selected = opt.id === sessionMode;
@@ -701,9 +973,8 @@ export default function GuidedSessionPage() {
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  onClick={() => setAndPersistMode(opt.id)}
-                  title={opt.hint}
-                  className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  onClick={() => setSessionInfoMode(opt.id)}
+                  className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors ${
                     selected
                       ? 'bg-primary text-white border border-primary'
                       : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
@@ -714,11 +985,13 @@ export default function GuidedSessionPage() {
               );
             })}
           </div>
-          <p className="mt-1.5 text-[11px] text-text-tertiary">
-            {SESSION_MODE_OPTIONS.find((o) => o.id === sessionMode)?.hint}
-          </p>
         </div>
       )}
+
+      {/* Sheets used to mount here — moved to root sibling of the
+          dock layer below so their high z-index actually wins over
+          the dock. (Inside the chatLayer they were trapped in its
+          z-1 stacking context.) */}
 
       {/* Conversation — independent scroll container. The dock
           overlays its bottom as a separate fixed layer, so we reserve
@@ -730,9 +1003,12 @@ export default function GuidedSessionPage() {
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 space-y-4"
         style={{
-          paddingBottom: isComplete
-            ? 'max(2rem, calc(env(safe-area-inset-bottom) + 1.5rem))'
-            : `${dockHeight + 16}px`,
+          paddingBottom: `${dockHeight + 16}px`,
+          // 'contain' blocks scroll-chaining (so pulling the chat past
+          // its top doesn't scroll the parent) without disabling
+          // normal in-bounds scrolling. The earlier 'none' setting
+          // accidentally killed scrolling on iOS when combined with
+          // the fixed-position layout — revert.
           overscrollBehavior: 'contain',
         }}
       >
@@ -858,151 +1134,54 @@ export default function GuidedSessionPage() {
               {t('common.retry')}
             </button>
           </motion.div>
-        ) : !isComplete ? (
-          <motion.div
-            key={`q-${exchanges.length}`}
-            initial={prefersReducedMotion ? undefined : { opacity: 0, x: -20 }}
-            animate={prefersReducedMotion ? undefined : { opacity: 1, x: 0 }}
-            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 24 }}
-            className="space-y-2"
-          >
-            <div className="max-w-[85%] bg-[#1A2B22] rounded-2xl p-4 shadow-warm-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <Mascot guide={guide.id as GuideId} pose="listen" size="xs" animate />
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: guide.accentColor }}>{guide.name}</span>
-              </div>
-              <RichGuideText text={currentQuestion} className="text-[#F0F0F5]" />
-            </div>
-            {detectedGoal && (
-              <div className="bg-[#2A2D1E] border border-[#4A5C3A] rounded-2xl p-4 space-y-3">
-                <p className="text-sm text-text-primary font-medium">🎯 {t('guided.holdIntention', { goal: detectedGoal! })}</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={async () => {
-                      const current = profile?.intentions || [];
-                      if (!current.some((i) => i.toLowerCase() === detectedGoal!.toLowerCase())) {
-                        await updateProfile({ intentions: [...current, detectedGoal!] });
-                      }
-                      setDetectedGoal(null);
-                    }}
-                    className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold"
-                  >
-                    {t('common.yes')}
-                  </button>
-                  <button
-                    onClick={() => setDetectedGoal(null)}
-                    className="px-4 py-2 bg-border text-text-secondary rounded-lg text-sm"
-                  >
-                    {t('guided.notNow')}
-                  </button>
-                </div>
-              </div>
-            )}
-          </motion.div>
         ) : (
-          <motion.div
-            key="complete"
-            initial={prefersReducedMotion ? undefined : { opacity: 0, y: 12 }}
-            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 240, damping: 26 }}
-            className="space-y-4"
-          >
-            <div className="max-w-[85%] bg-[#1A2B22] rounded-2xl p-4 shadow-warm-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <Mascot guide={guide.id as GuideId} pose="listen" size="xs" animate />
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: guide.accentColor }}>{guide.name}</span>
-              </div>
-              <RichGuideText
-                text={
-                  sessionWasDeep
-                    ? t('guided.deepSession')
-                    : t('guided.normalSession', { count: String(exchanges.length), plural: exchanges.length !== 1 ? 's' : '' })
-                }
-                className="text-[#F0F0F5]"
-              />
-            </div>
-
-            {sessionWasDeep && (
-              <div className="bg-[#1A2320] rounded-2xl p-4 space-y-2">
-                <p className="text-sm font-semibold text-text-primary">{t('guided.takeABreath')}</p>
-                <p className="text-sm text-text-secondary leading-relaxed">
-                  {t('guided.breathDescription')}
-                </p>
-              </div>
-            )}
-
-            <MoodSelector value={moodScore} onChange={(score, label) => { setMoodScore(score); setMoodLabel(label); }} />
-
-            {/* Optional if-then plan — Gollwitzer's implementation
-                intentions. Filling both fields creates a task tagged
-                as an if-then plan so the next weekly letter can
-                surface "you planned to X when Y — did that happen?".
-                Skip is the default (both empty). */}
-            <div className="bg-surface rounded-2xl border border-border p-4 space-y-3">
-              <div>
-                <p className="text-sm font-semibold text-text-primary">
-                  One if-then plan? (optional)
-                </p>
-                <p className="text-[11px] text-text-tertiary mt-0.5 leading-snug">
-                  Specific cues + actions are 2-3× more likely to actually happen than vague intentions.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-widest text-text-tertiary font-semibold w-12 shrink-0">When</span>
-                  <input
-                    value={ifThenSituation}
-                    onChange={(e) => setIfThenSituation(e.target.value)}
-                    placeholder="I sit down at my desk tomorrow"
-                    className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-primary"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-widest text-text-tertiary font-semibold w-12 shrink-0">I&apos;ll</span>
-                  <input
-                    value={ifThenAction}
-                    onChange={(e) => setIfThenAction(e.target.value)}
-                    placeholder="open the proposal first thing"
-                    className="flex-1 px-3 py-2 bg-surface-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-primary"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {saveError && (
-              <div className="bg-[#2A1A1A] border border-[#4A2A2A] rounded-2xl p-4 space-y-3">
-                <p className="text-sm text-[#FF9999]">
-                  {getLocale() === 'es'
-                    ? 'No se pudo guardar. Tu sesión está guardada como borrador — no se pierde nada.'
-                    : "Couldn't save. Your session is saved as a draft — nothing is lost."}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleSave}
-                    className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold"
-                  >
-                    {getLocale() === 'es' ? 'Reintentar' : 'Retry'}
-                  </button>
-                  <button
-                    onClick={() => router.push('/home')}
-                    className="flex-1 py-2.5 bg-border text-text-secondary rounded-xl text-sm"
-                  >
-                    {getLocale() === 'es' ? 'Ir al inicio' : 'Go Home'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="w-full py-3 bg-primary text-white font-semibold rounded-2xl hover:bg-primary-dark transition-colors disabled:opacity-50"
+          /* Active "ready for your reply" Ben bubble. The wrap-up
+             render branch (mood scoring + if-then plan + Save button)
+             was dropped along with the End ceremony — conversations
+             flow continuously now. */
+          currentQuestion && (
+            <motion.div
+              key={`q-${exchanges.length}`}
+              initial={prefersReducedMotion ? undefined : { opacity: 0, x: -20 }}
+              animate={prefersReducedMotion ? undefined : { opacity: 1, x: 0 }}
+              exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+              className="space-y-2"
             >
-              {saving ? t('common.saving') : t('guided.saveSession')}
-            </button>
-          </motion.div>
+              <div className="max-w-[85%] bg-[#1A2B22] rounded-2xl p-4 shadow-warm-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <Mascot guide={guide.id as GuideId} pose="listen" size="xs" animate />
+                  <span className="text-xs font-bold uppercase tracking-wider" style={{ color: guide.accentColor }}>{guide.name}</span>
+                </div>
+                <RichGuideText text={currentQuestion} className="text-[#F0F0F5]" />
+              </div>
+              {detectedGoal && (
+                <div className="bg-[#2A2D1E] border border-[#4A5C3A] rounded-2xl p-4 space-y-3">
+                  <p className="text-sm text-text-primary font-medium">🎯 {t('guided.holdIntention', { goal: detectedGoal! })}</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        const current = profile?.intentions || [];
+                        if (!current.some((i) => i.toLowerCase() === detectedGoal!.toLowerCase())) {
+                          await updateProfile({ intentions: [...current, detectedGoal!] });
+                        }
+                        setDetectedGoal(null);
+                      }}
+                      className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold"
+                    >
+                      {t('common.yes')}
+                    </button>
+                    <button
+                      onClick={() => setDetectedGoal(null)}
+                      className="px-4 py-2 bg-border text-text-secondary rounded-lg text-sm"
+                    >
+                      {t('guided.notNow')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )
         )}
         </AnimatePresence>
       </div>
@@ -1014,86 +1193,128 @@ export default function GuidedSessionPage() {
         viewport. Not a child of the chat layer, so scrolling the
         chat has zero effect on this dock's position, and tapping
         the textarea doesn't cause iOS to scroll the chat. */}
-    {!isComplete && !geminiError && rateLimitState !== 'exhausted' && (
+    {!geminiError && rateLimitState !== 'exhausted' && (
         <div
           ref={dockRef}
-          className="bg-bg px-4 pt-3 border-t border-border/40"
+          className="bg-bg px-3 pt-3"
           style={{
             ...dockStyle,
-            paddingBottom: 'max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem))',
+            // Keyboard up: stay close to the keyboard so the input +
+            // typed line are both visible. Keyboard down: match the
+            // capture page's bottom breathing room (≥40px floor +
+            // safe-area) so the dock doesn't read as glued to the
+            // bottom edge of the screen.
+            paddingBottom: keyboardOpen
+              ? '0.5rem'
+              : 'max(2.5rem, calc(env(safe-area-inset-bottom) + 1rem))',
           }}
         >
-          <div className="flex flex-col gap-2">
-            <textarea
-              ref={inputRef}
-              value={currentAnswer}
-              onChange={(e) => setCurrentAnswer(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
+          {/* Single-row chat input — input on the left auto-grows up
+              to ~6 lines as content is added; mic + send icon-only
+              buttons sit on the right and center vertically with the
+              textarea (items-center) so single-line state — the
+              dominant case — looks perfectly aligned. Mic is flat
+              icon-only (no circle bg) so the input has maximum room;
+              Send is a small primary circle so the action stays
+              visually distinct. */}
+          <div className="w-full flex items-center gap-1.5">
+            <div className="flex-1 min-w-0">
+              <AutoGrowTextarea
+                ref={inputRef}
+                value={currentAnswer}
+                onChange={setCurrentAnswer}
+                onSubmit={() => {
                   if (currentAnswer.trim() && !isListening && !thinking) submitAnswer();
+                }}
+                placeholder={
+                  isListening ? t('guided.listeningPlaceholder') : t('guided.typePlaceholder')
                 }
-              }}
-              // No focus-time auto-scroll: the chat is now an
-              // INDEPENDENT scroll container that doesn't reflow with
-              // the keyboard. Yanking the user back to the bottom on
-              // every focus would defeat the "separate scrollable
-              // thing in the back" pattern the user asked for.
-              placeholder={
-                isListening ? t('guided.listeningPlaceholder') : t('guided.typePlaceholder')
-              }
-              rows={3}
-              className={`w-full px-4 py-2.5 bg-surface border-2 rounded-2xl text-text-primary text-[15px] leading-snug resize-none outline-none placeholder:text-text-tertiary min-h-[96px] max-h-[180px] overflow-y-auto transition-colors ${
-                isListening ? 'border-error' : 'border-border focus:border-primary'
-              }`}
-            />
+                isListening={isListening}
+              />
+            </div>
             {speechSupported && (
               <button
                 {...micButtonProps}
-                className={`w-full py-3 rounded-2xl flex items-center justify-center gap-2 text-sm font-medium transition-colors ${
+                disabled={thinking}
+                className={`w-10 h-10 flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-50 ${
                   isListening
-                    ? 'bg-error text-white'
-                    : 'bg-surface border border-border text-text-secondary hover:text-text-primary'
+                    ? 'text-error'
+                    : 'text-text-secondary hover:text-primary'
                 }`}
-                aria-label={
-                  isListening ? t('template.stopRecording') : t('template.tapToSpeak')
-                }
+                aria-label={isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
               >
                 {isListening ? (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                     <rect x="6" y="6" width="12" height="12" rx="2" />
                   </svg>
                 ) : (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                  >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                     <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                     <line x1="12" x2="12" y1="19" y2="22" />
                   </svg>
                 )}
-                {isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
               </button>
             )}
             <button
               onClick={() => submitAnswer()}
               disabled={!currentAnswer.trim() || isListening || thinking}
-              className="w-full py-3 rounded-2xl bg-primary text-white text-sm font-semibold transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+              className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center transition-colors hover:bg-primary-dark disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
               aria-label={t('common.send')}
             >
-              {t('common.send')}
+              {/* Paper-airplane glyph — universal "send" affordance. */}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
             </button>
           </div>
         </div>
       )}
+
+      {/* Sheets — mounted at the root so their z-[60]/z-[70] compete
+          with the dock (z-10) in the SAME stacking context. Mounting
+          them inside the chatLayer (which is position:fixed + z-1)
+          would trap them inside z-1's context, where no amount of
+          inner z-index could rise above the dock. */}
+      <SessionModeInfoSheet
+        modeId={sessionInfoMode}
+        currentlySelectedId={sessionMode}
+        onChoose={(id) => {
+          setAndPersistMode(id);
+          setSessionInfoMode(null);
+        }}
+        onClose={() => setSessionInfoMode(null)}
+      />
+
+      <GuidedHistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onContinue={(journalEntryId) => {
+          // Mid-session: confirm before swapping the conversation. The
+          // current draft auto-saves elsewhere, so the user won't
+          // lose data — but they should know they're switching.
+          if (
+            exchanges.length > 0 &&
+            !confirm(
+              'Switch to a past conversation? Your current chat will be saved as a draft.',
+            )
+          ) {
+            return;
+          }
+          setHistoryOpen(false);
+          // Hard navigation (not router.push) so the page fully
+          // remounts and the existing ?resume useEffect (page.tsx:529)
+          // re-runs with the new URL. router.push would update the
+          // URL but the effect's stable deps mean it wouldn't re-fire,
+          // and the in-memory exchanges wouldn't reset. Hydration on
+          // fresh mount: reads metadata.exchanges from the entry,
+          // restores currentQuestion, primes draftEntryIdRef. Then
+          // submitAnswer feeds the full exchanges to getGuideResponse
+          // so Ben sees the prior context automatically.
+          window.location.assign(`/guided?resume=${journalEntryId}`);
+        }}
+      />
     </>
   );
 }

@@ -5,12 +5,8 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useJournalStore } from '@/stores/journalStore';
 import { MoodSelector } from '@/components/MoodSelector';
-import {
-  isSpeechRecognitionSupported,
-  startListening,
-  stopListening,
-} from '@/lib/speechRecognition';
-import { getLanguage } from '@/lib/language';
+import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
+import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { t } from '@/lib/translations';
 import { translateTemplate } from '@/lib/templateTranslation';
 
@@ -41,16 +37,36 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [loadError, setLoadError] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [speechSupported] = useState(() => typeof window !== 'undefined' && isSpeechRecognitionSupported());
 
-  // Use refs for the speech callback to always have current values
+  // Refs for the speech callback + save path
   const answersRef = useRef(answers);
   const currentQRef = useRef(currentQ);
-  const accumulatedRef = useRef('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   answersRef.current = answers;
   currentQRef.current = currentQ;
+
+  // Current question's answer + setter — the mic hook operates on
+  // whichever question is visible.
+  const currentAnswer = answers[currentQ] ?? '';
+  const setCurrentAnswer = (next: string) => {
+    setAnswers((prev) => {
+      const copy = [...prev];
+      copy[currentQRef.current] = next;
+      return copy;
+    });
+  };
+
+  const {
+    isListening,
+    toggle: toggleMic,
+    stop: stopMic,
+    micButtonProps,
+  } = useSelectionAwareMic({
+    textareaRef,
+    value: currentAnswer,
+    onChange: setCurrentAnswer,
+  });
 
   useEffect(() => {
     if (!templateId) return;
@@ -100,54 +116,11 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
     }
   }, [answers, currentQ]);
 
-  // Stop mic when changing questions
-  const stopMic = useCallback(() => {
-    if (isListening) {
-      stopListening();
-      setIsListening(false);
-    }
-  }, [isListening]);
-
+  // Stop the mic when navigating between questions so spoken text
+  // doesn't accidentally land in the previous question's answer.
   const goToQuestion = (index: number) => {
-    // Save accumulated text for next time
-    accumulatedRef.current = '';
     stopMic();
     setCurrentQ(index);
-  };
-
-  const toggleMic = async () => {
-    if (isListening) {
-      // Save current answer as accumulated text for appending
-      const idx = currentQRef.current;
-      accumulatedRef.current = answersRef.current[idx] || '';
-      stopMic();
-    } else {
-      // Set accumulated to current answer so new speech appends
-      const idx = currentQRef.current;
-      accumulatedRef.current = answersRef.current[idx] || '';
-      setIsListening(true);
-      startListening({
-        continuous: true,
-        language: getLanguage(),
-        onResult: (text) => {
-          const i = currentQRef.current;
-          const updated = [...answersRef.current];
-          const prefix = accumulatedRef.current;
-          updated[i] = prefix ? prefix + ' ' + text : text;
-          setAnswers(updated);
-        },
-        onEnd: () => {
-          const i = currentQRef.current;
-          accumulatedRef.current = answersRef.current[i] || '';
-          setIsListening(false);
-        },
-        onError: () => {
-          const i = currentQRef.current;
-          accumulatedRef.current = answersRef.current[i] || '';
-          setIsListening(false);
-        },
-      });
-    }
   };
 
   const handleSave = async () => {
@@ -236,7 +209,7 @@ export default function TemplatePage({ params }: { params: Promise<{ id: string 
                 />
                 {speechSupported && (
                   <button
-                    onClick={toggleMic}
+                    {...micButtonProps}
                     className={`w-full py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm font-medium transition-colors ${
                       isListening
                         ? 'bg-error text-white'

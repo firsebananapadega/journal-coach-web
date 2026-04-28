@@ -199,6 +199,8 @@ const translations: Record<string, Record<Locale, string>> = {
   'tab.lists': { en: 'Lists', es: 'Listas' },
   'tab.upcoming': { en: 'Upcoming', es: 'Próximo' },
   'tab.intentions': { en: 'Intentions', es: 'Intenciones' },
+  'tab.presence': { en: 'Presence', es: 'Presencia' },
+  'tab.guided': { en: 'Guided', es: 'Guiada' },
   'tab.groceries': { en: 'Groceries', es: 'Despensa' },
   'tab.pulse': { en: 'Pulse', es: 'Pulso' },
   'tab.history': { en: 'History', es: 'Historial' },
@@ -306,12 +308,12 @@ const translations: Record<string, Record<Locale, string>> = {
   'view.month': { en: 'Month', es: 'Mes' },
 
   // ─── Eisenhower matrix quadrants ───
-  'matrix.q1.title': { en: 'Do', es: 'Hacer' },
-  'matrix.q1.subtitle': { en: 'Urgent + Important', es: 'Urgente + Importante' },
-  'matrix.q2.title': { en: 'Schedule', es: 'Programar' },
-  'matrix.q2.subtitle': { en: 'Important, not urgent', es: 'Importante, no urgente' },
-  'matrix.q3.title': { en: 'Delegate', es: 'Delegar' },
-  'matrix.q3.subtitle': { en: 'Urgent, not important', es: 'Urgente, no importante' },
+  'matrix.q1.title': { en: 'Urgent + Important', es: 'Urgente + Importante' },
+  'matrix.q1.subtitle': { en: 'Do', es: 'Hacer' },
+  'matrix.q2.title': { en: 'Important, not urgent', es: 'Importante, no urgente' },
+  'matrix.q2.subtitle': { en: 'Schedule', es: 'Programar' },
+  'matrix.q3.title': { en: 'Urgent, not important', es: 'Urgente, no importante' },
+  'matrix.q3.subtitle': { en: 'Delegate', es: 'Delegar' },
   'matrix.q4.title': { en: 'Drop', es: 'Eliminar' },
   'matrix.q4.subtitle': { en: 'Neither urgent nor important', es: 'Ni urgente ni importante' },
   'matrix.unsorted': { en: 'Unsorted', es: 'Sin clasificar' },
@@ -367,6 +369,7 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'Talk freely — priorities, plans, groceries, ideas…',
     es: 'Habla libremente — tareas, eventos, despensa, ideas…',
   },
+  'voice.capture': { en: 'Capture', es: 'Capturar' },
   'groceries.placeholder': { en: 'Add a grocery item…', es: 'Agregar artículo…' },
   'groceries.empty': {
     en: 'Your grocery list is empty. Add an item below or tap the mic to speak.',
@@ -375,6 +378,178 @@ const translations: Record<string, Record<Locale, string>> = {
   'groceries.addToStore': {
     en: 'Add to {store}',
     es: 'Agregar a {store}',
+  },
+  'groceries.shareAria': { en: 'Share grocery list', es: 'Compartir lista de compras' },
+  'groceries.joinedTitle': { en: 'You joined a shared list', es: 'Te uniste a una lista compartida' },
+  'groceries.joinedBody': {
+    en: 'Move your existing items into the shared list?',
+    es: '¿Mover tus artículos existentes a la lista compartida?',
+  },
+  'groceries.joinedYes': { en: 'Move them', es: 'Moverlos' },
+  'groceries.joinedNo': { en: 'No, keep them separate', es: 'No, mantenlos aparte' },
+
+  // ─── Share sheet (grocery sharing)
+  'share.title': { en: 'Share grocery list', es: 'Compartir lista de compras' },
+  'share.subtitle': {
+    en: 'Anyone with the link can view and edit this list.',
+    es: 'Cualquiera con el enlace puede ver y editar esta lista.',
+  },
+  'share.generate': { en: 'Create share link', es: 'Crear enlace para compartir' },
+  'share.generateFailed': {
+    en: "Couldn't create the link. Try again.",
+    es: 'No se pudo crear el enlace. Intenta de nuevo.',
+  },
+  'share.copy': { en: 'Copy link', es: 'Copiar enlace' },
+  'share.copied': { en: 'Copied ✓', es: 'Copiado ✓' },
+  'share.copyFailed': { en: "Couldn't copy.", es: 'No se pudo copiar.' },
+  'share.whatsapp': { en: 'WhatsApp', es: 'WhatsApp' },
+  'share.sms': { en: 'Messages', es: 'Mensajes' },
+  'share.more': { en: 'More…', es: 'Más…' },
+  'share.nativeTitle': { en: 'Grocery list', es: 'Lista de compras' },
+  'share.message': {
+    en: "I'm sharing my grocery list with you: {url}",
+    es: 'Te estoy compartiendo mi lista de compras: {url}',
+  },
+  'share.linkDisclaimer': {
+    en: 'Link works for 7 days, up to 10 joins. Revoke any time.',
+    es: 'El enlace funciona por 7 días, hasta 10 personas. Puedes revocarlo en cualquier momento.',
+  },
+  'share.membersHeading': { en: 'In this list', es: 'En esta lista' },
+  'share.unnamedMember': { en: 'Member', es: 'Miembro' },
+  'share.ownerBadge': { en: 'Owner', es: 'Dueño' },
+  'share.youBadge': { en: '(you)', es: '(tú)' },
+  'share.activeInvitesHeading': { en: 'Active links', es: 'Enlaces activos' },
+  'share.invitesUsage': {
+    en: '{uses} / {max} joins',
+    es: '{uses} / {max} entradas',
+  },
+  'share.revoke': { en: 'Revoke', es: 'Revocar' },
+  'share.leave': { en: 'Leave shared list', es: 'Salir de la lista compartida' },
+  'share.acceptInvalidTitle': { en: 'Link expired', es: 'Enlace caducado' },
+  'share.acceptInvalidBody': {
+    en: 'This share link is no longer valid. Ask the person who sent it for a fresh link.',
+    es: 'Este enlace ya no es válido. Pídele a quien te lo envió un enlace nuevo.',
+  },
+  'share.acceptInvalidCta': { en: 'Go to my groceries', es: 'Ir a mi lista' },
+
+  // ─── Share sheet v2: email invite + polished UI
+  'share.emailHeading': { en: 'Send to email', es: 'Enviar por correo' },
+  'share.emailPlaceholder': { en: 'their@email.com', es: 'su@correo.com' },
+  'share.emailSend': { en: 'Send', es: 'Enviar' },
+  'share.emailSending': { en: 'Sending…', es: 'Enviando…' },
+  'share.emailSent': { en: 'Sent ✓ to {email}', es: 'Enviado ✓ a {email}' },
+  'share.emailFailed': {
+    en: "Couldn't send. Try copying the link instead.",
+    es: 'No se pudo enviar. Copia el enlace en su lugar.',
+  },
+  'share.emailDescription': {
+    en: 'They tap once and join — no password to type.',
+    es: 'Toca una vez y se une, sin escribir contraseña.',
+  },
+  'share.linkHeading': { en: 'Or share a link', es: 'O comparte un enlace' },
+  'share.linkExpiry': { en: 'Link works for 7 days', es: 'El enlace funciona por 7 días' },
+  'share.resetLink': { en: 'Reset link', es: 'Restablecer enlace' },
+  'share.confirmReset': {
+    en: 'Reset the link? The current one will stop working.',
+    es: '¿Restablecer el enlace? El actual dejará de funcionar.',
+  },
+  'share.acceptHomeScreenBanner': {
+    en: 'All set. Open the app from your home screen to keep using your shared list.',
+    es: 'Listo. Abre la app desde tu pantalla de inicio para seguir usando tu lista compartida.',
+  },
+  'share.acceptSuccessTitle': { en: 'You\'re in.', es: 'Ya entraste.' },
+  'share.acceptOpenList': { en: 'Open my groceries', es: 'Abrir mi lista' },
+
+  // ─── Share sheet v3: in-app pending invites + recent-contacts quick pick
+  'share.shareWithHeading': { en: 'Share with…', es: 'Compartir con…' },
+  'share.searchPlaceholder': {
+    en: 'Name or email',
+    es: 'Nombre o correo',
+  },
+  'share.recentContactsHeading': { en: 'Recent contacts', es: 'Contactos recientes' },
+  'share.noRecentContacts': {
+    en: 'No one yet — type an email to invite someone.',
+    es: 'Aún no hay nadie — escribe un correo para invitar.',
+  },
+  'share.successInApp': {
+    en: '{name} will see it in their grocery tab. ✓',
+    es: '{name} lo verá en su pestaña de compras. ✓',
+  },
+  'share.successInAppFallback': {
+    en: 'They\'ll see it in their grocery tab. ✓',
+    es: 'Lo verán en su pestaña de compras. ✓',
+  },
+  'share.successEmail': {
+    en: 'Email sent ✓ — they\'ll join when they tap the link.',
+    es: 'Correo enviado ✓ — se unirán al tocar el enlace.',
+  },
+  'share.successAlreadyMember': {
+    en: '{name} is already in this list. 🙂',
+    es: '{name} ya está en esta lista. 🙂',
+  },
+  'share.successAlreadyMemberFallback': {
+    en: 'They\'re already in this list. 🙂',
+    es: 'Ya están en esta lista. 🙂',
+  },
+  'share.fallbackEmailHint': {
+    en: 'Or send to "{value}" as an email — keep typing to add a domain.',
+    es: 'O envía a "{value}" como correo — sigue escribiendo el dominio.',
+  },
+  'share.sendInvite': { en: 'Send invite', es: 'Enviar invitación' },
+
+  // Pending-invite banner on /groceries
+  'pendingInvite.title': {
+    en: '{name} wants to share their grocery list with you.',
+    es: '{name} quiere compartir su lista de compras contigo.',
+  },
+  'pendingInvite.titleFallback': {
+    en: 'You\'ve been invited to a shared grocery list.',
+    es: 'Te invitaron a una lista de compras compartida.',
+  },
+  'pendingInvite.accept': { en: 'Accept', es: 'Aceptar' },
+  'pendingInvite.decline': { en: 'Decline', es: 'Rechazar' },
+
+  // ─── Presence pause (mid-day surface)
+  'presence.title': { en: '30-second pause', es: 'Pausa de 30 segundos' },
+  'presence.intro': {
+    en: 'Where\'s your attention right now?',
+    es: '¿Dónde está tu atención ahora mismo?',
+  },
+  'presence.attentionPlaceholder': {
+    en: 'what\'s on your mind…',
+    es: 'lo que tienes en mente…',
+  },
+  'presence.bodyPrompt': {
+    en: 'How does your body feel right now?',
+    es: '¿Cómo se siente tu cuerpo ahora?',
+  },
+  'presence.oneWordPrompt': {
+    en: 'One word for this moment',
+    es: 'Una palabra para este momento',
+  },
+  'presence.oneWordPlaceholder': {
+    en: 'calm, scattered, warm…',
+    es: 'tranquilo, disperso, cálido…',
+  },
+  'presence.next': { en: 'Next', es: 'Siguiente' },
+  'presence.skip': { en: 'Skip', es: 'Saltar' },
+  'presence.save': { en: 'Save', es: 'Guardar' },
+  'presence.done': { en: 'Done. Take another whenever.', es: 'Listo. Toma otra cuando quieras.' },
+  'presence.takeAnother': { en: 'Take another pause', es: 'Tomar otra pausa' },
+  'presence.attentionLabel': { en: 'Attention', es: 'Atención' },
+  'presence.bodyLabel': { en: 'Body', es: 'Cuerpo' },
+  'presence.wordLabel': { en: 'Word', es: 'Palabra' },
+  'presence.empty': {
+    en: 'A 30-second mid-day pause. Three quick prompts to come back to your body and your mind.',
+    es: 'Una pausa de 30 segundos a media tarde. Tres preguntas breves para volver a tu cuerpo y tu mente.',
+  },
+  'presence.start': { en: 'Begin', es: 'Comenzar' },
+
+  // Settings — presence reminder row
+  'settings.presenceReminder': { en: 'Presence pause', es: 'Pausa de presencia' },
+  'settings.presenceReminderDesc': {
+    en: 'A mid-day reminder to take a 30-second pause.',
+    es: 'Un recordatorio a media tarde para hacer una pausa de 30 segundos.',
   },
 
   // ─── Intention practices (Patterns play button)
@@ -410,6 +585,7 @@ const translations: Record<string, Record<Locale, string>> = {
   'pulse.evening.q1': { en: 'What went right today?', es: '¿Qué salió bien hoy?' },
   'pulse.evening.q2': { en: 'What could you have done better today?', es: '¿Qué podrías haber hecho mejor hoy?' },
   'pulse.eveningDone': { en: 'Evening Pulse', es: 'Pulso nocturno' },
+  'pulse.presenceDone': { en: 'Mid-day Pause', es: 'Pausa de mediodía' },
   'pulse.wentRightLabel': { en: 'Went right', es: 'Salió bien' },
   'pulse.doneBetterLabel': { en: 'Done better', es: 'Mejorar' },
 
@@ -546,6 +722,48 @@ const translations: Record<string, Record<Locale, string>> = {
   'signIn.loading': { en: 'Signing in...', es: 'Iniciando sesión...' },
   'signIn.noAccount': { en: "Don't have an account?", es: '¿No tienes cuenta?' },
   'signIn.signUp': { en: 'Sign up', es: 'Regístrate' },
+  'signIn.forgotPassword': { en: 'Forgot password?', es: '¿Olvidaste tu contraseña?' },
+
+  // ─── Auth: Forgot Password ───
+  'forgotPassword.title': { en: 'Reset your password', es: 'Restablece tu contraseña' },
+  'forgotPassword.subtitle': {
+    en: "Enter the email you signed up with and we'll send you a link to set a new password.",
+    es: 'Ingresa el correo con el que te registraste y te enviaremos un enlace para crear una nueva contraseña.',
+  },
+  'forgotPassword.email': { en: 'Email', es: 'Correo electrónico' },
+  'forgotPassword.button': { en: 'Send reset link', es: 'Enviar enlace de restablecimiento' },
+  'forgotPassword.loading': { en: 'Sending...', es: 'Enviando...' },
+  'forgotPassword.sentTitle': { en: 'Check your email', es: 'Revisa tu correo' },
+  'forgotPassword.sentBody': {
+    en: "We've sent a link to reset your password. If you don't see it, check your spam folder.",
+    es: 'Te enviamos un enlace para restablecer tu contraseña. Si no lo ves, revisa tu carpeta de spam.',
+  },
+  'forgotPassword.backToSignIn': { en: 'Back to sign in', es: 'Volver a iniciar sesión' },
+
+  // ─── Auth: Reset Password (new-password landing from email) ───
+  'resetPassword.title': { en: 'Set a new password', es: 'Crea una nueva contraseña' },
+  'resetPassword.subtitle': {
+    en: 'Enter your new password below. You will be signed in automatically.',
+    es: 'Escribe tu nueva contraseña abajo. Iniciarás sesión automáticamente.',
+  },
+  'resetPassword.newPassword': { en: 'New password', es: 'Nueva contraseña' },
+  'resetPassword.confirmPassword': { en: 'Confirm password', es: 'Confirma la contraseña' },
+  'resetPassword.mismatch': { en: 'Passwords do not match.', es: 'Las contraseñas no coinciden.' },
+  'resetPassword.tooShort': { en: 'Password must be at least 6 characters.', es: 'La contraseña debe tener al menos 6 caracteres.' },
+  'resetPassword.button': { en: 'Update password', es: 'Actualizar contraseña' },
+  'resetPassword.loading': { en: 'Updating...', es: 'Actualizando...' },
+  'resetPassword.success': { en: 'Password updated. Welcome back.', es: 'Contraseña actualizada. Bienvenido de vuelta.' },
+  'resetPassword.invalidLink': {
+    en: 'This reset link is invalid or has expired. Request a new one from the sign-in page.',
+    es: 'Este enlace es inválido o ha expirado. Solicita uno nuevo desde la página de inicio de sesión.',
+  },
+
+  // ─── Auth: Email confirmation landing ───
+  'confirm.loading': { en: 'Confirming your email...', es: 'Confirmando tu correo...' },
+  'confirm.error': {
+    en: "We couldn't confirm your email. The link may have expired — try signing up again or contact support.",
+    es: 'No pudimos confirmar tu correo. El enlace puede haber expirado — intenta registrarte de nuevo o contacta a soporte.',
+  },
 
   // ─── Auth: Sign Up ───
   'signUp.title': { en: 'Create your account', es: 'Crea tu cuenta' },
@@ -597,9 +815,26 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'Tap the Share icon, then "Add to Home Screen." Open it from there and we’re set.',
     es: 'Toca el ícono de Compartir y luego "Añadir a pantalla de inicio". Ábrelo desde ahí y listo.',
   },
-  'onboarding.install.iosStep1': { en: 'Tap the Share icon', es: 'Toca Compartir' },
-  'onboarding.install.iosStep2': { en: '"Add to Home Screen"', es: '"Añadir a pantalla de inicio"' },
-  'onboarding.install.iosStep3': { en: 'Tap Add', es: 'Toca Añadir' },
+  'onboarding.install.iosStep1': {
+    en: 'Tap the ••• menu at the bottom of Safari',
+    es: 'Toca el menú ••• abajo de Safari',
+  },
+  'onboarding.install.iosStep2': {
+    en: 'Tap Share',
+    es: 'Toca Compartir',
+  },
+  'onboarding.install.iosStep3': {
+    en: 'Tap View More',
+    es: 'Toca Ver más',
+  },
+  'onboarding.install.iosStep4': {
+    en: 'Tap "Add to Home Screen"',
+    es: 'Toca "Añadir a pantalla de inicio"',
+  },
+  'onboarding.install.iosStep5': {
+    en: 'Tap Add — done',
+    es: 'Toca Añadir — listo',
+  },
   'onboarding.install.androidTitle': { en: 'Install as an app', es: 'Instala como app' },
   'onboarding.install.androidBody': {
     en: 'Your phone will ask permission — say yes.',
