@@ -67,6 +67,11 @@ interface Props {
   // icon is rendered and receives the listeners; when absent, the
   // card is static. Keeps the card dumb — no dnd-kit import required.
   dragHandleProps?: Record<string, unknown>;
+  // Parent list/folder (Today tab passes this so the card can render a
+  // folder chip in its metadata row). Pages where tasks already share
+  // a list — like /lists/[id] — omit it to avoid redundant chips on
+  // every row.
+  list?: { id: string; name: string; is_inbox?: boolean | null } | null;
 }
 
 export function TaskCard({
@@ -78,6 +83,7 @@ export function TaskCard({
   showDate,
   index,
   dragHandleProps,
+  list,
 }: Props) {
   const updateTask = useTaskStore((s) => s.updateTask);
   const reminderFired =
@@ -303,6 +309,31 @@ export function TaskCard({
           {task.category && task.category !== 'other' && (
             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${CATEGORY_CHIP_CLASS[task.category] ?? 'bg-surface-elevated text-text-tertiary'}`}>
               {task.category}
+            </span>
+          )}
+          {/* Folder/list chip — sits next to the category so the parent
+              project reads as part of the row's metadata instead of as
+              a separate line below. Inbox is suppressed (it's the
+              default bucket; chip would be noise). Custom list emoji
+              is intentionally not used — a consistent folder glyph
+              makes the chip's role unambiguous. */}
+          {list && !list.is_inbox && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-surface-elevated text-text-tertiary inline-flex items-center gap-1 max-w-[140px]">
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+                className="flex-shrink-0"
+              >
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              <span className="truncate">{list.name}</span>
             </span>
           )}
           {/* Subgroup chip (e.g. morning/evening for medications) */}

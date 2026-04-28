@@ -112,22 +112,16 @@ function SortableTaskCard({
           ) : undefined
         }
       >
-        <div className="space-y-0.5">
-          <TaskCard
-            task={task}
-            index={index}
-            onToggle={onToggle}
-            onTap={onTap}
-            onEdit={onEdit}
-            inlineEdit={inlineEdit}
-            dragHandleProps={listeners}
-          />
-          {list && !list.is_inbox && (
-            <p className="pl-9 text-[11px] text-text-tertiary">
-              {list.icon ?? '📁'} {list.name}
-            </p>
-          )}
-        </div>
+        <TaskCard
+          task={task}
+          list={list}
+          index={index}
+          onToggle={onToggle}
+          onTap={onTap}
+          onEdit={onEdit}
+          inlineEdit={inlineEdit}
+          dragHandleProps={listeners}
+        />
       </SwipeToDelete>
     </div>
   );
