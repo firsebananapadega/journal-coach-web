@@ -14,26 +14,13 @@
 import { Suspense, useEffect, useMemo, useState, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { useGroceryStore, type GroceryGroup, type GroceryItem } from '@/stores/groceryStore';
-import { usePriorityStore } from '@/stores/priorityStore';
-import { useListStore } from '@/stores/listStore';
-import { useTaskStore } from '@/stores/taskStore';
-import { toLocalDateStr } from '@/lib/dateUtils';
+import { useGroceryStore, type GroceryItem } from '@/stores/groceryStore';
 import { t } from '@/lib/translations';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import EmptyState from '@/components/ui/EmptyState';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import GroceryShareSheet from '@/components/GroceryShareSheet';
-import {
-  classifyCapture,
-  type CaptureResult,
-} from '@/lib/captureEngine';
-import { commitCapture } from '@/lib/captureCommit';
-import {
-  CapturePreviewSheet,
-  type CompletionMatch,
-  type PriorityDestinations,
-} from '@/components/CapturePreviewSheet';
+import { AddGrocerySheet } from '@/components/AddGrocerySheet';
 
 export default function GroceriesPage() {
   return (
@@ -44,7 +31,6 @@ export default function GroceriesPage() {
 }
 
 function GroceriesInner() {
-  const todayStr = useMemo(() => toLocalDateStr(new Date()), []);
   const router = useRouter();
   const searchParams = useSearchParams();
   const justJoined = searchParams.get('joined') === '1';
@@ -60,32 +46,17 @@ function GroceriesInner() {
   const removeGroup = useGroceryStore((s) => s.removeGroup);
   const renameItem = useGroceryStore((s) => s.renameItem);
   const addItem = useGroceryStore((s) => s.addItem);
-  const addGroupsFromCapture = useGroceryStore((s) => s.addGroupsFromCapture);
   const pendingInvites = useGroceryStore((s) => s.pendingInvitesForMe);
   const acceptPendingInvite = useGroceryStore((s) => s.acceptPendingInvite);
   const declinePendingInvite = useGroceryStore((s) => s.declinePendingInvite);
 
-  // Priorities-side capture preview still uses the old store for
-  // priority items (we only normalized groceries).
-  const priorityItems = usePriorityStore((s) => s.items);
-  const fetchPriorities = usePriorityStore((s) => s.fetchPriorities);
-
-  const [newItem, setNewItem] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<CaptureResult | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [addItemOpen, setAddItemOpen] = useState(false);
   const [showJoinedPrompt, setShowJoinedPrompt] = useState(justJoined);
-
-  const lists = useListStore((s) => s.lists);
-  const fetchLists = useListStore((s) => s.fetchLists);
-  const fetchTasks = useTaskStore((s) => s.fetchAll);
 
   useEffect(() => {
     void loadActive();
-    fetchLists();
-    fetchTasks();
-    fetchPriorities(todayStr);
-  }, [loadActive, fetchLists, fetchTasks, fetchPriorities, todayStr]);
+  }, [loadActive]);
 
   useEffect(() => {
     if (!listId) return;
@@ -129,57 +100,6 @@ function GroceriesInner() {
       } catch {}
       return next;
     });
-  };
-
-  const handleAdd = async () => {
-    const text = newItem.trim();
-    if (!text || busy) return;
-    setBusy(true);
-    try {
-      const result = await classifyCapture(text, {
-        existingGroceries: items.map((i) => i.name),
-        existingPriorities: priorityItems.map((p) => p.text),
-      });
-      // If Gemini didn't detect any grocery items, fall back to one
-      // grocery item under "General" so the user's input isn't lost.
-      if (
-        result.groceries.length === 0 &&
-        result.priorities.length === 0
-      ) {
-        result.groceries.push({ store: 'General', items: [text] });
-      }
-      setPending(result);
-    } catch {
-      // Fallback path — write the raw text as a single item under General.
-      await addGroupsFromCapture([{ store: 'General', items: [text] }]);
-      setNewItem('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onConfirm = async (
-    edited: CaptureResult,
-    matches: CompletionMatch[],
-    destinations: PriorityDestinations,
-  ) => {
-    await commitCapture(edited, destinations, {
-      selectedDate: todayStr,
-      lists,
-    });
-    for (const m of matches) {
-      if (!m.target) continue;
-      try {
-        if (m.intent.type === 'skip') {
-          if (m.target.kind === 'grocery') {
-            await removeItem(m.target.item.id);
-          }
-        } else if (m.target.kind === 'grocery') {
-          await toggleItem(m.target.item.id);
-        }
-      } catch {}
-    }
-    setNewItem('');
   };
 
   const dismissJoinedPrompt = () => {
@@ -234,30 +154,56 @@ function GroceriesInner() {
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setShareOpen(true)}
-          aria-label={t('groceries.shareAria')}
-          className="w-9 h-9 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-text-primary"
-        >
-          <svg
-            width={18}
-            height={18}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
+        <div className="flex items-center gap-2">
+          {/* Primary add — tapping opens the manual-entry sheet. The
+              previous always-visible textbox routed through the AI
+              capture engine; this button is the deliberate "type in
+              one item, no AI" path. */}
+          <button
+            type="button"
+            onClick={() => setAddItemOpen(true)}
+            aria-label={t('common.add')}
+            className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:bg-primary-dark transition-colors"
           >
-            <circle cx="18" cy="5" r="3" />
-            <circle cx="6" cy="12" r="3" />
-            <circle cx="18" cy="19" r="3" />
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-          </svg>
-        </button>
+            <svg
+              width={18}
+              height={18}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            aria-label={t('groceries.shareAria')}
+            className="w-9 h-9 rounded-full bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-text-primary"
+          >
+            <svg
+              width={18}
+              height={18}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {showJoinedPrompt && (
@@ -373,54 +319,10 @@ function GroceriesInner() {
         })}
       </div>
 
-      <div className="flex gap-2 sticky bottom-0 bg-bg pt-2 pb-1">
-        <input
-          value={newItem}
-          onChange={(e) => setNewItem(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-          placeholder={t('groceries.placeholder')}
-          className="flex-1 px-3 py-2.5 bg-surface border border-border rounded-xl text-sm text-text-primary outline-none focus:border-primary"
-        />
-        <button
-          onClick={handleAdd}
-          disabled={!newItem.trim() || busy}
-          className="px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-40"
-        >
-          {busy ? t('preview.saving') : t('common.add')}
-        </button>
-      </div>
-
-      <CapturePreviewSheet
-        open={pending !== null}
-        result={pending}
-        existingPriorities={priorityItems}
-        existingGroceries={groupsForCapturePreview(groups, items)}
-        lists={lists}
-        onCancel={() => setPending(null)}
-        onConfirm={async (edited, matches, destinations) => {
-          await onConfirm(edited, matches, destinations);
-          setPending(null);
-        }}
-      />
-
       <GroceryShareSheet open={shareOpen} onClose={() => setShareOpen(false)} />
+      <AddGrocerySheet open={addItemOpen} onClose={() => setAddItemOpen(false)} />
     </div>
   );
-}
-
-// CapturePreviewSheet still expects the legacy GroceryGroup shape
-// (with embedded items). Adapt our flat state into the shape it needs.
-function groupsForCapturePreview(
-  groups: GroceryGroup[],
-  items: GroceryItem[],
-): { id: string; store: string; items: { id: string; name: string; completed: boolean }[] }[] {
-  return groups.map((g) => ({
-    id: g.id,
-    store: g.store,
-    items: items
-      .filter((i) => i.group_id === g.id)
-      .map((i) => ({ id: i.id, name: i.name, completed: i.completed })),
-  }));
 }
 
 function GroceryItemRow({

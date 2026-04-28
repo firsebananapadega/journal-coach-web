@@ -18,28 +18,22 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from '@dnd-kit/sortable';
-import { usePriorityStore, type PriorityItem } from '@/stores/priorityStore';
-import { useGroceryStore } from '@/stores/groceryStore';
-import type { GroceryGroup } from '@/components/CapturePreviewSheet';
 import { useHabitStore } from '@/stores/habitStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { t } from '@/lib/translations';
 import { getLanguage } from '@/lib/language';
-import { classifyCapture, resolveWhen, type CaptureResult } from '@/lib/captureEngine';
-import { supabase } from '@/lib/supabase';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import { motion } from 'framer-motion';
 import EmptyState from '@/components/ui/EmptyState';
 import { useUiStore } from '@/stores/uiStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
-import { CapturePreviewSheet, type CompletionMatch, type PriorityDestinations } from '@/components/CapturePreviewSheet';
 import { MatrixView } from '@/components/MatrixView';
 import { TaskCard } from '@/components/TaskCard';
 import { TaskEditSheet } from '@/components/TaskEditSheet';
+import { AddTaskSheet } from '@/components/AddTaskSheet';
 import { useTaskStore, type Task } from '@/stores/taskStore';
 import type { ListRecord } from '@/stores/listStore';
 import { useListStore } from '@/stores/listStore';
-import { commitCapture as commitCaptureShared } from '@/lib/captureCommit';
 
 function buildWeekDates(): Date[] {
   const today = new Date();
@@ -132,51 +126,13 @@ export default function PrioritiesPage() {
   const weekDates = useMemo(() => buildWeekDates(), []);
   const [selectedDate, setSelectedDate] = useState(todayDateStr);
 
-  // Legacy priorityStore kept around solely for the capture-preview
-  // completion-match path (see commitCapture below) which still resolves
-  // checkoff matches against pre-unification daily_priorities items.
-  // /today render itself now reads exclusively from the tasks table.
-  const items = usePriorityStore((s) => s.items);
-  const fetchPriorities = usePriorityStore((s) => s.fetchPriorities);
-  const savePriorities = usePriorityStore((s) => s.savePriorities);
-  // Groceries moved to their own normalized + realtime store; the
-  // /today page reads from it for capture context + completion routing
-  // even though the grocery list is rendered on /groceries.
-  const groceryGroups = useGroceryStore((s) => s.groups);
-  const groceryItems = useGroceryStore((s) => s.items);
-  const loadActiveGrocery = useGroceryStore((s) => s.loadActive);
-  // Reconstruct the legacy nested-items shape that CapturePreviewSheet
-  // needs for fuzzy matching of "I bought X" completions.
-  const groceries: GroceryGroup[] = useMemo(
-    () =>
-      groceryGroups.map((g) => ({
-        id: g.id,
-        store: g.store,
-        items: groceryItems
-          .filter((i) => i.group_id === g.id)
-          .map((i) => ({ id: i.id, name: i.name, completed: i.completed })),
-      })),
-    [groceryGroups, groceryItems],
-  );
   const celebrate = useUiStore((s) => s.celebrate);
   const showToast = useUiStore((s) => s.showToast);
   const lastAllDone = useRef(false);
   const { habits, fetchHabits, completions, fetchCompletions, toggleCompletion } = useHabitStore();
-  const [newItem, setNewItem] = useState('');
-  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [log, setLog] = useState<string[]>([]);
-
-  const itemsRef = useRef(items);
-  const groceriesRef = useRef(groceries);
-  itemsRef.current = items;
-  groceriesRef.current = groceries;
-
-  // Pre-save preview state — same pattern as the /voice page. The user
-  // taps Add → we run classifyCapture → open the sheet → only commit on
-  // confirm so they can edit categories, drop wrong items, etc.
-  const [pendingCapture, setPendingCapture] = useState<CaptureResult | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
 
   // List | Matrix view toggle. Matrix view replaces the unified list
   // with an Eisenhower 2×2 grid + Unsorted stack. Tap any task in
@@ -234,14 +190,9 @@ export default function PrioritiesPage() {
   }, []);
 
   useEffect(() => {
-    fetchPriorities(selectedDate);
     fetchHabits();
     fetchCompletions(selectedDate, selectedDate);
-    // Make sure the shared grocery list is loaded so capture context
-    // (existing items) is fresh. /groceries owns the realtime channel;
-    // we just need a one-shot read here.
-    void loadActiveGrocery();
-  }, [fetchPriorities, fetchHabits, fetchCompletions, loadActiveGrocery, selectedDate]);
+  }, [fetchHabits, fetchCompletions, selectedDate]);
 
   // Celebrate when user completes the last task of the day.
   useEffect(() => {
@@ -256,17 +207,6 @@ export default function PrioritiesPage() {
     }
     lastAllDone.current = allDone;
   }, [scheduledForSelectedDate, celebrate, showToast]);
-
-  const handleAddItem = () => {
-    if (!newItem.trim()) return;
-    const text = newItem.trim();
-    setError('');
-    setProcessing(true);
-    addLog(`Processing: "${text.substring(0, 50)}..."`);
-    // No more eager localStorage.journal_priorities write — the journal
-    // page Priorities tab now reads from the same Supabase store.
-    handleAddTasks(text);
-  };
 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -301,123 +241,6 @@ export default function PrioritiesPage() {
   const activeDragTask = activeDragId
     ? scheduledForSelectedDate.find((t) => t.id === activeDragId) ?? null
     : null;
-
-  const handleAddTasks = async (inputText?: string) => {
-    const text = (inputText || newItem).trim();
-    if (!text) {
-      addLog('No text to process');
-      setProcessing(false);
-      return;
-    }
-
-    setProcessing(true);
-    setError('');
-
-    try {
-      // Pass current items so Gemini can match "I bought celery" against
-      // the existing celery row instead of duplicating it.
-      const result = await classifyCapture(text, {
-        existingGroceries: groceries.flatMap((g) => g.items.map((i) => i.name)),
-        existingPriorities: items.map((p) => p.text),
-      });
-      addLog(`Classified: ${result.priorities.length} tasks, ${result.groceries.length} grocery groups, ${result.completions.length} completions`);
-
-      // If Gemini returned nothing actionable AND no completions to apply,
-      // fall back to a single "other" task on the selected date so the
-      // user's input isn't silently lost.
-      if (
-        result.priorities.length === 0 &&
-        result.groceries.length === 0 &&
-        result.plans.length === 0 &&
-        result.completions.length === 0 &&
-        result.intentions.length === 0 &&
-        result.habits.length === 0 &&
-        result.ideas.length === 0 &&
-        result.gratitude.length === 0 &&
-        !result.journal
-      ) {
-        result.priorities.push({ text, when: 'today', category: 'other', subgroup: null });
-      }
-
-      setPendingCapture(result);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addLog(`Capture engine failed: ${msg}, falling back to raw text`);
-      // Fallback: skip the preview and write raw text directly so the
-      // user's input isn't lost on classification failure.
-      try {
-        const currentItems = itemsRef.current;
-        const fallbackItem: PriorityItem = {
-          id: crypto.randomUUID(),
-          text,
-          completed: false,
-          sort_order: currentItems.length,
-          category: 'other',
-          subgroup: null,
-        };
-        await savePriorities(selectedDate, [...currentItems, fallbackItem]);
-        addLog('Saved raw text as task (fallback)');
-        setNewItem('');
-      } catch (saveErr) {
-        const saveMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
-        setError(`Save failed: ${saveMsg}`);
-        addLog(`Supabase save failed: ${saveMsg}`);
-      }
-    }
-
-    setProcessing(false);
-  };
-
-  // Runs after the user confirms the CapturePreviewSheet. All the writes
-  // that used to happen inline in handleAddTasks live here now so nothing
-  // hits Supabase until the user has reviewed.
-  const commitCapture = async (
-    edited: CaptureResult,
-    completionMatches: CompletionMatch[],
-    destinations: PriorityDestinations,
-  ) => {
-    addLog('Committing reviewed capture...');
-
-    const summary = await commitCaptureShared(edited, destinations, {
-      selectedDate,
-      lists,
-      log: addLog,
-    });
-    if (summary.todayCount > 0) addLog(`Today += ${summary.todayCount}`);
-    if (summary.taskCount > 0) addLog(`Tasks += ${summary.taskCount}`);
-    if (summary.groceryCount > 0) addLog(`Groceries += ${summary.groceryCount}`);
-    if (summary.newListsCreated.length > 0)
-      addLog(`Created lists: ${summary.newListsCreated.join(', ')}`);
-
-    // Apply completion matches the user kept in the preview
-    let checkoffCount = 0;
-    for (const m of completionMatches) {
-      if (!m.target) continue;
-      try {
-        if (m.intent.type === 'skip') {
-          if (m.target.kind === 'priority') {
-            await usePriorityStore.getState().removeItem(m.target.item.id);
-          } else {
-            await useGroceryStore.getState().removeItem(m.target.item.id);
-          }
-        } else {
-          if (m.target.kind === 'priority') {
-            await usePriorityStore.getState().markItemDone(m.target.item.id);
-          } else {
-            await useGroceryStore.getState().markItemDone(m.target.item.id);
-          }
-        }
-        checkoffCount += 1;
-      } catch (e) {
-        console.warn('completion application failed', m.intent, e);
-      }
-    }
-    if (checkoffCount > 0) addLog(`Applied ${checkoffCount} check-off(s)`);
-
-    // Refresh the view for the currently selected date.
-    await fetchPriorities(selectedDate);
-    setNewItem('');
-  };
 
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-8 space-y-6">
@@ -461,48 +284,16 @@ export default function PrioritiesPage() {
         })}
       </div>
 
-      {/* Add priority — full-width input. Voice capture lives in the
-          Tasks-wall center button now, so the page-level mic button
-          was retired and the textarea expands across the full row. */}
-      <div className="space-y-2">
-        <div className="flex gap-2">
-          <textarea
-            value={newItem}
-            onChange={(e) => setNewItem(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (newItem.trim()) handleAddItem();
-              }
-            }}
-            placeholder={t('priorities.placeholder')}
-            rows={1}
-            className="flex-1 px-4 py-3 bg-surface border border-border focus:border-primary rounded-xl text-text-primary outline-none text-sm resize-none transition-all"
-            style={{ height: '44px' }}
-          />
-        </div>
-
-        {newItem.trim() && (
-          <button
-            onClick={handleAddItem}
-            disabled={processing}
-            className="w-full py-2.5 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50 text-sm"
-          >
-            {processing ? t('priorities.processing') : t('priorities.addTasks')}
-          </button>
-        )}
-
-        {error && (
-          <div className="bg-error/10 border border-error/30 rounded-xl p-3">
-            <p className="text-sm text-error">{error}</p>
-          </div>
-        )}
-      </div>
-
-      {/* List | Matrix toggle — applies to the unified task list only.
-          Habits stay rendered the same way regardless. */}
-      {scheduledForSelectedDate.length > 0 && (
-        <div className="flex items-center gap-2">
+      {/* Header toggle row — always rendered so the + add button has a
+          stable home. List | Matrix toggle continues to render only
+          when there are tasks for the selected day; otherwise the
+          left side is empty and the + sits alone on the right. The
+          textarea-based always-visible input was retired in favor of
+          the modal — voice capture has its own dedicated /voice
+          surface, and the modal is for users who want to type in a
+          task directly without going through the AI engine. */}
+      <div className="flex items-center justify-between gap-2">
+        {scheduledForSelectedDate.length > 0 ? (
           <div className="inline-flex p-0.5 rounded-xl bg-surface border border-border">
             <button
               onClick={() => setViewMode('list')}
@@ -527,6 +318,34 @@ export default function PrioritiesPage() {
               {t('view.matrix')}
             </button>
           </div>
+        ) : (
+          <div />
+        )}
+        <button
+          type="button"
+          onClick={() => setAddTaskOpen(true)}
+          aria-label="Add task"
+          className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:bg-primary-dark transition-colors flex-shrink-0"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            aria-hidden
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-error/10 border border-error/30 rounded-xl p-3">
+          <p className="text-sm text-error">{error}</p>
         </div>
       )}
 
@@ -670,7 +489,7 @@ export default function PrioritiesPage() {
       })()}
 
       {/* Empty state */}
-      {scheduledForSelectedDate.length === 0 && habits.filter((h) => h.is_active).length === 0 && !tasksLoading && !processing && (
+      {scheduledForSelectedDate.length === 0 && habits.filter((h) => h.is_active).length === 0 && !tasksLoading && (
         <EmptyState pose="wave" title={t('priorities.empty')} />
       )}
 
@@ -689,31 +508,21 @@ export default function PrioritiesPage() {
         </div>
       )}
 
-      <CapturePreviewSheet
-        open={pendingCapture !== null}
-        result={pendingCapture}
-        existingPriorities={items}
-        existingGroceries={groceries}
-        lists={lists}
-        busy={previewBusy}
-        onCancel={() => setPendingCapture(null)}
-        onConfirm={async (edited, matches, destinations) => {
-          setPreviewBusy(true);
-          try {
-            await commitCapture(edited, matches, destinations);
-          } finally {
-            setPreviewBusy(false);
-            setPendingCapture(null);
-          }
-        }}
-      />
-
       {/* Matrix-tap and other quadrant flows on /today now go straight
           to the richer TaskEditSheet — same sheet as /upcoming and
           /lists/[id] so editing is consistent across the app. */}
       <TaskEditSheet
         task={scheduledQuadrantTask}
         onClose={() => setScheduledQuadrantTask(null)}
+      />
+
+      {/* Manual add — bypasses the AI capture engine. New tasks land on
+          the currently-selected day so adding from /today doesn't
+          mysteriously land tomorrow's tasks on today's view. */}
+      <AddTaskSheet
+        open={addTaskOpen}
+        onClose={() => setAddTaskOpen(false)}
+        defaultDueDate={selectedDate}
       />
     </div>
   );
