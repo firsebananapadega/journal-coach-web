@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGroceryStore } from '@/stores/groceryStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
+import { useVisualViewport } from '@/hooks/useVisualViewport';
 
 interface Props {
   open: boolean;
@@ -28,6 +29,10 @@ export function AddGrocerySheet({ open, onClose, defaultGroupId }: Props) {
   const groups = useGroceryStore((s) => s.groups);
   const addItem = useGroceryStore((s) => s.addItem);
   const addGroup = useGroceryStore((s) => s.addGroup);
+  // See AddTaskSheet for rationale — pin sheet to the visual viewport
+  // when the keyboard is up.
+  const vv = useVisualViewport();
+  const keyboardOpen = vv?.keyboardOpen ?? false;
 
   const [text, setText] = useState('');
   // Either an existing group id, or NEW_STORE for the inline-create path.
@@ -97,10 +102,17 @@ export function AddGrocerySheet({ open, onClose, defaultGroupId }: Props) {
                 : { type: 'spring', stiffness: 380, damping: 36 }
             }
             className="fixed inset-x-3 z-[70] bg-surface rounded-3xl border border-border shadow-warm-xl flex flex-col overflow-hidden"
-            style={{
-              bottom: 'max(18dvh, env(safe-area-inset-bottom) + 0.75rem)',
-              maxHeight: '70dvh',
-            }}
+            style={
+              vv && keyboardOpen
+                ? {
+                    bottom: `${vv.layoutHeight - vv.offsetTop - vv.height + 12}px`,
+                    maxHeight: `${vv.height - 24}px`,
+                  }
+                : {
+                    bottom: 'max(18dvh, env(safe-area-inset-bottom) + 0.75rem)',
+                    maxHeight: '70dvh',
+                  }
+            }
           >
             <div className="shrink-0 pt-3 pb-1">
               <div className="w-10 h-1 rounded-full bg-border mx-auto" />

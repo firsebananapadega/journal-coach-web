@@ -14,6 +14,7 @@ import { useListStore, type ListRecord } from '@/stores/listStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { t } from '@/lib/translations';
 import { prefersReducedMotion } from '@/lib/motionVariants';
+import { useVisualViewport } from '@/hooks/useVisualViewport';
 
 interface Props {
   open: boolean;
@@ -108,6 +109,12 @@ export function AddTaskSheet({
   const addTask = useTaskStore((s) => s.addTask);
   const lists = useListStore((s) => s.lists);
   const fetchLists = useListStore((s) => s.fetchLists);
+  // Visual-viewport tracking so we can pin the sheet's bottom edge
+  // to the actual visible region when the iOS keyboard is up. CSS
+  // dvh-based positioning is unreliable across iOS Safari versions —
+  // see useVisualViewport for the full rationale.
+  const vv = useVisualViewport();
+  const keyboardOpen = vv?.keyboardOpen ?? false;
 
   const [text, setText] = useState('');
   const [listId, setListId] = useState<string | null>(null);
@@ -202,10 +209,25 @@ export function AddTaskSheet({
                 : { type: 'spring', stiffness: 380, damping: 36 }
             }
             className="fixed inset-x-3 z-[70] bg-surface rounded-3xl border border-border shadow-warm-xl flex flex-col overflow-hidden"
-            style={{
-              bottom: 'max(18dvh, env(safe-area-inset-bottom) + 0.75rem)',
-              maxHeight: '80dvh',
-            }}
+            style={
+              vv && keyboardOpen
+                ? {
+                    // Pin sheet's bottom edge 12px above the visible
+                    // viewport's bottom (= 12px above the keyboard's
+                    // top edge). Cap maxHeight to vv.height − 24px so
+                    // the sheet never extends past the visible top.
+                    bottom: `${vv.layoutHeight - vv.offsetTop - vv.height + 12}px`,
+                    maxHeight: `${vv.height - 24}px`,
+                  }
+                : {
+                    // Keyboard closed: existing floating mid-bottom
+                    // position so the sheet doesn't glue to the bottom
+                    // edge and the user can still tap below it to
+                    // dismiss.
+                    bottom: 'max(18dvh, env(safe-area-inset-bottom) + 0.75rem)',
+                    maxHeight: '80dvh',
+                  }
+            }
           >
             <div className="shrink-0 pt-3 pb-1">
               <div className="w-10 h-1 rounded-full bg-border mx-auto" />
