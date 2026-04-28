@@ -342,6 +342,32 @@ function GroceryItemRow({
     if (!editing) setDraft(item.name);
   }, [item.name, editing]);
 
+  // Single tap on the item text → toggles complete (matches TaskCard's
+  // /today behavior). Double tap inside 220ms → opens inline edit. The
+  // checkbox button (separate) stays as instant toggle so users who
+  // know that target still get the no-delay path.
+  const TAP_WINDOW_MS = 220;
+  const tapTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (tapTimerRef.current !== null) {
+        window.clearTimeout(tapTimerRef.current);
+      }
+    };
+  }, []);
+  const handleTextTap = () => {
+    if (tapTimerRef.current !== null) {
+      window.clearTimeout(tapTimerRef.current);
+      tapTimerRef.current = null;
+      setEditing(true);
+      return;
+    }
+    tapTimerRef.current = window.setTimeout(() => {
+      tapTimerRef.current = null;
+      onToggle();
+    }, TAP_WINDOW_MS);
+  };
+
   const commit = () => {
     const trimmed = draft.trim();
     if (trimmed && trimmed !== item.name) {
@@ -399,7 +425,7 @@ function GroceryItemRow({
       ) : (
         <button
           type="button"
-          onClick={() => setEditing(true)}
+          onClick={handleTextTap}
           className={`flex-1 text-left text-base py-0.5 ${
             item.completed
               ? 'text-text-tertiary line-through'

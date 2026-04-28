@@ -119,6 +119,16 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// Append the "from-notification" flag to a target URL. The app's
+// (app)/layout.tsx checks for ?n=1 on first render and skips its
+// cold-start wallState restore so the user lands on the URL the
+// notification actually pointed at, not their last-active wall. The
+// layout strips the param after consuming it.
+function withNotifFlag(url) {
+  if (!url) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'n=1';
+}
+
 // ── Notification click / action handler ──────────────────────────
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
@@ -135,7 +145,7 @@ self.addEventListener('notificationclick', (event) => {
     // DailyPulseCard. Same nav pattern as letters: try to focus an
     // existing window before opening a new one.
     if (isPulse) {
-      const target = data.url || '/home';
+      const target = withNotifFlag(data.url || '/home');
       const winClients = await self.clients.matchAll({
         type: 'window',
         includeUncontrolled: true,
@@ -157,9 +167,9 @@ self.addEventListener('notificationclick', (event) => {
     // branches so archive taps never accidentally fall through.
     if (isLetter || isPattern || isQuarterly) {
       const itemId = data.letter_id || data.pattern_id || data.quarterly_id;
-      const target = itemId
-        ? `/letters/${itemId}`
-        : (data.url || '/letters');
+      const target = withNotifFlag(
+        itemId ? `/letters/${itemId}` : (data.url || '/letters'),
+      );
       const winClients = await self.clients.matchAll({
         type: 'window',
         includeUncontrolled: true,
@@ -214,7 +224,7 @@ self.addEventListener('notificationclick', (event) => {
 
     // Plain tap → focus an existing client or open the app at /today
     // (task view) so the user lands on something actionable.
-    const target = taskId ? '/today' : '/home';
+    const target = withNotifFlag(taskId ? '/today' : '/home');
     const winClients = await self.clients.matchAll({
       type: 'window',
       includeUncontrolled: true,

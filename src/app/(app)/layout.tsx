@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Link from 'next/link';
 import { t } from '@/lib/translations';
@@ -21,6 +21,7 @@ const JOURNAL_HOME = '/home';
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const session = useAuthStore((s) => s.session);
   const initialized = useAuthStore((s) => s.initialized);
   const profile = useAuthStore((s) => s.profile);
@@ -108,6 +109,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (profile.primary_use === 'tasks' && currentWall === 'journal') return TASKS_HOME;
     if (profile.primary_use === 'journal' && currentWall === 'tasks') return JOURNAL_HOME;
 
+    // Notification deep-link flag — when the SW navigates here from a
+    // tapped notification, it appends ?n=1 to the target URL. Skip the
+    // wallState restore so the user actually lands on the URL the
+    // notification pointed at, instead of being yanked to whichever
+    // wall they had open last. Branch (a) above still applies because
+    // primary_use is a permanent scope, not session state. The strip
+    // effect below removes the param after consumption.
+    if (searchParams?.get('n') === '1') return null;
+
     // (b) wallState restore — only applies on cold-start / resume.
     if (!wallCheckPending.current) return null;
     if (typeof window === 'undefined') return null;
@@ -159,6 +169,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (!initialized || !profile) return;
     wallCheckPending.current = false;
   }, [initialized, profile, pathname, resumeNonce]);
+
+  // Strip the SW-injected ?n=1 flag once we've consumed it for the
+  // wall-restore skip above. Keeping it in the URL would leak it into
+  // shared links, the address bar, and back-button history. The ref
+  // guard prevents an infinite loop in case searchParams updates
+  // mid-pass.
+  const stripNotifFlagRef = useRef(false);
+  useEffect(() => {
+    if (stripNotifFlagRef.current) return;
+    if (!searchParams || searchParams.get('n') !== '1') return;
+    stripNotifFlagRef.current = true;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('n');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }, [pathname, searchParams, router]);
 
   // Companion to the inline `wall-pending` script in src/app/layout.tsx.
   // The inline script puts the class on at pagehide so iOS's bfcache

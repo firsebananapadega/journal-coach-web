@@ -417,6 +417,7 @@ export default function ListDetailPage({ params }: PageProps) {
                             onToggle={() => toggleComplete(task.id)}
                             onTap={() => toggleComplete(task.id)}
                             onEdit={() => setQuadrantTask(task)}
+                            inlineEdit
                             showDate
                           />
                         </SwipeToDelete>
@@ -475,6 +476,7 @@ export default function ListDetailPage({ params }: PageProps) {
                             onToggle={() => toggleComplete(task.id)}
                             onTap={() => toggleComplete(task.id)}
                             onEdit={() => setQuadrantTask(task)}
+                            inlineEdit
                           />
                         </SwipeToDelete>
                       ))}
