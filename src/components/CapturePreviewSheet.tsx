@@ -13,12 +13,27 @@ import {
   PRIORITY_CATEGORY_ORDER,
   type PriorityCategory,
   type PriorityItem,
-  type GroceryGroup,
-  type GroceryItem,
 } from '@/stores/priorityStore';
+
+// Groceries used to live inside priorityStore as a JSONB blob with
+// embedded items. The new groceryStore uses flat rows keyed by group_id
+// for realtime sync. CapturePreviewSheet still needs the nested shape
+// for fuzzy matching of completion intents ("I bought milk"), so each
+// caller adapts the flat store state into the shape defined here.
+export interface GroceryItem {
+  id: string;
+  name: string;
+  completed: boolean;
+}
+export interface GroceryGroup {
+  id: string;
+  store: string;
+  items: GroceryItem[];
+}
 import type { ListRecord } from '@/stores/listStore';
 import { useNotebookStore } from '@/stores/notebookStore';
 import NotebookPickerChip from '@/components/notebooks/NotebookPickerChip';
+import TaskReminderChip from '@/components/tasks/TaskReminderChip';
 import { bestMatch } from '@/lib/fuzzyMatch';
 import { t } from '@/lib/translations';
 import { prefersReducedMotion } from '@/lib/motionVariants';
@@ -394,108 +409,10 @@ function TimeChip({
 // NotebookPicker moved to src/components/notebooks/NotebookPickerChip.tsx
 // so it can be reused by the /journal SaveEntrySheet.
 
-// Reminder chip — shows the bell + a human-readable time when the
-// priority carries remind_at_iso. Tap to edit via datetime-local
-// picker (uses the browser's native iOS picker) or clear.
-function ReminderChip({
-  value,
-  onChange,
-}: {
-  value: string | null | undefined; // UTC ISO
-  onChange: (next: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const hasValue = !!value;
-
-  // Convert UTC ISO ↔ datetime-local string ("YYYY-MM-DDTHH:MM" in the
-  // user's local tz). Native <input type="datetime-local"> works in
-  // local time, so we translate both ways.
-  const isoToLocal = (iso: string): string => {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-  const localToIso = (local: string): string | null => {
-    if (!local) return null;
-    const d = new Date(local);
-    if (isNaN(d.getTime())) return null;
-    return d.toISOString();
-  };
-
-  const label = hasValue ? formatLabel(value!) : '+ Reminder';
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full hover:opacity-80 inline-flex items-center gap-1 ${
-          hasValue
-            ? 'bg-warning/15 text-warning'
-            : 'bg-surface-elevated text-text-tertiary'
-        }`}
-        aria-label="Reminder time"
-      >
-        <span aria-hidden>🔔</span>
-        <span>{label}</span>
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 top-full mt-1 left-0 bg-surface-elevated border border-border rounded-lg shadow-warm-md p-2 flex flex-col gap-2 min-w-[220px]">
-            <label className="text-[10px] uppercase tracking-widest text-text-tertiary px-1">
-              Remind me at
-            </label>
-            <input
-              type="datetime-local"
-              value={hasValue ? isoToLocal(value!) : ''}
-              onChange={(e) => {
-                const nextIso = localToIso(e.target.value);
-                onChange(nextIso);
-              }}
-              className="text-xs px-2 py-1.5 bg-bg border border-border rounded text-text-primary outline-none"
-            />
-            <div className="flex items-center justify-between gap-2 pt-1">
-              <button
-                onClick={() => setOpen(false)}
-                className="text-[11px] text-text-secondary px-2 py-1"
-              >
-                Done
-              </button>
-              {hasValue && (
-                <button
-                  onClick={() => {
-                    onChange(null);
-                    setOpen(false);
-                  }}
-                  className="text-[11px] text-text-tertiary hover:text-error px-2 py-1"
-                >
-                  Clear reminder
-                </button>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// Humanize a UTC ISO into "Today 5:03 PM" / "Tomorrow 10:00 AM" /
-// "Wed 3:15 PM" for the chip label.
-function formatLabel(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return 'Reminder';
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diffDays = Math.round((target.getTime() - today.getTime()) / 86_400_000);
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  if (diffDays === 0) return `Today ${time}`;
-  if (diffDays === 1) return `Tomorrow ${time}`;
-  if (diffDays === -1) return `Yesterday ${time}`;
-  return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`;
-}
+// ReminderChip + formatLabel have been lifted to
+// src/components/tasks/TaskReminderChip.tsx so TaskCard +
+// TaskEditSheet can share the exact same picker/popover. Import
+// path: `import TaskReminderChip from '@/components/tasks/TaskReminderChip';`.
 
 function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
@@ -1059,7 +976,7 @@ export function CapturePreviewSheet({
                               value={task.time}
                               onChange={(tm) => updatePriority(i, { time: tm })}
                             />
-                            <ReminderChip
+                            <TaskReminderChip
                               value={task.remind_at_iso}
                               onChange={(r) => updatePriority(i, { remind_at_iso: r })}
                             />

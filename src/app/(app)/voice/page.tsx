@@ -11,7 +11,22 @@ import { useAuthStore } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
 import { classifyCapture, hasContent, parseIntentFallback, type CaptureResult } from '@/lib/captureEngine';
 import { commitCapture } from '@/lib/captureCommit';
-import { usePriorityStore, type PriorityItem, type GroceryGroup } from '@/stores/priorityStore';
+import { usePriorityStore, type PriorityItem } from '@/stores/priorityStore';
+import { useGroceryStore } from '@/stores/groceryStore';
+
+// CapturePreviewSheet still expects the legacy nested-items grocery
+// shape. We reconstruct it from the flat groceryStore on demand.
+type LegacyGroceryGroup = { id: string; store: string; items: { id: string; name: string; completed: boolean }[] };
+function legacyGroceriesFromStore(): LegacyGroceryGroup[] {
+  const { groups, items } = useGroceryStore.getState();
+  return groups.map((g) => ({
+    id: g.id,
+    store: g.store,
+    items: items
+      .filter((i) => i.group_id === g.id)
+      .map((i) => ({ id: i.id, name: i.name, completed: i.completed })),
+  }));
+}
 import { useListStore } from '@/stores/listStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
@@ -93,7 +108,7 @@ export default function VoiceEntryPage() {
   // Snapshot of today's lists at the moment preview opens — used by the
   // sheet's fuzzy completion matcher. Gets refreshed each open.
   const [snapshotPriorities, setSnapshotPriorities] = useState<PriorityItem[]>([]);
-  const [snapshotGroceries, setSnapshotGroceries] = useState<GroceryGroup[]>([]);
+  const [snapshotGroceries, setSnapshotGroceries] = useState<LegacyGroceryGroup[]>([]);
   // User's project lists — drives the destination dropdown in the preview
   // sheet. Fetched once on mount; the listStore caches across pages.
   const lists = useListStore((s) => s.lists);
@@ -154,9 +169,12 @@ export default function VoiceEntryPage() {
   // matcher. Reads through priorityStore so we don't go to Supabase twice.
   const loadSnapshot = async () => {
     const todayStr = toLocalDateStr(new Date());
-    await usePriorityStore.getState().fetchPriorities(todayStr);
+    await Promise.all([
+      usePriorityStore.getState().fetchPriorities(todayStr),
+      useGroceryStore.getState().loadActive(),
+    ]);
     setSnapshotPriorities(usePriorityStore.getState().items);
-    setSnapshotGroceries(usePriorityStore.getState().groceries);
+    setSnapshotGroceries(legacyGroceriesFromStore());
   };
 
   // /voice is the **tasks-wall** capture surface (the Journal wall's
@@ -309,14 +327,17 @@ export default function VoiceEntryPage() {
       const todayStr = toLocalDateStr(new Date());
       trace('fetchPriorities start', { date: todayStr });
       await withTimeout(
-        usePriorityStore.getState().fetchPriorities(todayStr),
+        Promise.all([
+          usePriorityStore.getState().fetchPriorities(todayStr),
+          useGroceryStore.getState().loadActive(),
+        ]),
         5000,
         'fetchPriorities',
       );
       trace('fetchPriorities ok');
 
       setSnapshotPriorities(usePriorityStore.getState().items);
-      setSnapshotGroceries(usePriorityStore.getState().groceries);
+      setSnapshotGroceries(legacyGroceriesFromStore());
       const emptyResult = !hasContent(result);
       const finalResult = emptyResult ? buildFallback() : result;
       if (emptyResult) {
@@ -424,17 +445,13 @@ export default function VoiceEntryPage() {
           if (m.target.kind === 'priority') {
             await usePriorityStore.getState().removeItem(m.target.item.id);
           } else {
-            await usePriorityStore
-              .getState()
-              .removeGroceryItem(m.target.group.id, m.target.item.id);
+            await useGroceryStore.getState().removeItem(m.target.item.id);
           }
         } else {
           if (m.target.kind === 'priority') {
             await usePriorityStore.getState().markItemDone(m.target.item.id);
           } else {
-            await usePriorityStore
-              .getState()
-              .markGroceryDone(m.target.group.id, m.target.item.id);
+            await useGroceryStore.getState().markItemDone(m.target.item.id);
           }
         }
       } catch (e) {
@@ -443,23 +460,22 @@ export default function VoiceEntryPage() {
     }
     if (fallbackBoughtItems.length > 0) {
       try {
-        await usePriorityStore.getState().addGroceryGroups(todayStr, [
-          {
-            id: crypto.randomUUID(),
-            store: 'General',
-            items: fallbackBoughtItems.map((name) => ({
-              id: crypto.randomUUID(),
-              name,
-              completed: true, // already bought; mark as done
-            })),
-          },
-        ]);
+        await useGroceryStore.getState().addCompletedItems('General', fallbackBoughtItems);
       } catch (e) {
         console.warn('fallback grocery add failed', e);
       }
     }
 
-    showToast(t('write.saved'), 'success');
+    // Skip the "Entry saved" toast when this capture set a reminder
+    // — the onConfirm handler will fire a more specific "Reminder set
+    // in X min" toast right after this resolves, and stacking two
+    // toasts back-to-back was confusing per user feedback. Without
+    // a reminder, keep the generic confirmation so the user knows
+    // the capture landed.
+    const hasReminder = edited.priorities.some((p) => !!p.remind_at_iso);
+    if (!hasReminder) {
+      showToast(t('write.saved'), 'success');
+    }
     // Return to the Tasks Wall the user came from. Previously routed
     // to /home which silently flipped them to the Journal Wall.
     router.push('/today');
@@ -707,14 +723,12 @@ export default function VoiceEntryPage() {
                   : '';
               showToast(`🔔 Reminder set ${label}${suffix}`, 'success');
 
-              // Self-healing subscription sync. Anything other than
-              // 'ok' opens the permission sheet — it renders different
-              // copy per state so the user always sees SOMETHING and
-              // never silently fails.
+              // Self-healing subscription sync. The 'ok' path stays
+              // silent — the "Reminder set" toast above already tells
+              // the user the reminder landed. Only non-ok states need
+              // the permission sheet so the user can fix push delivery.
               const push = await ensureSubscribed();
-              if (push === 'ok') {
-                showToast('Reminders ready on this device ✓', 'success');
-              } else {
+              if (push !== 'ok') {
                 // needs-prompt / needs-install / blocked / unsupported /
                 // error — all get the sheet, rendered globally in
                 // UIOverlayRoot so it survives the navigation to
