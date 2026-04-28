@@ -20,11 +20,14 @@ export default function OfflineIndicator() {
           exit={prefersReducedMotion ? undefined : { y: -32, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 320, damping: 28 }}
           className="fixed inset-x-0 z-[80] flex justify-center pointer-events-none"
-          style={{ top: 'max(0.5rem, env(safe-area-inset-top))' }}
+          // Sits BELOW the WallEdgeTab pill (which is 32px tall and
+          // sits at safe-area-inset-top + 0.375rem). Add the pill's
+          // height + a small gap.
+          style={{ top: 'calc(env(safe-area-inset-top) + 0.375rem + 32px + 0.5rem)' }}
           role="status"
           aria-live="polite"
         >
-          <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full bg-warning/15 text-warning border border-warning/30 px-3.5 py-1.5 text-xs font-semibold backdrop-blur-sm shadow-warm-sm">
+          <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-warning/15 text-warning border border-warning/30 px-3 py-1 text-xs font-semibold backdrop-blur-sm shadow-warm-sm">
             <svg
               width="14"
               height="14"
@@ -42,7 +45,7 @@ export default function OfflineIndicator() {
               <line x1="12" y1="20" x2="12.01" y2="20" />
               <line x1="2" y1="2" x2="22" y2="22" />
             </svg>
-            <span>Offline — changes save locally and sync later</span>
+            <span>Offline</span>
           </div>
         </motion.div>
       )}
