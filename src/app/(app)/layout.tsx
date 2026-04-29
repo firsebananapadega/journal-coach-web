@@ -15,6 +15,7 @@ import GuideTour from '@/components/tour/GuideTour';
 import RitualDemo from '@/components/onboarding/RitualDemo';
 import OfflineIndicator from '@/components/OfflineIndicator';
 import { drainOutbox } from '@/lib/syncQueue';
+import { useUiStore } from '@/stores/uiStore';
 
 // Wall-home destinations used when redirecting a user who has
 // scoped to a single wall but landed on the other side.
@@ -28,6 +29,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const initialized = useAuthStore((s) => s.initialized);
   const profile = useAuthStore((s) => s.profile);
   const guideTheme = useTheme((s) => s.guideTheme);
+  // /guided used to be unconditionally hideNav, which made the wall
+  // nav disappear the moment the user tapped the Guided tab. Now it
+  // only counts as hideNav once the user is actively engaged (typing /
+  // mic / resumed thread). The guided page sets this flag itself.
+  const guidedImmersive = useUiStore((s) => s.guidedImmersive);
 
   // ── Wall guard ──────────────────────────────────────────────────
   //
@@ -297,8 +303,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // /intentions itself is a tab now (Journal wall slot 3) — it MUST
   // show the nav. Only the gallery sub-page (/intentions/gallery) is
   // a modal-style full-screen route that hides nav.
+  // /guided is conditional — non-immersive by default (wall nav shows
+  // when the user just tapped the Guided tab), promoted to hideNav
+  // once they engage. Other entries stay unconditionally full-screen.
   const hideNav =
-    ['/guided', '/voice', '/write', '/ask', '/journal', '/habits', '/templates'].includes(pathname) ||
+    ['/voice', '/write', '/ask', '/journal', '/habits', '/templates'].includes(pathname) ||
+    (pathname === '/guided' && guidedImmersive) ||
     pathname.startsWith('/template/') ||
     pathname.startsWith('/entry/') ||
     pathname.startsWith('/practice/') ||

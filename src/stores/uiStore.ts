@@ -24,6 +24,13 @@ interface Toast {
 interface UIState {
   celebrationKey: number;
   toasts: Toast[];
+  /** True only while the user is actively engaged on /guided (typing,
+   *  using mic, or resuming a thread with prior exchanges). When false,
+   *  /guided renders inside the wall shell with the wall nav visible —
+   *  so tapping the Guided tab from the journal wall doesn't immediately
+   *  collapse into focus mode. The guided page owns the transitions:
+   *  set true on first keystroke / mic / resume, clear on unmount. */
+  guidedImmersive: boolean;
   celebrate: () => void;
   showToast: (
     message: string,
@@ -31,6 +38,7 @@ interface UIState {
     options?: { action?: ToastAction; durationMs?: number },
   ) => number;
   dismissToast: (id: number) => void;
+  setGuidedImmersive: (next: boolean) => void;
 }
 
 let idCounter = 0;
@@ -38,6 +46,9 @@ let idCounter = 0;
 export const useUiStore = create<UIState>((set) => ({
   celebrationKey: 0,
   toasts: [],
+  guidedImmersive: false,
+
+  setGuidedImmersive: (next) => set({ guidedImmersive: next }),
 
   celebrate: () =>
     set((s) => ({ celebrationKey: s.celebrationKey + 1 })),

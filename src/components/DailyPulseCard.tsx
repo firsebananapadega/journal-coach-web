@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useJournalStore, type JournalEntry } from '@/stores/journalStore';
 import { useNotebookStore } from '@/stores/notebookStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useAuthStore } from '@/stores/authStore';
 import GuideMascot from '@/components/mascot/GuideMascot';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { t } from '@/lib/translations';
@@ -26,18 +27,47 @@ interface Props {
 // all three sorted chronologically as compact done cards.
 type PulseMode = 'morning' | 'evening' | 'presence';
 
-// Pulse mode by clock hour:
-//   - 04:00–17:59 → morning
-//   - 18:00–03:59 → evening  (late-night hours stay in "evening" so
-//                              someone up past midnight still gets
-//                              the end-of-day reflection, not a
-//                              morning prompt)
-// The 4 AM cutoff is the "subjective morning" threshold — the app
-// shouldn't flip to the morning pulse the moment the clock crosses
-// midnight, since that isn't morning for anyone.
-function getCurrentMode(): PulseMode {
-  const h = new Date().getHours();
-  if (h >= 4 && h < 18) return 'morning';
+// Pulse mode by clock minute-of-day. Boundaries:
+//   - 04:00 (240 min) → morning starts (subjective morning, so a 1AM
+//                       wakeup still gets the end-of-day prompt, not
+//                       morning)
+//   - eveningStart (default 19:50, configurable per user) → evening
+//                       starts. The user's evening reminder time minus
+//                       a 5-min lead so the pulse is already in
+//                       evening mode when the reminder push fires —
+//                       tapping the notification lands on the right
+//                       prompt, never on a stale morning view.
+const DEFAULT_EVENING_START_MIN = 19 * 60 + 50; // 19:50
+
+/** Parse "HH:MM" → minutes-of-day. Returns null on malformed input. */
+function parseHHMM(s: string | undefined | null): number | null {
+  if (!s || typeof s !== 'string') return null;
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
+/** Threshold (in minutes-of-day) where the morning pulse flips to evening.
+ *  Reads the user's evening reminder time and subtracts a 5-min lead so
+ *  the mode is already 'evening' when the reminder push fires. */
+function eveningStartFromReminder(reminderHHMM: string | undefined | null): number {
+  const reminderMin = parseHHMM(reminderHHMM);
+  if (reminderMin == null) return DEFAULT_EVENING_START_MIN;
+  // 5-minute lead. Clamp to a sane window: never earlier than 17:00
+  // (don't accidentally hide the morning pulse for someone with an
+  // unusually early reminder), never later than 23:55.
+  const lead = 5;
+  const t = reminderMin - lead;
+  return Math.max(17 * 60, Math.min(23 * 60 + 55, t));
+}
+
+function getCurrentMode(eveningStartMin: number, now: Date = new Date()): PulseMode {
+  const minOfDay = now.getHours() * 60 + now.getMinutes();
+  if (minOfDay >= 4 * 60 && minOfDay < eveningStartMin) return 'morning';
   return 'evening';
 }
 
@@ -114,7 +144,46 @@ export default function DailyPulseCard({ entries }: Props) {
     if (!hasFetchedNotebooks) fetchNotebooks().catch(() => {});
   }, [hasFetchedNotebooks, fetchNotebooks]);
 
-  const [mode] = useState<PulseMode>(getCurrentMode);
+  // Evening threshold tracks the user's evening reminder time (with a
+  // 5-min lead). Recomputed when the profile loads or the user changes
+  // their reminder in Settings — the latter rarely happens but it's
+  // free to support.
+  const eveningReminder = useAuthStore(
+    (s) => s.profile?.notification_preferences?.reminder_times?.evening,
+  );
+  const eveningStartMin = useMemo(
+    () => eveningStartFromReminder(eveningReminder),
+    [eveningReminder],
+  );
+
+  // Mode is recomputable: initial value is computed on mount, but a
+  // service-worker `pulse-reminder` message (fired from public/sw.js
+  // when the cron push lands) re-runs the evaluation so a user sitting
+  // on /pulse at 19:54 sees the card flip to evening when their 19:55
+  // notification arrives — without needing to reload.
+  const [mode, setMode] = useState<PulseMode>(() => getCurrentMode(eveningStartMin));
+
+  // If the threshold changes (profile loaded after first paint), make
+  // sure the mode reflects the new threshold immediately.
+  useEffect(() => {
+    setMode(getCurrentMode(eveningStartMin));
+  }, [eveningStartMin]);
+
+  // Listen for the pulse-reminder push echo from the service worker.
+  // Only the message-shape we care about triggers a re-evaluation;
+  // unrelated SW messages are ignored.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string } | undefined;
+      if (data?.type !== 'pulse-reminder') return;
+      setMode(getCurrentMode(eveningStartMin));
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', onMessage);
+    };
+  }, [eveningStartMin]);
   const [step, setStep] = useState(0);
   const [answer1, setAnswer1] = useState('');
   const [answer2, setAnswer2] = useState('');

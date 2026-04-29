@@ -22,6 +22,7 @@ import { useOnline } from '@/lib/networkStatus';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { useJournalStore } from '@/stores/journalStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useUiStore } from '@/stores/uiStore';
 import { supabase } from '@/lib/supabase';
 // MoodSelector import removed — wrap-up flow no longer used.
 import { getLanguage } from '@/lib/language';
@@ -505,6 +506,39 @@ export default function GuidedSessionPage() {
     onChange: setCurrentAnswer,
   });
 
+  // ── Immersive-mode triggers ────────────────────────────────────
+  // /guided used to be unconditionally hideNav. Now it starts with
+  // the wall nav visible (user just tapped the Guided tab from the
+  // journal wall) and promotes to full-screen only when the user
+  // actually engages: typing, mic, or resuming a thread with prior
+  // exchanges. The flag lives in uiStore so the layout can react.
+  const setGuidedImmersive = useUiStore((s) => s.setGuidedImmersive);
+
+  // First non-empty keystroke flips to immersive. Stays immersive
+  // even if the user backspaces back to empty — sticky per spec
+  // (the X button is the explicit way out).
+  useEffect(() => {
+    if (currentAnswer.length > 0) {
+      setGuidedImmersive(true);
+    }
+  }, [currentAnswer, setGuidedImmersive]);
+
+  // Mic activation also flips to immersive.
+  useEffect(() => {
+    if (isListening) {
+      setGuidedImmersive(true);
+    }
+  }, [isListening, setGuidedImmersive]);
+
+  // Cleanup on unmount — leaving /guided (X tap, wall switch, deep
+  // navigation) returns the app to non-immersive state for the next
+  // visit.
+  useEffect(() => {
+    return () => {
+      setGuidedImmersive(false);
+    };
+  }, [setGuidedImmersive]);
+
   // Set greeting on mount, OR hydrate from a draft if ?resume=<id> is in
   // the URL. The hydrate path restores exchanges, the last question Ben
   // asked, and stores the draft id in `draftEntryIdRef` so future
@@ -531,6 +565,9 @@ export default function GuidedSessionPage() {
         setCurrentQuestion(lastQuestion || getGuideGreeting());
         // Mood/mood_label setters dropped along with the wrap-up flow.
         draftEntryIdRef.current = entry.id;
+        // Resumed threads go straight to immersive — a long thread
+        // with the wall nav stealing 80px at the bottom looks wrong.
+        setGuidedImmersive(true);
       } else if (entry) {
         // Draft exists but is empty — keep the row and start from greeting
         // so the next autoSave reuses it instead of creating a duplicate.

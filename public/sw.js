@@ -6,7 +6,7 @@
 // network serves the previously-loaded shell + chunks instead of a
 // browser "no internet" page.
 
-const CACHE_NAME = 'journalcoach-v6';
+const CACHE_NAME = 'journalcoach-v7';
 
 // Routes the user is likely to land on after install. Pre-fetched in
 // `install` so the very first offline cold-open has them. Hashed JS
@@ -193,16 +193,41 @@ self.addEventListener('push', (event) => {
     ? (data && data.mode === 'evening' ? 'Evening pulse' : 'Morning pulse')
     : 'Reminder';
 
+  // For pulse reminders, also tell any open clients so DailyPulseCard
+  // can re-evaluate its morning/evening mode the instant the push
+  // lands. Without this, a user sitting on /pulse at 19:54 with their
+  // reminder set to 19:55 would still see the morning prompt because
+  // getCurrentMode() only ran on mount. Keeps the page in sync with
+  // the notification without a periodic timer.
   event.waitUntil(
-    self.registration.showNotification(title || fallbackTitle, {
-      body: body || '',
-      icon: '/icon',
-      badge: '/icon',
-      tag,
-      data: { ...(data || {}), kind },
-      actions,
-      requireInteraction: false,
-    })
+    (async () => {
+      await self.registration.showNotification(title || fallbackTitle, {
+        body: body || '',
+        icon: '/icon',
+        badge: '/icon',
+        tag,
+        data: { ...(data || {}), kind },
+        actions,
+        requireInteraction: false,
+      });
+      if (isPulse) {
+        try {
+          const winClients = await self.clients.matchAll({
+            includeUncontrolled: true,
+            type: 'window',
+          });
+          for (const c of winClients) {
+            c.postMessage({
+              type: 'pulse-reminder',
+              mode: (data && data.mode) || null,
+            });
+          }
+        } catch {
+          // postMessage failures are non-fatal — the next mount will
+          // re-evaluate via getCurrentMode anyway.
+        }
+      }
+    })()
   );
 });
 
