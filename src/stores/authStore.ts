@@ -107,8 +107,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user: session?.user ?? null,
       });
 
+      // Offline-friendly profile hydration: read the cached profile
+      // from localStorage immediately so the wall guard can resolve
+      // and the loading screen disappears even when the device has no
+      // network. fetchProfile() then runs in the background to
+      // refresh from Supabase — when offline, it just fails silently
+      // and the cache remains the source of truth until reconnect.
+      if (session?.user && typeof window !== 'undefined') {
+        try {
+          const raw = window.localStorage.getItem('cached_profile');
+          if (raw) {
+            const cached = JSON.parse(raw) as Profile;
+            if (cached?.id === session.user.id) {
+              set({ profile: cached });
+            }
+          }
+        } catch {}
+      }
       if (session?.user) {
-        await get().fetchProfile();
+        // Don't await — let the loading screen resolve from the
+        // cached profile (or a null profile). The fetch will set the
+        // fresh profile when it returns; if it never returns (offline)
+        // the cached one stays.
+        void get().fetchProfile();
       }
 
       supabase.auth.onAuthStateChange(async (event, session) => {
@@ -282,6 +303,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // fallback to the user's actual guide once the profile lands.
       if (typeof window !== 'undefined') {
         try {
+          // Full-profile cache for offline cold-starts. authStore.initialize
+          // reads this synchronously so the wall guard can resolve without
+          // waiting for the network.
+          window.localStorage.setItem('cached_profile', JSON.stringify(profile));
           if (profile.preferred_guide) {
             window.localStorage.setItem('preferred_guide', profile.preferred_guide);
           }
