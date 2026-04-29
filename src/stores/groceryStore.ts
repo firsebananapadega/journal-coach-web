@@ -256,37 +256,39 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
   loadActive: async () => {
     set({ error: null });
     try {
-      const userId = await getUserId();
-      if (!userId) {
-        set({ listId: null, ownerId: null, groups: [], items: [], members: [], invites: [], loading: false });
-        cachedUserId = null;
-        return;
-      }
-      cachedUserId = userId;
+      // Resolve userId — falling back to module-level cachedUserId
+      // when getSession returns null offline (expired access token
+      // + failed network refresh). Without the fallback, the
+      // previous code wiped groups + items the moment the session
+      // lookup failed, even though the cached data was still valid.
+      let userId = await getUserId();
+      if (!userId && cachedUserId) userId = cachedUserId;
 
-      // Hydrate from cache FIRST so the page paints with last-known
-      // state on the next React frame. The fresh fetch below may take
-      // ~500 ms and would otherwise leave the tab visibly empty.
-      const cached = readCache(userId);
-      if (cached) {
-        set({
-          listId: cached.listId,
-          ownerId: cached.ownerId,
-          groups: cached.groups,
-          items: cached.items,
-          loading: true, // we still treat as loading for the live fetch
-        });
+      // Hydrate from cache FIRST. Cache is keyed by userId, so
+      // skip if we genuinely have no userId.
+      if (userId) {
+        cachedUserId = userId;
+        const cached = readCache(userId);
+        if (cached) {
+          set({
+            listId: cached.listId,
+            ownerId: cached.ownerId,
+            groups: cached.groups,
+            items: cached.items,
+            loading: true,
+          });
+        } else {
+          set({ loading: true });
+        }
       } else {
         set({ loading: true });
       }
 
-      // Skip every network call below when offline. The hydrate
-      // above already painted from cache; the previous version
-      // continued into the profile fetch which returned null offline,
-      // then the !listId branch wiped groups + items. The online
-      // listener in AuthProvider re-fires this loadActive when
-      // network returns.
-      if (!isOnline()) {
+      // Bail out cleanly when offline OR signed out. We deliberately
+      // do NOT clear state here — the cache hydrate above is the
+      // source of truth until network returns. The explicit signOut
+      // path calls reset() separately to truly clear.
+      if (!isOnline() || !userId) {
         set({ loading: false });
         return;
       }
@@ -315,9 +317,16 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         }
       }
       if (!listId) {
-        // Genuine "no list anywhere" state — only clear if cache also
-        // has nothing. Preserves data when the network is flaky.
-        if (!cached) {
+        // Genuine "no list anywhere" state — only clear when the
+        // current state has nothing populated either. Preserves data
+        // when the network is flaky and a transient profile fetch
+        // miss would otherwise wipe groups + items.
+        const currentState = get();
+        const hasPopulatedState =
+          currentState.listId !== null ||
+          currentState.groups.length > 0 ||
+          currentState.items.length > 0;
+        if (!hasPopulatedState) {
           set({ listId: null, ownerId: null, groups: [], items: [], members: [], invites: [] });
         }
         return;
@@ -339,14 +348,35 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
 
       const freshGroups = (groups as GroceryGroup[]) ?? [];
       const freshItems = (items as GroceryItem[]) ?? [];
-      set({
-        listId,
-        ownerId: (list?.owner_id as string) ?? null,
-        groups: freshGroups,
-        items: freshItems,
-        members: (members as GroceryListMember[]) ?? [],
-        invites: (invites as GroceryInvite[]) ?? [],
-      });
+
+      // Don't clobber a populated cache with an empty success
+      // response. If the network returned no rows but we know the
+      // cache had data, prefer the cache — this protects against
+      // RLS/auth glitches that would otherwise wipe local state.
+      const currentState = get();
+      const wouldClobberWithEmpty =
+        freshGroups.length === 0 &&
+        freshItems.length === 0 &&
+        (currentState.groups.length > 0 || currentState.items.length > 0);
+      if (wouldClobberWithEmpty) {
+        // Update only the metadata (listId, ownerId, members, invites),
+        // keep the populated groups + items as the source of truth.
+        set({
+          listId,
+          ownerId: (list?.owner_id as string) ?? null,
+          members: (members as GroceryListMember[]) ?? [],
+          invites: (invites as GroceryInvite[]) ?? [],
+        });
+      } else {
+        set({
+          listId,
+          ownerId: (list?.owner_id as string) ?? null,
+          groups: freshGroups,
+          items: freshItems,
+          members: (members as GroceryListMember[]) ?? [],
+          invites: (invites as GroceryInvite[]) ?? [],
+        });
+      }
 
       // Refresh the cache with the live snapshot (now that we know
       // listId is current — covers the post-share-accept switch).

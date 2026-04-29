@@ -109,6 +109,15 @@ export const useListStore = create<ListState>((set, get) => ({
         .order('created_at', { ascending: true });
       if (error) throw error;
       const lists = (data ?? []) as ListRecord[];
+
+      // Don't clobber populated state with an empty success response
+      // — RLS or stale-token glitches can return [] without setting
+      // error. Skip the set + Dexie clear so the cache stays as the
+      // source of truth until the next successful fetch.
+      if (lists.length === 0 && get().lists.length > 0) {
+        return;
+      }
+
       const inbox = lists.find((l) => l.is_inbox) ?? null;
       set({ lists, inboxId: inbox?.id ?? null, hasFetched: true });
 
@@ -139,6 +148,12 @@ export const useListStore = create<ListState>((set, get) => ({
       const after = get().inboxId;
       if (after) return after;
     }
+    // Don't try to insert offline — supabase would NetworkError and
+    // the retry loop becomes noise. Inbox creation is a one-time
+    // online operation; if the user genuinely has no inbox cached,
+    // we'll create it on next online cold-open.
+    if (!isOnline()) return null;
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
