@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
 import { getDB } from '../lib/db';
+import { isOnline } from '../lib/networkStatus';
 
 // Notebooks are user-owned collections for journal entries.
 // Four "system" notebooks are seeded at signup: journal / gratitude /
@@ -88,6 +89,10 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
           }
         } catch {}
       }
+
+      // Skip the network fetch when offline so the hydrated cache
+      // can't get overwritten by a failure-mode empty response.
+      if (!isOnline()) return;
 
       const { data: { session } } = await withTimeout(
         supabase.auth.getSession(),

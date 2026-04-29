@@ -62,17 +62,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       navigator.storage.persist().catch(() => {});
     }
     void drainOutbox();
-    // Fire all in parallel; each handles its own errors silently. The
-    // network calls inside each fetchAll hang gracefully when offline
-    // — but the Dexie hydrate that runs first still populates state
-    // from cache, so this loop is also a safe no-op offline.
-    void useTaskStore.getState().fetchAll();
-    void useListStore.getState().fetchLists();
-    void useGroceryStore.getState().loadActive();
-    void useJournalStore.getState().fetchEntries();
-    void useNotebookStore.getState().fetchNotebooks();
-    void useLettersStore.getState().fetchLetters();
+    refetchAllStores();
   }, [session]);
 
+  // Re-fetch on online resume / app foreground so users who opened
+  // offline (and therefore had their fetch paths skip the network
+  // entirely) refresh from the server the moment connection returns.
+  // Without this, going online wouldn't update the cache until the
+  // next sign-in.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleOnline = () => {
+      if (useAuthStore.getState().session) refetchAllStores();
+    };
+    const handleVisibility = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        useAuthStore.getState().session
+      ) {
+        refetchAllStores();
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
   return <>{children}</>;
+}
+
+// Fire-and-forget refetch of every offline-cached store. Each store's
+// fetch path now bails out early when navigator.onLine is false, so
+// calling this when offline is a safe no-op.
+function refetchAllStores(): void {
+  void useTaskStore.getState().fetchAll();
+  void useListStore.getState().fetchLists();
+  void useGroceryStore.getState().loadActive();
+  void useJournalStore.getState().fetchEntries();
+  void useNotebookStore.getState().fetchNotebooks();
+  void useLettersStore.getState().fetchLetters();
 }

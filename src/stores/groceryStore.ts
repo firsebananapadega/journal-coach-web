@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { toSentenceCase } from '../lib/stringUtils';
 import { getDB } from '../lib/db';
 import { enqueue } from '../lib/syncQueue';
+import { isOnline } from '../lib/networkStatus';
 
 // Shared, real-time grocery lists.
 //
@@ -279,13 +280,31 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         set({ loading: true });
       }
 
+      // Skip every network call below when offline. The hydrate
+      // above already painted from cache; the previous version
+      // continued into the profile fetch which returned null offline,
+      // then the !listId branch wiped groups + items. The online
+      // listener in AuthProvider re-fires this loadActive when
+      // network returns.
+      if (!isOnline()) {
+        set({ loading: false });
+        return;
+      }
+
       const { data: profile } = await supabase
         .from('profiles')
         .select('active_grocery_list_id')
         .eq('id', userId)
         .maybeSingle();
 
-      let listId = (profile?.active_grocery_list_id as string | null) ?? null;
+      // Fall back to the cached listId on a null profile fetch — a
+      // transient network hiccup shouldn't trash state. We only enter
+      // the ensurePersonalList path when we genuinely have no listId
+      // anywhere.
+      let listId =
+        (profile?.active_grocery_list_id as string | null) ??
+        get().listId ??
+        null;
       if (!listId) {
         listId = await ensurePersonalList(userId);
         if (listId) {
@@ -296,7 +315,11 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         }
       }
       if (!listId) {
-        set({ listId: null, ownerId: null, groups: [], items: [], members: [], invites: [] });
+        // Genuine "no list anywhere" state — only clear if cache also
+        // has nothing. Preserves data when the network is flaky.
+        if (!cached) {
+          set({ listId: null, ownerId: null, groups: [], items: [], members: [], invites: [] });
+        }
         return;
       }
 

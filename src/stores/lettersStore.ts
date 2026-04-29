@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
 import { getDB } from '../lib/db';
+import { isOnline } from '../lib/networkStatus';
 
 const READ_MS = 15000;
 const WRITE_MS = 10000;
@@ -122,6 +123,10 @@ export const useLettersStore = create<LettersState>((set, get) => ({
           }
         } catch {}
       }
+
+      // Skip the network fetch when offline so the hydrated cache
+      // can't get overwritten by a failure-mode empty response.
+      if (!isOnline()) return;
 
       const { data: { session } } = await withTimeout(
         supabase.auth.getSession(),

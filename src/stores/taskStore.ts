@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { getDB } from '../lib/db';
 import { enqueue } from '../lib/syncQueue';
+import { isOnline } from '../lib/networkStatus';
 
 // Tasks live in their own table now. Each task belongs to a list
 // (Inbox by default for unassigned), has an optional due_date for
@@ -133,6 +134,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
           }
         } catch {}
       }
+
+      // Skip the network fetch when offline. Defense-in-depth — the
+      // existing catch block handles network failures cleanly, but
+      // staying out of supabase-js's request flow when we know
+      // there's no network avoids any chance of cache corruption.
+      if (!isOnline()) return;
 
       // Use getSession (localStorage read) instead of getUser (network
       // call). getUser was returning null offline and the previous

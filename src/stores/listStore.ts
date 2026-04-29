@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { getDB } from '../lib/db';
 import { enqueue } from '../lib/syncQueue';
+import { isOnline } from '../lib/networkStatus';
 
 // Project lists. Inbox is a system-created list (is_inbox = true)
 // that lives at the top of the Lists tab. ensureInbox() creates it
@@ -83,6 +84,12 @@ export const useListStore = create<ListState>((set, get) => ({
           }
         } catch {}
       }
+
+      // Skip the network fetch entirely when offline. The hydrate
+      // above already populated state from Dexie; running the fetch
+      // would only risk overwriting it with [] in failure modes
+      // where supabase-js doesn't surface an error properly.
+      if (!isOnline()) return;
 
       // getSession is a localStorage read; getUser hits the network
       // and returns null offline (which would wrongly clear cache).

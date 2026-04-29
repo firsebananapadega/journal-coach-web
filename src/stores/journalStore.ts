@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
 import { getDB } from '../lib/db';
 import { enqueue } from '../lib/syncQueue';
+import { isOnline } from '../lib/networkStatus';
 
 // Deadlines for each Supabase operation. The app was shipping "Saving…"
 // spinners that hung forever when a round-trip stalled — converting
@@ -99,6 +100,11 @@ export const useJournalStore = create<JournalState>((set, get) => ({
           }
         } catch {}
       }
+
+      // Skip the network fetch when offline. The hydrate above
+      // already populated state from Dexie; running the fetch would
+      // only risk overwriting it with [] in failure modes.
+      if (!isOnline()) return;
 
       // Use getSession (localStorage read) so this works offline.
       // The retry loop is dropped — getSession is synchronous-ish
