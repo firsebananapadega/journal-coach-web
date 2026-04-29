@@ -65,29 +65,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refetchAllStores();
   }, [session]);
 
-  // Re-fetch on online resume / app foreground so users who opened
-  // offline (and therefore had their fetch paths skip the network
-  // entirely) refresh from the server the moment connection returns.
-  // Without this, going online wouldn't update the cache until the
-  // next sign-in.
+  // Re-fetch when the device transitions back to online. Dropped the
+  // visibilitychange listener that used to fire here too — it was
+  // firing during ordinary in-app interactions (wall flip animations,
+  // iOS PWA quirks) and racing with other visibility-handlers in the
+  // grocery store, occasionally clobbering cached state. The
+  // `online` event only fires on a true offline→online transition,
+  // which is exactly when we want a refresh.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleOnline = () => {
       if (useAuthStore.getState().session) refetchAllStores();
     };
-    const handleVisibility = () => {
-      if (
-        document.visibilityState === 'visible' &&
-        useAuthStore.getState().session
-      ) {
-        refetchAllStores();
-      }
-    };
     window.addEventListener('online', handleOnline);
-    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('online', handleOnline);
-      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 

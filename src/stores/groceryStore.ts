@@ -414,6 +414,16 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
   },
 
   reconcile: async () => {
+    // CRITICAL OFFLINE GUARD. reconcile is wired to a
+    // visibilitychange listener inside subscribe() so iOS PWAs
+    // re-converge after the websocket suspends. But offline, the
+    // supabase calls below return { data: null }, and the previous
+    // version's `(groups as ...) ?? []` would set groups + items to
+    // empty arrays — explicitly wiping the cached state every time
+    // the user touched the screen / switched walls / changed tabs.
+    // Bail out cleanly when offline.
+    if (!isOnline()) return;
+
     const { listId } = get();
     if (!listId) return;
     const [{ data: groups }, { data: items }, { data: members }] = await Promise.all([
@@ -421,11 +431,29 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       supabase.from('grocery_items').select('*').eq('list_id', listId).order('sort_order'),
       supabase.from('grocery_list_members').select('*').eq('list_id', listId),
     ]);
-    set({
-      groups: (groups as GroceryGroup[]) ?? [],
-      items: (items as GroceryItem[]) ?? [],
-      members: (members as GroceryListMember[]) ?? [],
-    });
+
+    const freshGroups = (groups as GroceryGroup[]) ?? [];
+    const freshItems = (items as GroceryItem[]) ?? [];
+
+    // Belt-and-braces: if the network responded with empty arrays
+    // but the cache is populated, treat it as a transient miss and
+    // skip the overwrite. This protects against a stale-token / RLS
+    // glitch silently wiping the user's data.
+    const currentState = get();
+    const wouldClobberWithEmpty =
+      freshGroups.length === 0 &&
+      freshItems.length === 0 &&
+      (currentState.groups.length > 0 || currentState.items.length > 0);
+    if (wouldClobberWithEmpty) {
+      // Still update members (lower-stakes) and pending invites.
+      set({ members: (members as GroceryListMember[]) ?? [] });
+    } else {
+      set({
+        groups: freshGroups,
+        items: freshItems,
+        members: (members as GroceryListMember[]) ?? [],
+      });
+    }
     // Pending invites are independent of the active list — refetch
     // them too so banners stay in sync after reconciliation.
     void get().fetchPendingInvitesForMe();
