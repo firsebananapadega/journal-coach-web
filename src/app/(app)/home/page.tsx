@@ -269,6 +269,12 @@ export default function HomePage() {
   });
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [reflection, setReflection] = useState<WeeklyReflectionData | null>(null);
+  // Mid-day Presence is no longer one-and-done. Once today's first
+  // presence row exists, /home swaps the compose form for a small
+  // "+ Add another pause" button. Tapping it flips this state on,
+  // re-mounting PresenceCapture; on save the callback flips it back
+  // off so the button reappears for the next pause.
+  const [addingAnotherPause, setAddingAnotherPause] = useState(false);
   const isDragging = useRef(false);
 
   // Drag sensors — long press (500ms) to start drag, same as priorities
@@ -614,15 +620,36 @@ export default function HomePage() {
 
       {/* Mid-day Presence pause — folded into /home so the Pulse tab
           becomes the single throughout-the-day check-in surface
-          (morning + mid-day + evening). Two gates:
-            (a) Time-gated to mid-day onward so the form isn't visible
-                before it's relevant.
-            (b) Hidden once today's presence is already done — the
-                completed entry then renders inside DailyPulseCard as
-                a compact done card sorted chronologically with
-                morning + evening. */}
-      {new Date().getHours() >= PRESENCE_VISIBLE_FROM_HOUR && !todaysPresenceDone && (
-        <PresenceCapture />
+          (morning + mid-day + evening). Three rendering states:
+            (a) Time-gated to mid-day onward so nothing shows before
+                the surface is relevant.
+            (b) No presence yet today → show the compose form.
+            (c) At least one presence done → swap the form for a
+                subtle "+ Add another pause" button. Tapping it flips
+                addingAnotherPause on which re-mounts the form; the
+                form's onSaved callback flips it back off after save
+                so the button reappears for the NEXT pause. Lets the
+                user record as many mid-day check-ins as they want
+                without the form being permanently parked on screen. */}
+      {new Date().getHours() >= PRESENCE_VISIBLE_FROM_HOUR && (
+        !todaysPresenceDone ? (
+          <PresenceCapture />
+        ) : addingAnotherPause ? (
+          <PresenceCapture onSaved={() => setAddingAnotherPause(false)} />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAddingAnotherPause(true)}
+            className="w-full py-3 rounded-2xl border border-dashed border-border bg-surface/40 text-text-tertiary hover:text-text-secondary hover:border-text-tertiary/60 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+            aria-label={t('presence.addAnother')}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>{t('presence.addAnother')}</span>
+          </button>
+        )
       )}
 
       {/* Drag-and-drop bubble grid — trims trailing empty rows unless editing.

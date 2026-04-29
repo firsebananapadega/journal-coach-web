@@ -546,6 +546,7 @@ const translations: Record<string, Record<Locale, string>> = {
   'presence.skip': { en: 'Skip', es: 'Saltar' },
   'presence.save': { en: 'Save', es: 'Guardar' },
   'presence.done': { en: 'Done. Take another whenever.', es: 'Listo. Toma otra cuando quieras.' },
+  'presence.addAnother': { en: 'Add another pause', es: 'Agregar otra pausa' },
   'presence.takeAnother': { en: 'Take another pause', es: 'Tomar otra pausa' },
   'presence.attentionLabel': { en: 'Attention', es: 'Atención' },
   'presence.bodyLabel': { en: 'Body', es: 'Cuerpo' },

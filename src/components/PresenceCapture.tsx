@@ -28,7 +28,15 @@ import { t } from '@/lib/translations';
 const PRESENCE_TEXTAREA_MAX_PX = 152;
 const PRESENCE_ATTENTION_MAX_CHARS = 500;
 
-export default function PresenceCapture() {
+interface PresenceCaptureProps {
+  /** Called after a successful save. /home uses this to collapse the
+   *  compose form back to the "+ Add another pause" button so the user
+   *  can record additional mid-day pauses throughout the day without
+   *  the form being permanently mounted. */
+  onSaved?: () => void;
+}
+
+export default function PresenceCapture({ onSaved }: PresenceCaptureProps = {}) {
   const hasFetched = useJournalStore((s) => s.hasFetched);
   const fetchEntries = useJournalStore((s) => s.fetchEntries);
   const createEntry = useJournalStore((s) => s.createEntry);
@@ -132,6 +140,11 @@ export default function PresenceCapture() {
       setAttention('');
       setOneWord('');
       showToast(t('presence.done'), 'success');
+      // Tell the parent we're done — /home uses this to collapse the
+      // compose form back to the "+ Add another pause" button so the
+      // user can record additional pauses without the form being
+      // mounted indefinitely.
+      onSaved?.();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Save failed', 'error');
     } finally {
