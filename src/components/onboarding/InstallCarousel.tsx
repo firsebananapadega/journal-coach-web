@@ -157,12 +157,13 @@ export default function InstallCarousel({ slides }: Props) {
             data-slide-index={i}
             className="snap-center shrink-0 w-[82%] flex flex-col items-center"
           >
-            <div className="self-end mr-1 mb-1 text-[10px] font-semibold text-text-tertiary tracking-wide">
-              {i + 1} / {slides.length}
-            </div>
+            {/* "1 / N" header was here. Removed — the dots indicator
+                below the carousel already conveys position, and the
+                header was eating vertical space that pushed the dots
+                off the bottom of small viewports. */}
             <div
               className="flex items-center justify-center w-full"
-              style={{ height: 'min(70vh, 520px)' }}
+              style={{ height: 'min(56vh, 440px)' }}
             >
               {s.imageSrc ? (
                 // eslint-disable-next-line @next/next/no-img-element

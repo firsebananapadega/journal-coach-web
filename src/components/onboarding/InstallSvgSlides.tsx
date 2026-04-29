@@ -81,66 +81,78 @@ function GlowRing({ cx, cy, r }: { cx: number; cy: number; r: number }) {
 }
 
 // ── Slide 1: browser — tap the Share icon ──
+// Share icon lives at the TOP-RIGHT of the URL bar (Chrome on iOS,
+// DuckDuckGo, and most other iOS wrapper browsers put it there —
+// distinct from Safari, which buries it in the bottom share-sheet
+// menu). Highlighting that exact spot is what makes the slide look
+// "right" to a user actually browsing in Chrome / DDG.
 function SvgStep1() {
   return (
     <PhoneFrame>
-      {/* URL bar at top — generic, no Safari brand wordmark. */}
-      <rect x="14" y="40" width="192" height="22" rx="8" fill={CHROME} />
-      <text x="110" y="55" fontSize="8" fill={MUTED} textAnchor="middle">
-        🔒 journalcoach.app
+      {/* URL bar — wider so the share icon has room on the right. */}
+      <rect x="14" y="40" width="192" height="26" rx="9" fill={CHROME} />
+      {/* Lock + URL text — left-aligned, leaving room for the share
+          icon on the right edge of the URL bar. */}
+      <text x="22" y="57" fontSize="8" fill={MUTED}>
+        🔒
       </text>
+      <text x="34" y="57" fontSize="8" fill={FG}>
+        journalcoach.app
+      </text>
+      {/* Share icon — TOP RIGHT of URL bar. HIGHLIGHTED with glow ring.
+          Small bg square so the icon reads as a tappable button rather
+          than a stray glyph floating on the URL bar. */}
+      <rect x="180" y="44" width="22" height="18" rx="5" fill="#2a2b2e" />
+      <GlowRing cx={191} cy={53} r={11} />
+      <g
+        transform="translate(191 53)"
+        stroke={ACCENT}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      >
+        {/* Box (open at top) */}
+        <path d="M-5 -1 L-5 5 L5 5 L5 -1" />
+        <path d="M-5 -1 L-3 -1" />
+        <path d="M3 -1 L5 -1" />
+        {/* Arrow shaft + chevron — tail at y=3, tip at y=-7 */}
+        <line x1="0" y1="3" x2="0" y2="-7" />
+        <path d="M-3 -4 L0 -7 L3 -4" />
+      </g>
 
       {/* Page content — warm glow */}
-      <rect x="14" y="70" width="192" height="262" rx="10" fill={SCREEN} />
+      <rect x="14" y="74" width="192" height="296" rx="10" fill={SCREEN} />
       <defs>
         <linearGradient id="svgPageGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={ACCENT} stopOpacity="0.35" />
           <stop offset="100%" stopColor={ACCENT} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <rect x="14" y="70" width="192" height="262" rx="10" fill="url(#svgPageGrad)" />
-      <circle cx="110" cy="180" r="24" fill={ACCENT} opacity="0.55" />
-      <text x="110" y="220" fontSize="9" fill={FG} textAnchor="middle" opacity="0.7">
+      <rect x="14" y="74" width="192" height="296" rx="10" fill="url(#svgPageGrad)" />
+      <circle cx="110" cy="200" r="26" fill={ACCENT} opacity="0.55" />
+      <text x="110" y="244" fontSize="9" fill={FG} textAnchor="middle" opacity="0.7">
         JournalCoach
       </text>
 
-      {/* Bottom toolbar — same icons most iOS browsers expose
-          (back, forward, share, bookmark, tabs). Share is HIGHLIGHTED. */}
-      <rect x="14" y="338" width="192" height="44" rx="10" fill={CHROME} />
-      {/* back chevron centered (38, 360) */}
-      <g stroke={MUTED} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="42" y1="354" x2="36" y2="360" />
-        <line x1="36" y1="360" x2="42" y2="366" />
-      </g>
-      {/* forward chevron centered (72, 360) */}
-      <g stroke={MUTED} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="68" y1="354" x2="74" y2="360" />
-        <line x1="74" y1="360" x2="68" y2="366" />
-      </g>
-      {/* share — HIGHLIGHTED */}
-      <GlowRing cx={110} cy={360} r={13} />
-      <g
-        transform="translate(110 360)"
-        stroke={ACCENT}
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      >
-        {/* Box (open at top) */}
-        <path d="M-7 -2 L-7 7 L7 7 L7 -2" />
-        <path d="M-7 -2 L-4 -2" />
-        <path d="M4 -2 L7 -2" />
-        {/* Arrow shaft + chevron */}
-        <line x1="0" y1="4" x2="0" y2="-9" />
-        <path d="M-4 -5 L0 -9 L4 -5" />
-      </g>
-      {/* bookmark centered (158, 360) */}
-      <path d="M154 354 L154 366 L158 362 L162 366 L162 354 Z" stroke={MUTED} strokeWidth="1.4" fill="none" />
-      {/* tabs */}
-      <g stroke={MUTED} strokeWidth="1.4" fill="none">
-        <rect x="184" y="354" width="10" height="10" rx="2" />
-        <rect x="187" y="357" width="10" height="10" rx="2" />
+      {/* Minimal bottom toolbar — kept generic since the action is now
+          at the top. Just back / forward / tabs / menu so the chrome
+          looks complete without competing with the highlighted share. */}
+      <rect x="14" y="376" width="192" height="14" rx="3" fill={CHROME} />
+      <g stroke={MUTED} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+        {/* back chevron */}
+        <line x1="44" y1="380" x2="40" y2="383" />
+        <line x1="40" y1="383" x2="44" y2="386" />
+        {/* forward chevron */}
+        <line x1="72" y1="380" x2="76" y2="383" />
+        <line x1="76" y1="383" x2="72" y2="386" />
+        {/* tabs glyph */}
+        <rect x="138" y="380" width="6" height="6" rx="1" />
+        <rect x="140" y="382" width="6" height="6" rx="1" />
+        {/* menu (•••) */}
+        <circle cx="172" cy="383" r="0.9" fill={MUTED} />
+        <circle cx="176" cy="383" r="0.9" fill={MUTED} />
+        <circle cx="180" cy="383" r="0.9" fill={MUTED} />
       </g>
     </PhoneFrame>
   );
