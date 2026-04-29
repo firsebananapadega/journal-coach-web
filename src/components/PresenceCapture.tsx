@@ -21,11 +21,15 @@ import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 import { t } from '@/lib/translations';
 
-// Auto-grow + auto-scroll cap. Same vocabulary as the guided dock
-// textarea — caps at ~6 lines (152px including padding) so the
-// presence card never balloons; once the cap is hit, the textarea
-// scrolls internally so the latest dictated text stays visible.
-const PRESENCE_TEXTAREA_MAX_PX = 152;
+// Auto-grow + auto-scroll cap. Caps at ~6 lines of usable text area;
+// the constant is the FULL textarea height including chrome (pt-3.5
+// + pb-12 reserved for the bottom-right mic). Once the cap is hit,
+// the textarea scrolls internally so the latest dictated text stays
+// visible. Bumped from 152 → 190 to absorb the extra ~34px of
+// chrome added when the mic moved from "vertically-centered with
+// pr-14" to "bottom-right corner with pb-12" — keeps usable text
+// area roughly equivalent to the prior layout.
+const PRESENCE_TEXTAREA_MAX_PX = 190;
 const PRESENCE_ATTENTION_MAX_CHARS = 500;
 
 interface PresenceCaptureProps {
@@ -180,8 +184,12 @@ export default function PresenceCapture({ onSaved }: PresenceCaptureProps = {}) 
             {t('presence.intro')}
           </label>
           {/* Wrapper is the positioning context for the inline mic
-              button. Right padding on the textarea reserves visual
-              space so dictated text never slides under the mic. */}
+              button. The mic sits in a reserved BOTTOM strip rather
+              than eating horizontal space — pb-12 reserves vertical
+              room below the text, no pr-* needed. As the user dictates
+              and the textarea grows, text fills the area ABOVE the
+              mic with full-width lines; the mic itself stays anchored
+              to the bottom-right corner. */}
           <div className="relative">
             <textarea
               ref={attentionMicRef}
@@ -189,13 +197,13 @@ export default function PresenceCapture({ onSaved }: PresenceCaptureProps = {}) 
               onChange={(e) => setAttention(e.target.value.slice(0, PRESENCE_ATTENTION_MAX_CHARS))}
               placeholder={t('presence.attentionPlaceholder')}
               rows={1}
-              className="w-full pl-4 pr-14 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
+              className="w-full px-4 pt-3.5 pb-12 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
             />
             {speechSupported && (
               <button
                 {...attentionMic.micButtonProps}
                 aria-label={attentionMic.isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
-                className={`absolute top-1/2 right-2.5 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
+                className={`absolute bottom-2 right-2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
                   attentionMic.isListening
                     ? 'bg-error text-white scale-105'
                     : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
