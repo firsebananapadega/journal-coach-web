@@ -32,6 +32,12 @@ import type {
   GroceryGroup,
 } from '@/stores/groceryStore';
 import type { JournalEntry } from '@/stores/journalStore';
+import type { Notebook } from '@/stores/notebookStore';
+import type {
+  WeeklyLetter,
+  MonthlyPattern,
+  QuarterlyLetter,
+} from '@/stores/lettersStore';
 
 // Re-exported as Cached* names so callers don't accidentally pass a
 // fresh-from-server row where a cache row was expected (or vice versa
@@ -42,12 +48,18 @@ export type CachedList = ListRecord;
 export type CachedGroceryItem = GroceryItem;
 export type CachedGroceryGroup = GroceryGroup;
 export type CachedJournalEntry = JournalEntry;
+export type CachedNotebook = Notebook;
+export type CachedWeeklyLetter = WeeklyLetter;
+export type CachedMonthlyPattern = MonthlyPattern;
+export type CachedQuarterlyLetter = QuarterlyLetter;
 
 export type OutboxOp = 'insert' | 'update' | 'delete';
 // `grocery_lists` (the parent shared-list metadata) is intentionally
 // not cached — it only changes via online-only invite/share flows,
 // and the offline writes the user cares about all live in items and
-// groups under an existing list.
+// groups under an existing list. Letters / patterns / notebooks are
+// read-mostly so we cache for offline READ but don't enqueue writes
+// for them in Phase 1.
 export type OutboxTable =
   | 'tasks'
   | 'lists'
@@ -79,6 +91,10 @@ class JournalCoachDB extends Dexie {
   grocery_items!: Table<CachedGroceryItem, string>;
   grocery_groups!: Table<CachedGroceryGroup, string>;
   journal_entries!: Table<CachedJournalEntry, string>;
+  notebooks!: Table<CachedNotebook, string>;
+  weekly_letters!: Table<CachedWeeklyLetter, string>;
+  monthly_patterns!: Table<CachedMonthlyPattern, string>;
+  quarterly_letters!: Table<CachedQuarterlyLetter, string>;
   outbox!: Table<OutboxRow, number>;
 
   constructor() {
@@ -92,6 +108,17 @@ class JournalCoachDB extends Dexie {
       grocery_groups: 'id, list_id',
       journal_entries: 'id, user_id, entry_type, updated_at',
       outbox: '++id, client_op_id, table, enqueued_at',
+    });
+    // Read-mostly tables added so notebooks, weekly letters, monthly
+    // patterns, and quarterly letters are visible offline. No outbox
+    // entries for these — Phase 1 doesn't queue writes against them
+    // (mutations on letters/patterns are server-generated; notebook
+    // CRUD remains online-only).
+    this.version(2).stores({
+      notebooks: 'id, user_id, slug, sort_order',
+      weekly_letters: 'id, user_id, week_key, generated_at',
+      monthly_patterns: 'id, user_id, month_key, generated_at',
+      quarterly_letters: 'id, user_id, quarter_key, generated_at',
     });
   }
 }

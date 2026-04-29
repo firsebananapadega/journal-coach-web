@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
+import { getDB } from '../lib/db';
 
 const READ_MS = 15000;
 const WRITE_MS = 10000;
@@ -95,6 +96,33 @@ export const useLettersStore = create<LettersState>((set, get) => ({
   fetchLetters: async () => {
     try {
       set({ loading: true, error: null });
+
+      // Hydrate from Dexie first for offline cold-opens.
+      const db = getDB();
+      if (db) {
+        try {
+          const [cachedLetters, cachedPatterns, cachedQuarterlies] = await Promise.all([
+            db.weekly_letters.toArray(),
+            db.monthly_patterns.toArray(),
+            db.quarterly_letters.toArray(),
+          ]);
+          if (
+            cachedLetters.length > 0 ||
+            cachedPatterns.length > 0 ||
+            cachedQuarterlies.length > 0
+          ) {
+            // Newest-first to match Supabase ordering.
+            const sortDesc = <T extends { generated_at: string }>(a: T, b: T) =>
+              a.generated_at < b.generated_at ? 1 : -1;
+            set({
+              letters: [...cachedLetters as WeeklyLetter[]].sort(sortDesc),
+              patterns: [...cachedPatterns as MonthlyPattern[]].sort(sortDesc),
+              quarterlies: [...cachedQuarterlies as QuarterlyLetter[]].sort(sortDesc),
+            });
+          }
+        } catch {}
+      }
+
       const { data: { user } } = await withTimeout(
         supabase.auth.getUser(),
         AUTH_MS,
@@ -135,11 +163,27 @@ export const useLettersStore = create<LettersState>((set, get) => ({
       if (lettersRes.error) throw lettersRes.error;
       if (patternsRes.error) throw patternsRes.error;
       if (quarterliesRes.error) throw quarterliesRes.error;
-      set({
-        letters: (lettersRes.data as WeeklyLetter[]) ?? [],
-        patterns: (patternsRes.data as MonthlyPattern[]) ?? [],
-        quarterlies: (quarterliesRes.data as QuarterlyLetter[]) ?? [],
-      });
+      const letters = (lettersRes.data as WeeklyLetter[]) ?? [];
+      const patterns = (patternsRes.data as MonthlyPattern[]) ?? [];
+      const quarterlies = (quarterliesRes.data as QuarterlyLetter[]) ?? [];
+      set({ letters, patterns, quarterlies });
+
+      if (db) {
+        try {
+          await db.transaction(
+            'rw',
+            [db.weekly_letters, db.monthly_patterns, db.quarterly_letters],
+            async () => {
+              await db.weekly_letters.clear();
+              await db.monthly_patterns.clear();
+              await db.quarterly_letters.clear();
+              if (letters.length > 0) await db.weekly_letters.bulkPut(letters);
+              if (patterns.length > 0) await db.monthly_patterns.bulkPut(patterns);
+              if (quarterlies.length > 0) await db.quarterly_letters.bulkPut(quarterlies);
+            },
+          );
+        } catch {}
+      }
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to fetch letters' });
     } finally {

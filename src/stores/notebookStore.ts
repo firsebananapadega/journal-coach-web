@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
+import { getDB } from '../lib/db';
 
 // Notebooks are user-owned collections for journal entries.
 // Four "system" notebooks are seeded at signup: journal / gratitude /
@@ -76,6 +77,18 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   fetchNotebooks: async () => {
     try {
       set({ loading: true, error: null });
+
+      // Hydrate from Dexie first for offline cold-opens.
+      const db = getDB();
+      if (db) {
+        try {
+          const cached = await db.notebooks.toArray();
+          if (cached.length > 0) {
+            set({ notebooks: cached as Notebook[] });
+          }
+        } catch {}
+      }
+
       const { data: { user } } = await withTimeout(
         supabase.auth.getUser(),
         AUTH_MS,
@@ -94,7 +107,15 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
         'fetchNotebooks',
       );
       if (error) throw error;
-      set({ notebooks: (data as Notebook[]) ?? [] });
+      const notebooks = (data as Notebook[]) ?? [];
+      set({ notebooks });
+
+      if (db) {
+        try {
+          await db.notebooks.clear();
+          if (notebooks.length > 0) await db.notebooks.bulkPut(notebooks);
+        } catch {}
+      }
     } catch (error: unknown) {
       set({ error: error instanceof Error ? error.message : 'Failed to fetch notebooks' });
     } finally {

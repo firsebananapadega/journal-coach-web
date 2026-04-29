@@ -6,7 +6,7 @@
 // network serves the previously-loaded shell + chunks instead of a
 // browser "no internet" page.
 
-const CACHE_NAME = 'journalcoach-v5';
+const CACHE_NAME = 'journalcoach-v6';
 
 // Routes the user is likely to land on after install. Pre-fetched in
 // `install` so the very first offline cold-open has them. Hashed JS
@@ -22,6 +22,14 @@ const PRECACHE_URLS = [
   '/lists',
   '/groceries',
   '/settings',
+  '/upcoming',
+  '/patterns',
+  '/notebooks',
+  '/letters',
+  '/voice',
+  '/guided',
+  '/intentions',
+  '/priorities',
   '/icon',
   '/manifest.json',
 ];
@@ -103,18 +111,15 @@ self.addEventListener('fetch', (event) => {
         }
         return fresh;
       } catch {
-        // Network failed. Try the cache. For navigation requests, fall
-        // back to the precached /today shell so the user lands on a
-        // working page even if the exact URL wasn't visited online
-        // before.
+        // Network failed. Serve the exact URL from cache if we have
+        // it. We deliberately do NOT fall back to a different route's
+        // shell (the previous version returned /today for any
+        // navigation cache miss) — that caused click-Patterns →
+        // see-Today confusion when chunks weren't cached. A clean
+        // 503 is more honest; the user can navigate back to a
+        // precached route.
         const cached = await caches.match(req);
         if (cached) return cached;
-        if (req.mode === 'navigate') {
-          const shellFallback = await caches.match('/today');
-          if (shellFallback) return shellFallback;
-        }
-        // Last resort: return a synthetic 503 so the page can detect
-        // the failure mode.
         return new Response('Offline', { status: 503, statusText: 'Offline' });
       }
     })(),

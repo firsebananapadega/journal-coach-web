@@ -6,6 +6,12 @@ import { useTheme } from '@/lib/theme';
 import { installPromptBridge } from '@/hooks/usePwaInstall';
 import { refreshSubscription } from '@/lib/push';
 import { drainOutbox } from '@/lib/syncQueue';
+import { useTaskStore } from '@/stores/taskStore';
+import { useListStore } from '@/stores/listStore';
+import { useGroceryStore } from '@/stores/groceryStore';
+import { useJournalStore } from '@/stores/journalStore';
+import { useNotebookStore } from '@/stores/notebookStore';
+import { useLettersStore } from '@/stores/lettersStore';
 
 // Arm the install-prompt bridge at module load so we catch the event
 // even if it fires before any UI mounts.
@@ -45,12 +51,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   //      users are safe regardless; this just hardens the corner case.
   //   2. Drain any outbox rows queued during a previous offline
   //      session as soon as auth is ready.
+  //   3. Pre-warm all the stores that have offline mirrors so Dexie
+  //      populates even if the user never visits the corresponding
+  //      tab. Without this, opening a fresh install online and
+  //      jumping straight to airplane mode left every tab the user
+  //      hadn't yet visited showing empty data.
   useEffect(() => {
     if (!session) return;
     if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
       navigator.storage.persist().catch(() => {});
     }
     void drainOutbox();
+    // Fire all in parallel; each handles its own errors silently. The
+    // network calls inside each fetchAll hang gracefully when offline
+    // — but the Dexie hydrate that runs first still populates state
+    // from cache, so this loop is also a safe no-op offline.
+    void useTaskStore.getState().fetchAll();
+    void useListStore.getState().fetchLists();
+    void useGroceryStore.getState().loadActive();
+    void useJournalStore.getState().fetchEntries();
+    void useNotebookStore.getState().fetchNotebooks();
+    void useLettersStore.getState().fetchLetters();
   }, [session]);
 
   return <>{children}</>;
