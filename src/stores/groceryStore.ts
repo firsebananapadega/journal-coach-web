@@ -834,17 +834,25 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         { event: '*', schema: 'public', table: 'grocery_items', filter: `list_id=eq.${listId}` },
         (payload: RealtimePostgresChangesPayload<GroceryItem>) => {
           const state = get();
+          // Phase 2: mirror realtime events into Dexie so a partner's
+          // edits propagate to the offline cache. Without this mirror,
+          // in-memory state updates but Dexie stays stale; next
+          // cold-open offline shows pre-event data until next refresh.
+          const db = getDB();
           if (payload.eventType === 'INSERT') {
             const row = payload.new;
             if (state.items.some((i) => i.id === row.id)) return; // self-echo
             set({ items: [...state.items, row] });
+            if (db) void db.grocery_items.put(row).catch(() => {});
           } else if (payload.eventType === 'UPDATE') {
             const row = payload.new;
             set({ items: state.items.map((i) => (i.id === row.id ? row : i)) });
+            if (db) void db.grocery_items.put(row).catch(() => {});
           } else if (payload.eventType === 'DELETE') {
             const id = (payload.old as { id?: string })?.id;
             if (!id) return;
             set({ items: state.items.filter((i) => i.id !== id) });
+            if (db) void db.grocery_items.delete(id).catch(() => {});
           }
         },
       )
@@ -853,13 +861,16 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         { event: '*', schema: 'public', table: 'grocery_groups', filter: `list_id=eq.${listId}` },
         (payload: RealtimePostgresChangesPayload<GroceryGroup>) => {
           const state = get();
+          const db = getDB();
           if (payload.eventType === 'INSERT') {
             const row = payload.new;
             if (state.groups.some((g) => g.id === row.id)) return;
             set({ groups: [...state.groups, row] });
+            if (db) void db.grocery_groups.put(row).catch(() => {});
           } else if (payload.eventType === 'UPDATE') {
             const row = payload.new;
             set({ groups: state.groups.map((g) => (g.id === row.id ? row : g)) });
+            if (db) void db.grocery_groups.put(row).catch(() => {});
           } else if (payload.eventType === 'DELETE') {
             const id = (payload.old as { id?: string })?.id;
             if (!id) return;
@@ -867,6 +878,12 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
               groups: state.groups.filter((g) => g.id !== id),
               items: state.items.filter((i) => i.group_id !== id),
             });
+            if (db) {
+              void db.grocery_groups.delete(id).catch(() => {});
+              // Cascade: items inherit group_id, so drop any cached
+              // items whose parent group just disappeared.
+              void db.grocery_items.where('group_id').equals(id).delete().catch(() => {});
+            }
           }
         },
       )
