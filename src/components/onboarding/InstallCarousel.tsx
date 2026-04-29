@@ -37,9 +37,10 @@ interface Props {
   };
 }
 
-// How long to dwell on each slide during autoplay. Long enough to
-// read the caption + see the highlight pulse a couple of times.
-const AUTOPLAY_MS = 3800;
+// How long to dwell on each slide during autoplay. Per user — they
+// want a brisk pace that keeps the user's attention without making
+// each slide feel like a wait.
+const AUTOPLAY_MS = 2000;
 // After any user interaction (touch / dot tap), suspend autoplay for
 // this long so the user can study the current slide without fighting
 // the timer. Resumes silently afterwards.
