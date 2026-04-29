@@ -64,21 +64,32 @@ export const useListStore = create<ListState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
-      // Hydrate from Dexie first for offline cold-opens.
+      // Hydrate from Dexie first for offline cold-opens. Sort to
+      // match Supabase's order (is_inbox DESC, sort_order ASC,
+      // created_at ASC) so /lists doesn't reshuffle when the network
+      // fetch returns.
       const db = getDB();
       if (db) {
         try {
           const cached = await db.lists.toArray();
           if (cached.length > 0) {
-            const inbox = cached.find((l) => l.is_inbox) ?? null;
-            set({ lists: cached as ListRecord[], inboxId: inbox?.id ?? null, hasFetched: true });
+            const sorted = [...cached].sort((a, b) => {
+              if (a.is_inbox !== b.is_inbox) return a.is_inbox ? -1 : 1;
+              if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+              return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+            });
+            const inbox = sorted.find((l) => l.is_inbox) ?? null;
+            set({ lists: sorted as ListRecord[], inboxId: inbox?.id ?? null, hasFetched: true });
           }
         } catch {}
       }
 
-      const { data: { user } } = await supabase.auth.getUser();
+      // getSession is a localStorage read; getUser hits the network
+      // and returns null offline (which would wrongly clear cache).
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) {
-        set({ lists: [], inboxId: null, hasFetched: true });
+        // Don't clear — sign-out path calls reset() explicitly.
         return;
       }
       const { data, error } = await supabase
@@ -122,7 +133,8 @@ export const useListStore = create<ListState>((set, get) => ({
       if (after) return after;
     }
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) return null;
       const { data, error } = await supabase
         .from('lists')
@@ -155,7 +167,8 @@ export const useListStore = create<ListState>((set, get) => ({
   },
 
   createList: async (name, opts) => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) return null;
     const trimmed = name.trim();
     if (!trimmed) return null;

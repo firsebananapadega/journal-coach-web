@@ -100,13 +100,19 @@ export const useJournalStore = create<JournalState>((set, get) => ({
         } catch {}
       }
 
-      let user = (await withTimeout(supabase.auth.getUser(), AUTH_MS, 'auth.getUser')).data.user;
-      // Retry once if auth not ready yet
+      // Use getSession (localStorage read) so this works offline.
+      // The retry loop is dropped — getSession is synchronous-ish
+      // and either returns a session or doesn't.
+      const { data: { session } } = await withTimeout(
+        supabase.auth.getSession(),
+        AUTH_MS,
+        'auth.getSession',
+      );
+      const user = session?.user;
       if (!user) {
-        await new Promise((r) => setTimeout(r, 1000));
-        user = (await withTimeout(supabase.auth.getUser(), AUTH_MS, 'auth.getUser')).data.user;
+        // Don't clear cached entries — sign-out reset() handles that.
+        return;
       }
-      if (!user) throw new Error('Not signed in');
       const { data, error } = await withTimeout(
         supabase
           .from('journal_entries')
@@ -136,11 +142,12 @@ export const useJournalStore = create<JournalState>((set, get) => ({
   createEntry: async (input: NewEntryInput) => {
     try {
       set({ loading: true, error: null });
-      const { data: { user } } = await withTimeout(
-        supabase.auth.getUser(),
+      const { data: { session } } = await withTimeout(
+        supabase.auth.getSession(),
         AUTH_MS,
-        'auth.getUser',
+        'auth.getSession',
       );
+      const user = session?.user;
       if (!user) throw new Error('No authenticated user');
       // Auto-assign the Journal system notebook when none is provided.
       // This best-effort lookup needs the network — offline the entry

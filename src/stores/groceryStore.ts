@@ -142,8 +142,13 @@ function uuid(): string {
 }
 
 async function getUserId(): Promise<string | null> {
-  const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
+  // getSession is a localStorage read; getUser hits the network and
+  // returns null offline, which broke offline reads/writes. The
+  // session's cached user id is fine for everything we use it for —
+  // RLS validates the JWT on the server side anyway when calls
+  // actually drain.
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
 }
 
 // ── Local cache (per-user) ──────────────────────────────────────

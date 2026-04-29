@@ -89,12 +89,17 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
         } catch {}
       }
 
-      const { data: { user } } = await withTimeout(
-        supabase.auth.getUser(),
+      const { data: { session } } = await withTimeout(
+        supabase.auth.getSession(),
         AUTH_MS,
-        'auth.getUser',
+        'auth.getSession',
       );
-      if (!user) throw new Error('Not signed in');
+      const user = session?.user;
+      if (!user) {
+        // Don't clear cached notebooks — keep last-known-good state
+        // until the user explicitly signs out.
+        return;
+      }
       const { data, error } = await withTimeout(
         supabase
           .from('notebooks')
@@ -126,11 +131,12 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   createNotebook: async (input: NewNotebookInput) => {
     try {
       set({ loading: true, error: null });
-      const { data: { user } } = await withTimeout(
-        supabase.auth.getUser(),
+      const { data: { session } } = await withTimeout(
+        supabase.auth.getSession(),
         AUTH_MS,
-        'auth.getUser',
+        'auth.getSession',
       );
+      const user = session?.user;
       if (!user) throw new Error('No authenticated user');
       const slug = input.slug ?? slugify(input.name);
       const row = {

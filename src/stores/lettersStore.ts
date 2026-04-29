@@ -123,12 +123,16 @@ export const useLettersStore = create<LettersState>((set, get) => ({
         } catch {}
       }
 
-      const { data: { user } } = await withTimeout(
-        supabase.auth.getUser(),
+      const { data: { session } } = await withTimeout(
+        supabase.auth.getSession(),
         AUTH_MS,
-        'auth.getUser',
+        'auth.getSession',
       );
-      if (!user) throw new Error('Not signed in');
+      const user = session?.user;
+      if (!user) {
+        // Don't clear cached letters — keep last-known-good state.
+        return;
+      }
       // Three parallel reads. Any failing surfaces — kinds are
       // independent so we don't gate one on another.
       const [lettersRes, patternsRes, quarterliesRes] = await Promise.all([

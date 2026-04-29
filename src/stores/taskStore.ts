@@ -117,21 +117,33 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       set({ loading: true, error: null });
 
       // Hydrate from Dexie first so offline cold-opens (and slow
-      // networks) paint immediately. Supabase fetch below overrides
-      // with fresh data when it returns.
+      // networks) paint immediately. Sort here to match Supabase's
+      // ordering (sort_order ASC, created_at ASC) so the in-memory
+      // list doesn't reshuffle when the network fetch returns.
       const db = getDB();
       if (db) {
         try {
           const cached = await db.tasks.toArray();
           if (cached.length > 0) {
-            set({ tasks: cached as Task[], hasFetched: true });
+            const sorted = [...cached].sort((a, b) => {
+              if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+              return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+            });
+            set({ tasks: sorted as Task[], hasFetched: true });
           }
         } catch {}
       }
 
-      const { data: { user } } = await supabase.auth.getUser();
+      // Use getSession (localStorage read) instead of getUser (network
+      // call). getUser was returning null offline and the previous
+      // null-handling cleared the cache, which is what caused the
+      // "data flashes then disappears" bug.
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) {
-        set({ tasks: [], hasFetched: true });
+        // Don't clear cached state — the user may be transiently
+        // unverifiable (offline, or session refresh pending). The
+        // explicit signOut path calls reset() to clear.
         return;
       }
       const { data, error } = await supabase
@@ -165,7 +177,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 
   addTask: async (input) => {
-    const { data: { user } } = await supabase.auth.getUser();
+    // Use getSession so offline adds still succeed via the outbox.
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) return null;
     const trimmed = input.text.trim();
     if (!trimmed) return null;
