@@ -383,7 +383,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </Link>
       )}
 
-      <main className={`flex-1 ${hideNav ? '' : 'pb-36'}`}>
+      {/* min-h-0 is critical here: flex items default to min-height:auto,
+          which lets a child's intrinsic content (e.g. a long journal
+          entry with pb-[100vh]) push <main> taller than 100dvh. With
+          main oversized, any descendant using h-full + overflow-y-auto
+          (the entry detail page does this) computes h-full against the
+          inflated height — so scrolling never activates and the layout
+          outer's overflow-hidden clips the bottom. min-h-0 forces main
+          to respect the flex algorithm size (its share of 100dvh) so
+          h-full propagates to a definite height and overflow-y-auto
+          kicks in for long content. */}
+      <main className={`flex-1 min-h-0 ${hideNav ? '' : 'pb-36'}`}>
         {hideNav || !isOnWall ? children : <WallShell>{children}</WallShell>}
       </main>
 
