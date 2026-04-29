@@ -901,6 +901,37 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'Tap Add — done',
     es: 'Toca Añadir — listo',
   },
+  // ── Generic 3-step captions for the SVG carousel (iOS non-Safari
+  //    browsers — Chrome / DDG / Firefox / Edge). They all surface
+  //    the same iOS share sheet underneath, so the language stays
+  //    share-icon → Add to Home Screen → Add. ────────────────────
+  'onboarding.install.svgStep1': {
+    en: 'Tap the share icon in your browser toolbar',
+    es: 'Toca el ícono de compartir en la barra del navegador',
+  },
+  'onboarding.install.svgStep2': {
+    en: 'Tap "Add to Home Screen"',
+    es: 'Toca "Añadir a pantalla de inicio"',
+  },
+  'onboarding.install.svgStep3': {
+    en: 'Tap Add — done',
+    es: 'Toca Añadir — listo',
+  },
+  // Overview steps shown to iOS non-Safari users (the 3-step list
+  // before they tap "I'll add it now"). Slightly different from the
+  // Safari version below since their toolbar isn't Safari's.
+  'onboarding.install.iosOtherOverview1': {
+    en: 'Tap the share icon in your browser toolbar.',
+    es: 'Toca el ícono de compartir en la barra de tu navegador.',
+  },
+  'onboarding.install.iosOtherOverview2': {
+    en: 'Choose "Add to Home Screen" from the share sheet.',
+    es: 'Elige "Añadir a pantalla de inicio" en el menú de compartir.',
+  },
+  'onboarding.install.iosOtherOverview3': {
+    en: 'Tap "Add" — done.',
+    es: 'Toca "Añadir" — listo.',
+  },
   'onboarding.install.androidTitle': { en: 'Install as an app', es: 'Instala como app' },
   'onboarding.install.androidBody': {
     en: 'Your phone will ask permission — say yes.',

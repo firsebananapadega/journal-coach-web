@@ -3,17 +3,20 @@
 // PWA install detection + native prompt capture.
 //
 // Platform resolution order:
-//   1. installed  — matchMedia standalone OR navigator.standalone (iOS).
-//                   If so, no install UI.
-//   2. ios        — iPhone/iPad/iPod via navigator.platform, OR iPadOS 13+
-//                   (which claims to be Mac — caught via maxTouchPoints).
-//                   iOS has no programmatic install API; we teach the
-//                   Share → Add to Home Screen gesture.
-//   3. android    — any non-iOS mobile where beforeinstallprompt has
-//                   fired. We stash the deferred event at app mount
-//                   (see installPromptBridge below) and fire .prompt()
-//                   when the user taps our custom card.
-//   4. desktop    — no install UI; onboarding step auto-skips.
+//   1. installed   — matchMedia standalone OR navigator.standalone (iOS).
+//                    If so, no install UI.
+//   2. iosSafari   — iPhone/iPad with Apple Safari. Show the photoreal
+//                    screenshot carousel (matches their actual chrome).
+//   3. iosOther    — iPhone/iPad with any wrapper browser (Chrome/CriOS,
+//                    Firefox/FxiOS, Edge/EdgiOS, Opera/OPR, DuckDuckGo,
+//                    Yandex). Same iOS share-sheet underneath, different
+//                    browser chrome → show the abstract SVG carousel
+//                    instead of mismatched Safari screenshots.
+//   4. android     — any non-iOS mobile where beforeinstallprompt has
+//                    fired. We stash the deferred event at app mount
+//                    (see installPromptBridge below) and fire .prompt()
+//                    when the user taps our custom card.
+//   5. desktop     — no install UI; onboarding step auto-skips.
 //
 // beforeinstallprompt is captured once at app mount (in AuthProvider)
 // via installPromptBridge.arm(). Components read the current event
@@ -21,7 +24,12 @@
 
 import { useEffect, useState } from 'react';
 
-export type Platform = 'ios' | 'android' | 'desktop' | 'installed';
+export type Platform =
+  | 'iosSafari'
+  | 'iosOther'
+  | 'android'
+  | 'desktop'
+  | 'installed';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -80,7 +88,24 @@ function detectPlatform(): Platform {
     /iPhone|iPad|iPod/i.test(navigator.platform) ||
     // iPadOS 13+ reports as Mac
     (navigator.maxTouchPoints > 1 && /Mac/i.test(navigator.platform));
-  if (isiOS) return 'ios';
+  if (isiOS) {
+    // On iOS, every browser is forced to use WebKit (Apple's rule),
+    // but the wrapper browsers add their own UA tokens. Detecting
+    // them lets us serve the SVG carousel (which still depicts the
+    // iOS share sheet — correct underneath any of these wrappers)
+    // instead of Safari screenshots that wouldn't match the user's
+    // visible chrome.
+    //   CriOS     — Chrome on iOS
+    //   FxiOS     — Firefox on iOS
+    //   EdgiOS    — Edge on iOS
+    //   OPR / OPiOS — Opera on iOS
+    //   DuckDuckGo — DuckDuckGo browser
+    //   YaBrowser — Yandex browser
+    const ua = navigator.userAgent;
+    const isWrapperBrowser =
+      /CriOS|FxiOS|EdgiOS|OPiOS|OPR|DuckDuckGo|YaBrowser/i.test(ua);
+    return isWrapperBrowser ? 'iosOther' : 'iosSafari';
+  }
 
   // Android or Chromium-on-mobile: only call it 'android' if we actually
   // captured the install event (or the UA looks Android). We err on the

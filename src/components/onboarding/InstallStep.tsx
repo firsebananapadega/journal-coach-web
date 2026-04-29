@@ -28,6 +28,7 @@ import { type GuideId } from '@/lib/guideConfigs';
 import { t } from '@/lib/translations';
 import InstallCarousel, { InstallCarouselFinalActions, type InstallSlide } from './InstallCarousel';
 import { getIosSlides } from './InstallIosSlides';
+import { getSvgIosSlides } from './InstallSvgSlides';
 import { getAndroidPromptSlides, getAndroidManualSlides } from './InstallAndroidSlides';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 
@@ -69,11 +70,20 @@ export default function InstallStep({ guide, onInstalled, onSkip, view: viewProp
   }
 
   // Compose slides + optional finalCta by platform.
+  //
+  // iosSafari → photoreal Safari screenshots (5 slides) — the chrome
+  //             matches the user's actual browser pixel-for-pixel.
+  // iosOther  → SVG carousel (3 slides) — chrome is abstract because
+  //             Chrome / DDG / Firefox / Edge each draw their own
+  //             toolbar; the iOS share sheet underneath is the same.
+  // android   → unchanged native-prompt or manual flow.
   let slides: InstallSlide[] = [];
   let finalCta: { label: string; onClick: () => Promise<void>; busy?: boolean } | undefined;
 
-  if (platform === 'ios') {
+  if (platform === 'iosSafari') {
     slides = getIosSlides();
+  } else if (platform === 'iosOther') {
+    slides = getSvgIosSlides();
   } else if (platform === 'android') {
     if (canPrompt) {
       slides = getAndroidPromptSlides();
@@ -126,20 +136,30 @@ function OverviewView({
   onShowCarousel,
   onSkip,
 }: {
-  platform: 'ios' | 'android' | 'desktop' | 'installed';
+  platform: 'iosSafari' | 'iosOther' | 'android' | 'desktop' | 'installed';
   onShowCarousel: () => void;
   onSkip: () => void;
 }) {
-  // iOS steps are framed as 3 conceptual actions but actually take
-  // ~5 taps on iOS 17+ Safari. The carousel walks every tap; here
-  // we keep the overview honest-but-simple. Per user: "fine to say
-  // three steps; it feels easier."
+  // Per-platform 3-step overview. The carousel that follows walks
+  // every actual tap; here we keep the summary at 3 conceptual
+  // actions for psychological simplicity.
+  //   iosSafari → mention the Safari ••• menu specifically.
+  //   iosOther  → say "share icon in your browser toolbar" — covers
+  //               Chrome / DDG / Firefox / Edge whose share buttons
+  //               sit in different places (top-right vs bottom-bar).
+  //   android   → Chrome menu language.
   const steps =
-    platform === 'ios'
+    platform === 'iosSafari'
       ? [
           'Open Safari’s menu (•••) at the bottom right.',
           'Tap Share, then "Add to Home Screen."',
           'Tap "Add" — done.',
+        ]
+      : platform === 'iosOther'
+      ? [
+          t('onboarding.install.iosOtherOverview1'),
+          t('onboarding.install.iosOtherOverview2'),
+          t('onboarding.install.iosOtherOverview3'),
         ]
       : [
           'Open the Chrome menu (⋮ in the top-right).',
