@@ -13,23 +13,23 @@
 // row appears as a compact done card inside DailyPulseCard's
 // chronologically-sorted list (alongside morning + evening).
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useJournalStore } from '@/stores/journalStore';
 import { useNotebookStore } from '@/stores/notebookStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
-import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
+import {
+  isSpeechRecognitionSupported,
+  startListening,
+  stopListening,
+  correctTranscript,
+} from '@/lib/speechRecognition';
+import { getLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
 
-// Auto-grow + auto-scroll cap. Caps at ~6 lines of usable text area;
-// the constant is the FULL textarea height including chrome (pt-3.5
-// + pb-12 reserved for the bottom-right mic). Once the cap is hit,
-// the textarea scrolls internally so the latest dictated text stays
-// visible. Bumped from 152 → 190 to absorb the extra ~34px of
-// chrome added when the mic moved from "vertically-centered with
-// pr-14" to "bottom-right corner with pb-12" — keeps usable text
-// area roughly equivalent to the prior layout.
-const PRESENCE_TEXTAREA_MAX_PX = 190;
+// Max height for the attention contenteditable. Past this, internal
+// scrolling kicks in so the latest dictated text stays visible.
+const PRESENCE_ATTENTION_MAX_PX = 152;
 const PRESENCE_ATTENTION_MAX_CHARS = 500;
 
 interface PresenceCaptureProps {
@@ -60,47 +60,139 @@ export default function PresenceCapture({ onSaved }: PresenceCaptureProps = {}) 
     () => typeof window !== 'undefined' && isSpeechRecognitionSupported(),
   );
 
-  // Per-field mic. Each field gets its own selection-aware mic instance
-  // so dictation lands in the field the user actually started recording
-  // on, and toggling one mic doesn't shut off the other (the hook owns
-  // its own startListening / stop calls).
-  const attentionMicRef = useRef<HTMLTextAreaElement | null>(null);
+  // ── Attention field (contenteditable) ─────────────────────────
+  // Why contenteditable instead of <textarea>: the user wanted text
+  // to wrap around the mic button on the line where the mic sits,
+  // with lines above using full width. <textarea> is a replaced
+  // element — its content can't have floated children, so you can't
+  // wrap text around anything inside it. A <div contentEditable> can
+  // hold a floated child (the mic button), and natural CSS float:right
+  // makes the text flow around it on the first line, with lines below
+  // using full width. CSS float positions the mic at TOP-RIGHT of its
+  // container — bottom-right wrap is fragile in pure CSS and would
+  // require JS-driven dynamic float sizing.
+  const attentionEditableRef = useRef<HTMLDivElement | null>(null);
+  const [attentionListening, setAttentionListening] = useState(false);
+  const attentionStopRef = useRef<(() => void) | null>(null);
+  // The contenteditable is intentionally UNCONTROLLED — React renders
+  // it once and the DOM owns its content from then on (writing
+  // textContent imperatively would wipe the floated mic-button child).
+  // To programmatically clear after save, we bump this key, which
+  // remounts the editable in its empty initial state.
+  const [editableInstanceKey, setEditableInstanceKey] = useState(0);
+
+  const handleAttentionInput = useCallback(() => {
+    const el = attentionEditableRef.current;
+    if (!el) return;
+    const text = (el.textContent ?? '').slice(0, PRESENCE_ATTENTION_MAX_CHARS);
+    setAttention(text);
+    // Auto-scroll: when content exceeds max-height, keep the latest
+    // dictated text visible.
+    if (el.scrollHeight > el.clientHeight) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, []);
+
+  const handleAttentionBeforeInput = useCallback((e: React.FormEvent<HTMLDivElement>) => {
+    const ev = e.nativeEvent as InputEvent;
+    if (!ev.inputType?.startsWith('insert')) return;
+    const el = attentionEditableRef.current;
+    if (!el) return;
+    if ((el.textContent ?? '').length >= PRESENCE_ATTENTION_MAX_CHARS) {
+      e.preventDefault();
+    }
+  }, []);
+
+  const handleAttentionPaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain');
+    const el = attentionEditableRef.current;
+    if (!el) return;
+    const remaining = PRESENCE_ATTENTION_MAX_CHARS - (el.textContent ?? '').length;
+    if (remaining <= 0) return;
+    document.execCommand('insertText', false, text.slice(0, remaining));
+  }, []);
+
+  // Mic dictation for the contenteditable. Bypasses useSelectionAwareMic
+  // (which is textarea-specific) and inserts via execCommand so the
+  // browser handles cursor + selection naturally. Final transcripts
+  // append at the cursor with leading space when needed.
+  const lastFinalRef = useRef('');
+  const startAttentionDictation = useCallback(() => {
+    if (attentionListening) return;
+    const el = attentionEditableRef.current;
+    if (!el) return;
+    el.focus();
+    lastFinalRef.current = '';
+    const stop = startListening({
+      language: getLanguage(),
+      continuous: true,
+      onStart: () => setAttentionListening(true),
+      onResult: (transcript, isFinal) => {
+        if (!isFinal) return;
+        // The lib emits the cumulative final transcript; insert only
+        // the delta since the last fire.
+        const delta = transcript.slice(lastFinalRef.current.length);
+        lastFinalRef.current = transcript;
+        const piece = correctTranscript(delta).trim();
+        if (!piece) return;
+        const target = attentionEditableRef.current;
+        if (!target) return;
+        target.focus();
+        const existing = target.textContent ?? '';
+        const remaining = PRESENCE_ATTENTION_MAX_CHARS - existing.length;
+        if (remaining <= 0) return;
+        const prefix = existing && !/\s$/.test(existing) ? ' ' : '';
+        const insertable = (prefix + piece).slice(0, remaining);
+        // execCommand inserts at the current selection / caret.
+        document.execCommand('insertText', false, insertable);
+      },
+      onEnd: () => {
+        setAttentionListening(false);
+        attentionStopRef.current = null;
+      },
+      onError: () => {
+        setAttentionListening(false);
+        attentionStopRef.current = null;
+      },
+    });
+    attentionStopRef.current = stop;
+  }, [attentionListening]);
+
+  const stopAttentionDictation = useCallback(() => {
+    if (attentionStopRef.current) {
+      attentionStopRef.current();
+      attentionStopRef.current = null;
+    } else {
+      stopListening();
+    }
+    setAttentionListening(false);
+  }, []);
+
+  const toggleAttentionMic = useCallback(() => {
+    if (attentionListening) stopAttentionDictation();
+    else startAttentionDictation();
+  }, [attentionListening, startAttentionDictation, stopAttentionDictation]);
+
+  // Cleanup on unmount — never leave SR running.
+  useEffect(() => {
+    return () => {
+      attentionStopRef.current?.();
+      attentionStopRef.current = null;
+    };
+  }, []);
+
+  // ── One-word field (regular input, unchanged) ──────────────────
   const oneWordInputRef = useRef<HTMLInputElement | null>(null);
   // The hook expects an HTMLTextAreaElement ref. The one-word field is
   // an <input>, but the hook uses .value / selection / dispatch — all
-  // shared between input and textarea — so we cast the ref. iOS-quirk
-  // selection bookkeeping inside the hook works the same way for both.
+  // shared between input and textarea — so we cast the ref.
   const oneWordRefForMic = oneWordInputRef as unknown as React.RefObject<HTMLTextAreaElement>;
-  const attentionMic = useSelectionAwareMic({
-    textareaRef: attentionMicRef,
-    value: attention,
-    onChange: (next) => setAttention(next.slice(0, PRESENCE_ATTENTION_MAX_CHARS)),
-    autoRestart: true,
-  });
   const oneWordMic = useSelectionAwareMic({
     textareaRef: oneWordRefForMic,
     value: oneWord,
     onChange: (next) => setOneWord(next.slice(0, 24).replace(/\s+/g, '')),
   });
-
-  // Auto-grow + auto-scroll for the attention textarea. Resize on
-  // every value change: set height='auto' first so the textarea can
-  // shrink back if the user deletes text, then cap at MAX_PX. Past
-  // the cap we keep scrollTop pinned to scrollHeight so a user who's
-  // dictating sees their latest words instead of older lines.
-  useEffect(() => {
-    const ta = attentionMicRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    const next = Math.min(ta.scrollHeight, PRESENCE_TEXTAREA_MAX_PX);
-    ta.style.height = `${next}px`;
-    if (ta.scrollHeight > PRESENCE_TEXTAREA_MAX_PX) {
-      ta.style.overflowY = 'auto';
-      ta.scrollTop = ta.scrollHeight;
-    } else {
-      ta.style.overflowY = 'hidden';
-    }
-  }, [attention]);
 
   // Hydrate journal entries on first mount so the parent (/home) can
   // detect whether today's presence is already done and decide whether
@@ -143,6 +235,12 @@ export default function PresenceCapture({ onSaved }: PresenceCaptureProps = {}) 
       // card in chronological order with morning + evening.
       setAttention('');
       setOneWord('');
+      // Bump the contenteditable's key to force-remount it back to
+      // its empty initial state — the contenteditable is uncontrolled
+      // (React doesn't manage its children after first paint), so this
+      // is the only safe way to clear it without wiping the floated
+      // mic-button child.
+      setEditableInstanceKey((k) => k + 1);
       showToast(t('presence.done'), 'success');
       // Tell the parent we're done — /home uses this to collapse the
       // compose form back to the "+ Add another pause" button so the
@@ -183,45 +281,80 @@ export default function PresenceCapture({ onSaved }: PresenceCaptureProps = {}) 
           <label className="text-lg text-text-primary font-medium leading-snug block">
             {t('presence.intro')}
           </label>
-          {/* Wrapper is the positioning context for the inline mic
-              button. The mic sits in a reserved BOTTOM strip rather
-              than eating horizontal space — pb-12 reserves vertical
-              room below the text, no pr-* needed. As the user dictates
-              and the textarea grows, text fills the area ABOVE the
-              mic with full-width lines; the mic itself stays anchored
-              to the bottom-right corner. */}
-          <div className="relative">
-            <textarea
-              ref={attentionMicRef}
-              value={attention}
-              onChange={(e) => setAttention(e.target.value.slice(0, PRESENCE_ATTENTION_MAX_CHARS))}
-              placeholder={t('presence.attentionPlaceholder')}
-              rows={1}
-              className="w-full px-4 pt-3.5 pb-12 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
-            />
-            {speechSupported && (
-              <button
-                {...attentionMic.micButtonProps}
-                aria-label={attentionMic.isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
-                className={`absolute bottom-2 right-2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
-                  attentionMic.isListening
-                    ? 'bg-error text-white scale-105'
-                    : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
-                }`}
+          {/* contenteditable wrapper. The mic button is a real DOM
+              child with `float: right` so the first line of typed
+              text wraps around it; lines below the mic flow at full
+              width. Placeholder is rendered as an absolute span
+              shown only when the editable is empty (contenteditable
+              has no native placeholder). */}
+          <div
+            className="relative w-full bg-bg border border-border rounded-xl focus-within:border-primary"
+          >
+            {/* Empty-state placeholder. pointer-events-none so it
+                doesn't intercept the click that should focus the
+                editable behind it. */}
+            {!attention && (
+              <span
+                className="pointer-events-none absolute left-4 top-3.5 text-[17px] leading-relaxed text-text-tertiary"
+                aria-hidden
               >
-                {attentionMic.isListening ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </svg>
-                )}
-              </button>
+                {t('presence.attentionPlaceholder')}
+              </span>
             )}
+            <div
+              key={editableInstanceKey}
+              ref={attentionEditableRef}
+              role="textbox"
+              aria-multiline="true"
+              aria-label={t('presence.intro')}
+              contentEditable
+              suppressContentEditableWarning
+              onInput={handleAttentionInput}
+              onBeforeInput={handleAttentionBeforeInput}
+              onPaste={handleAttentionPaste}
+              spellCheck
+              className="w-full px-4 py-3.5 text-[17px] leading-relaxed text-text-primary outline-none overflow-y-auto whitespace-pre-wrap break-words"
+              style={{
+                minHeight: '52px',
+                maxHeight: `${PRESENCE_ATTENTION_MAX_PX}px`,
+              }}
+            >
+              {/* Floated mic — `contentEditable={false}` so the user
+                  can't put the caret inside it; `float: right` makes
+                  text wrap around it on the first line. The button's
+                  margin-bottom + margin-left create the airy negative
+                  space around it inside the textbox. */}
+              {speechSupported && (
+                <span
+                  contentEditable={false}
+                  className="float-right ml-2 mb-1 inline-block"
+                >
+                  <button
+                    type="button"
+                    onClick={toggleAttentionMic}
+                    onMouseDown={(e) => e.preventDefault()}
+                    aria-label={attentionListening ? t('template.stopRecording') : t('template.tapToSpeak')}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
+                      attentionListening
+                        ? 'bg-error text-white scale-105'
+                        : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
+                    }`}
+                  >
+                    {attentionListening ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                        <rect x="6" y="6" width="12" height="12" rx="2" />
+                      </svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" x2="12" y1="19" y2="22" />
+                      </svg>
+                    )}
+                  </button>
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
