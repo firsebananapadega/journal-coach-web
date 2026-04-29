@@ -17,6 +17,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useJournalStore } from '@/stores/journalStore';
 import { useNotebookStore } from '@/stores/notebookStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
+import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 import { t } from '@/lib/translations';
 
 // Auto-grow + auto-scroll cap. Same vocabulary as the guided dock
@@ -39,14 +41,43 @@ export default function PresenceCapture() {
   const [oneWord, setOneWord] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Speech-recognition support detection runs once on mount — keeps
+  // the mic button hidden on browsers that don't support Web Speech
+  // (e.g. desktop Firefox) instead of rendering a dead button.
+  const [speechSupported] = useState(
+    () => typeof window !== 'undefined' && isSpeechRecognitionSupported(),
+  );
+
+  // Per-field mic. Each field gets its own selection-aware mic instance
+  // so dictation lands in the field the user actually started recording
+  // on, and toggling one mic doesn't shut off the other (the hook owns
+  // its own startListening / stop calls).
+  const attentionMicRef = useRef<HTMLTextAreaElement | null>(null);
+  const oneWordInputRef = useRef<HTMLInputElement | null>(null);
+  // The hook expects an HTMLTextAreaElement ref. The one-word field is
+  // an <input>, but the hook uses .value / selection / dispatch — all
+  // shared between input and textarea — so we cast the ref. iOS-quirk
+  // selection bookkeeping inside the hook works the same way for both.
+  const oneWordRefForMic = oneWordInputRef as unknown as React.RefObject<HTMLTextAreaElement>;
+  const attentionMic = useSelectionAwareMic({
+    textareaRef: attentionMicRef,
+    value: attention,
+    onChange: (next) => setAttention(next.slice(0, PRESENCE_ATTENTION_MAX_CHARS)),
+    autoRestart: true,
+  });
+  const oneWordMic = useSelectionAwareMic({
+    textareaRef: oneWordRefForMic,
+    value: oneWord,
+    onChange: (next) => setOneWord(next.slice(0, 24).replace(/\s+/g, '')),
+  });
+
   // Auto-grow + auto-scroll for the attention textarea. Resize on
   // every value change: set height='auto' first so the textarea can
   // shrink back if the user deletes text, then cap at MAX_PX. Past
   // the cap we keep scrollTop pinned to scrollHeight so a user who's
   // dictating sees their latest words instead of older lines.
-  const attentionRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
-    const ta = attentionRef.current;
+    const ta = attentionMicRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
     const next = Math.min(ta.scrollHeight, PRESENCE_TEXTAREA_MAX_PX);
@@ -135,14 +166,42 @@ export default function PresenceCapture() {
           <label className="text-lg text-text-primary font-medium leading-snug block">
             {t('presence.intro')}
           </label>
-          <textarea
-            ref={attentionRef}
-            value={attention}
-            onChange={(e) => setAttention(e.target.value.slice(0, PRESENCE_ATTENTION_MAX_CHARS))}
-            placeholder={t('presence.attentionPlaceholder')}
-            rows={1}
-            className="w-full px-4 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
-          />
+          {/* Wrapper is the positioning context for the inline mic
+              button. Right padding on the textarea reserves visual
+              space so dictated text never slides under the mic. */}
+          <div className="relative">
+            <textarea
+              ref={attentionMicRef}
+              value={attention}
+              onChange={(e) => setAttention(e.target.value.slice(0, PRESENCE_ATTENTION_MAX_CHARS))}
+              placeholder={t('presence.attentionPlaceholder')}
+              rows={1}
+              className="w-full pl-4 pr-14 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
+            />
+            {speechSupported && (
+              <button
+                {...attentionMic.micButtonProps}
+                aria-label={attentionMic.isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
+                className={`absolute top-1/2 right-2.5 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
+                  attentionMic.isListening
+                    ? 'bg-error text-white scale-105'
+                    : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
+                }`}
+              >
+                {attentionMic.isListening ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* 2. One word — body emoji-scale removed per user feedback;
@@ -152,19 +211,45 @@ export default function PresenceCapture() {
           <label className="text-lg text-text-primary font-medium leading-snug block">
             {t('presence.oneWordPrompt')}
           </label>
-          <input
-            type="text"
-            value={oneWord}
-            onChange={(e) => setOneWord(e.target.value.slice(0, 24).replace(/\s+/g, ''))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && canSave) {
-                e.preventDefault();
-                void handleSave();
-              }
-            }}
-            placeholder={t('presence.oneWordPlaceholder')}
-            className="w-full px-4 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
-          />
+          <div className="relative">
+            <input
+              ref={oneWordInputRef}
+              type="text"
+              value={oneWord}
+              onChange={(e) => setOneWord(e.target.value.slice(0, 24).replace(/\s+/g, ''))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canSave) {
+                  e.preventDefault();
+                  void handleSave();
+                }
+              }}
+              placeholder={t('presence.oneWordPlaceholder')}
+              className="w-full pl-4 pr-14 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
+            />
+            {speechSupported && (
+              <button
+                {...oneWordMic.micButtonProps}
+                aria-label={oneWordMic.isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
+                className={`absolute top-1/2 right-2.5 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
+                  oneWordMic.isListening
+                    ? 'bg-error text-white scale-105'
+                    : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
+                }`}
+              >
+                {oneWordMic.isListening ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         <button
