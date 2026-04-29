@@ -13,11 +13,18 @@
 // row appears as a compact done card inside DailyPulseCard's
 // chronologically-sorted list (alongside morning + evening).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useJournalStore } from '@/stores/journalStore';
 import { useNotebookStore } from '@/stores/notebookStore';
 import { useUiStore } from '@/stores/uiStore';
 import { t } from '@/lib/translations';
+
+// Auto-grow + auto-scroll cap. Same vocabulary as the guided dock
+// textarea — caps at ~6 lines (152px including padding) so the
+// presence card never balloons; once the cap is hit, the textarea
+// scrolls internally so the latest dictated text stays visible.
+const PRESENCE_TEXTAREA_MAX_PX = 152;
+const PRESENCE_ATTENTION_MAX_CHARS = 500;
 
 export default function PresenceCapture() {
   const hasFetched = useJournalStore((s) => s.hasFetched);
@@ -31,6 +38,26 @@ export default function PresenceCapture() {
   const [attention, setAttention] = useState('');
   const [oneWord, setOneWord] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Auto-grow + auto-scroll for the attention textarea. Resize on
+  // every value change: set height='auto' first so the textarea can
+  // shrink back if the user deletes text, then cap at MAX_PX. Past
+  // the cap we keep scrollTop pinned to scrollHeight so a user who's
+  // dictating sees their latest words instead of older lines.
+  const attentionRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const ta = attentionRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    const next = Math.min(ta.scrollHeight, PRESENCE_TEXTAREA_MAX_PX);
+    ta.style.height = `${next}px`;
+    if (ta.scrollHeight > PRESENCE_TEXTAREA_MAX_PX) {
+      ta.style.overflowY = 'auto';
+      ta.scrollTop = ta.scrollHeight;
+    } else {
+      ta.style.overflowY = 'hidden';
+    }
+  }, [attention]);
 
   // Hydrate journal entries on first mount so the parent (/home) can
   // detect whether today's presence is already done and decide whether
@@ -108,12 +135,13 @@ export default function PresenceCapture() {
           <label className="text-lg text-text-primary font-medium leading-snug block">
             {t('presence.intro')}
           </label>
-          <input
-            type="text"
+          <textarea
+            ref={attentionRef}
             value={attention}
-            onChange={(e) => setAttention(e.target.value.slice(0, 80))}
+            onChange={(e) => setAttention(e.target.value.slice(0, PRESENCE_ATTENTION_MAX_CHARS))}
             placeholder={t('presence.attentionPlaceholder')}
-            className="w-full px-4 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
+            rows={1}
+            className="w-full px-4 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
           />
         </div>
 

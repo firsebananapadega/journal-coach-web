@@ -85,6 +85,15 @@ interface Props {
   backHref?: string;
 }
 
+// Module-level scroll-position cache, keyed by notebook slug. The feed
+// scrolls inside a custom `overflow-y-auto` div (not the window), so
+// the browser's built-in scroll restoration doesn't apply when the
+// user navigates to /entry/[id] and back. Persisting the scrollTop
+// here gives "Back" the intuitive "stay where I was" behavior. Map
+// is module-level so it survives route changes within the SPA but
+// resets on a hard reload (which is fine — that's a deliberate refresh).
+const scrollPositions = new Map<string, number>();
+
 function dayKey(iso: string): string {
   // Local YYYY-MM-DD so entries captured late at night group with
   // the calendar day the user was actually on.
@@ -138,6 +147,17 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
   const [composerOpen, setComposerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerStartRef = useRef<number>(Date.now());
+  // Ref on the scrollable feed container — captures the user's scroll
+  // position and restores it when they navigate back from an entry.
+  const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  // RAF handle for the scroll-capture debouncer (shared across renders
+  // so a quick scroll doesn't queue 60 captures per second).
+  const scrollCaptureRafRef = useRef<number | null>(null);
+  // Has-fetched flag we already track via store; reading it locally so
+  // the restore effect can wait for entries to mount before applying
+  // scrollTop (otherwise the container has 0 height and the assignment
+  // is a no-op).
+  const entriesReady = hasFetchedEntries;
 
   const { isListening, micButtonProps } = useSelectionAwareMic({
     textareaRef,
@@ -151,6 +171,34 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
     if (!hasFetchedNotebooks) fetchNotebooks().catch(() => {});
     if (!hasFetchedEntries) fetchEntries().catch(() => {});
   }, [hasFetchedNotebooks, hasFetchedEntries, fetchNotebooks, fetchEntries]);
+
+  // Restore scroll position when the feed becomes ready (entries
+  // hydrated + activeSlug resolved). We wait for `entriesReady` because
+  // the container has no scrollHeight until rows render — assigning
+  // scrollTop before that would silently no-op. requestAnimationFrame
+  // gives the browser one paint to lay out the rows so scrollTop
+  // assignment lands on real geometry.
+  useEffect(() => {
+    if (!entriesReady) return;
+    if (!activeSlug) return;
+    const remembered = scrollPositions.get(activeSlug);
+    if (remembered == null || remembered <= 0) return;
+    const id = requestAnimationFrame(() => {
+      const el = feedScrollRef.current;
+      if (el) el.scrollTop = remembered;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [entriesReady, activeSlug]);
+
+  // Cleanup the rAF handle on unmount so a navigation-away mid-capture
+  // doesn't leak.
+  useEffect(() => {
+    return () => {
+      if (scrollCaptureRafRef.current) {
+        cancelAnimationFrame(scrollCaptureRafRef.current);
+      }
+    };
+  }, []);
 
   // Resolve the active notebook object from slug.
   const activeNotebook: Notebook | null = useMemo(() => {
@@ -341,6 +389,23 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
 
       {/* Feed (scrollable) */}
       <div
+        ref={feedScrollRef}
+        onScroll={(e) => {
+          // Debounced save via rAF — write the scrollTop into the
+          // module-level Map so Back-from-entry restores cleanly.
+          // Cheap; no React re-render path (we're just mutating a Map).
+          if (!activeSlug) return;
+          const target = e.currentTarget;
+          // Cancel any pending capture frame and schedule a fresh one.
+          // We don't bother with a long debounce — even a fast scroll
+          // resolves to one Map.set() per animation frame.
+          if (scrollCaptureRafRef.current) {
+            cancelAnimationFrame(scrollCaptureRafRef.current);
+          }
+          scrollCaptureRafRef.current = requestAnimationFrame(() => {
+            scrollPositions.set(activeSlug, target.scrollTop);
+          });
+        }}
         className="relative z-10 flex-1 overflow-y-auto"
         style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}
       >
