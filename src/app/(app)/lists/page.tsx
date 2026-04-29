@@ -10,9 +10,10 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useListStore } from '@/stores/listStore';
+import { useListStore, type ListRecord } from '@/stores/listStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { t } from '@/lib/translations';
+import { getDB } from '@/lib/db';
 
 export default function ListsPage() {
   const lists = useListStore((s) => s.lists);
@@ -36,6 +37,46 @@ export default function ListsPage() {
   useEffect(() => {
     void ensureInbox();
   }, [ensureInbox]);
+
+  // Defensive fallback for the wall-flip race.
+  //
+  // Bug we keep seeing: after switching journal → tasks wall, /lists
+  // briefly mounts during the flip animation. The fetchLists call
+  // fires, but its Dexie hydrate `set({ lists })` somehow doesn't
+  // make it into the final render — state.lists stays empty until
+  // the user navigates away and back. Going to /groceries (which
+  // calls loadActive on a different store, triggering the Zustand
+  // store-level subscriber that resets internal references)
+  // unblocks something and a subsequent fetchLists hydrate sticks.
+  //
+  // Couldn't pin the root cause despite several rounds of digging,
+  // so this is the belt-and-braces fix: if state.lists is still
+  // empty 200ms after mount, read Dexie directly and write the rows
+  // back through useListStore.setState. Idempotent — if state is
+  // already populated by then, this is a no-op.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (useListStore.getState().lists.length > 0) return;
+      const db = getDB();
+      if (!db) return;
+      void db.lists.toArray().then((rows) => {
+        if (rows.length === 0) return;
+        if (useListStore.getState().lists.length > 0) return;
+        const sorted = [...rows].sort((a, b) => {
+          if (a.is_inbox !== b.is_inbox) return a.is_inbox ? -1 : 1;
+          if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+          return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+        }) as ListRecord[];
+        const inbox = sorted.find((l) => l.is_inbox) ?? null;
+        useListStore.setState({
+          lists: sorted,
+          inboxId: inbox?.id ?? null,
+          hasFetched: true,
+        });
+      }).catch(() => {});
+    }, 200);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const counts = useMemo(() => {
     const map = new Map<string | null, number>();
