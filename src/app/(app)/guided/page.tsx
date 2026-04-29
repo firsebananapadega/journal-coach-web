@@ -510,11 +510,26 @@ export default function GuidedSessionPage() {
   // /guided used to be unconditionally hideNav. Now it starts with
   // the wall nav visible (user just tapped the Guided tab from the
   // journal wall) and promotes to full-screen only when the user
-  // actually engages: typing, mic, or resuming a thread with prior
-  // exchanges. The flag lives in uiStore so the layout can react.
+  // actually engages: focusing the input, typing, mic, or resuming a
+  // thread with prior exchanges. The flag lives in uiStore so the
+  // layout can react.
   const setGuidedImmersive = useUiStore((s) => s.setGuidedImmersive);
+  const guidedImmersive = useUiStore((s) => s.guidedImmersive);
 
-  // First non-empty keystroke flips to immersive. Stays immersive
+  // Tap-into-input triggers immersive too. Without this, a user who
+  // taps the textarea (which is sitting above the wall nav) would
+  // see the wall nav stay visible until their first keystroke —
+  // jittery. Focus is the earliest reliable engagement signal.
+  useEffect(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    const onFocus = () => setGuidedImmersive(true);
+    ta.addEventListener('focus', onFocus);
+    return () => ta.removeEventListener('focus', onFocus);
+  }, [setGuidedImmersive]);
+
+  // First non-empty keystroke also flips to immersive (covers the
+  // dictation path where focus lives elsewhere). Stays immersive
   // even if the user backspaces back to empty — sticky per spec
   // (the X button is the explicit way out).
   useEffect(() => {
@@ -885,6 +900,16 @@ export default function GuidedSessionPage() {
   const dockTop = vv
     ? vv.offsetTop + vv.height - dockHeight - dockBottomOffset
     : 0;
+  // When the page is non-immersive (wall nav visible), the dock has
+  // to sit ABOVE the nav or it gets covered and the user can't reach
+  // the textarea. ~80px clears the visible nav across viewports;
+  // safe-area-inset-bottom takes care of iOS home-indicator slop.
+  // Keyboard up always means we've gone immersive (focus → immersive
+  // happens before the keyboard finishes rising), so this branch is
+  // only relevant for the keyboard-down state.
+  const dockBottom = !guidedImmersive
+    ? 'calc(80px + env(safe-area-inset-bottom))'
+    : '0px';
   const dockStyle: React.CSSProperties = vv && keyboardOpen
     ? {
         position: 'fixed',
@@ -895,10 +920,14 @@ export default function GuidedSessionPage() {
       }
     : {
         position: 'fixed',
-        bottom: 0,
+        bottom: dockBottom,
         left: 0,
         right: 0,
         zIndex: 10,
+        // Smooth the transition so when focus flips immersive on,
+        // the dock glides from "above nav" to "flush bottom" instead
+        // of snapping. Matches the wall nav's own slide-out timing.
+        transition: 'bottom 220ms cubic-bezier(0.22, 1, 0.36, 1)',
       };
 
   return (
@@ -1046,7 +1075,12 @@ export default function GuidedSessionPage() {
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 space-y-4"
         style={{
-          paddingBottom: `${dockHeight + 16}px`,
+          // Reserve dock-height + breathing AND, when non-immersive,
+          // also the wall-nav strip below the dock. Otherwise the last
+          // message would scroll behind the wall nav (since the
+          // messages container is full-viewport height while the dock
+          // is now floating above the nav).
+          paddingBottom: `calc(${dockHeight + 16}px + ${!guidedImmersive ? '80px + env(safe-area-inset-bottom)' : '0px'})`,
           // 'contain' blocks scroll-chaining (so pulling the chat past
           // its top doesn't scroll the parent) without disabling
           // normal in-bounds scrolling. The earlier 'none' setting
