@@ -225,6 +225,17 @@ const translations: Record<string, Record<Locale, string>> = {
   // ─── Entry card ───
   'entry.raw': { en: 'Raw', es: 'Crudo' },
   'entry.structured': { en: 'Structured', es: 'Estructurado' },
+  'entry.editingStructured': { en: 'Editing structured', es: 'Editando estructurado' },
+  'entry.editingStructuredHint': {
+    en: 'Raw transcript stays untouched — your edits live here.',
+    es: 'El texto original se mantiene sin cambios — tus ediciones viven aquí.',
+  },
+  'entry.repolishFromRaw': { en: '↻ Re-polish from raw', es: '↻ Volver a pulir desde el original' },
+  'entry.repolishing': { en: 'Polishing…', es: 'Puliendo…' },
+  'entry.repolishConfirm': {
+    en: 'This will replace your edits with a fresh polish from your original transcript. Continue?',
+    es: 'Esto reemplazará tus ediciones con un nuevo pulido del texto original. ¿Continuar?',
+  },
   'entry.structuring': { en: 'Structuring…', es: 'Estructurando…' },
   'entry.empty': { en: 'No content.', es: 'Sin contenido.' },
 

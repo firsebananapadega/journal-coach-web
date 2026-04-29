@@ -93,10 +93,11 @@ export default function EntryDetailPage() {
   /** Drop into edit mode and focus the relevant textarea on the next
    *  frame. Used everywhere the rendered body is tappable. */
   const enterEditMode = () => {
-    // Force structured→raw before editing. The structured view is
-    // auto-generated from the raw text, so the editable source-of-
-    // truth is the raw transcript. Keeps "what I tap is what I edit."
-    setViewMode('raw');
+    // Voice / freeform entries now edit the STRUCTURED markdown
+    // directly (raw stays frozen as the original transcript). The
+    // viewMode stays Structured so what-you-tap-is-what-you-edit.
+    // Other entry types (guided / pulse / template) keep their
+    // existing edit behavior — they don't go through the polish pass.
     startEditing();
     requestAnimationFrame(() => {
       primaryEditRef.current?.focus();
@@ -157,7 +158,20 @@ export default function EntryDetailPage() {
 
   const startEditing = () => {
     if (!entry) return;
-    setEditText(entry.content_text || '');
+    // For voice / freeform entries, the editable surface is the
+    // structured markdown (the user's working copy). Fall back to raw
+    // if structured hasn't been generated yet — first-time edits of
+    // an entry whose background polish failed still show *something*.
+    // Other entry types use content_text as before (their renderers
+    // are not Markdown-based).
+    const isVoiceFreeform =
+      entry.entry_type !== 'pulse' &&
+      entry.entry_type !== 'guided' &&
+      entry.entry_type !== 'template';
+    const initialText = isVoiceFreeform
+      ? (entry.content_structured?.trim() || entry.content_text || '')
+      : (entry.content_text || '');
+    setEditText(initialText);
     setEditTitle(entry.title || '');
     setEditMoodScore(entry.mood_score);
     setEditMoodLabel(entry.mood_label);
@@ -231,8 +245,13 @@ export default function EntryDetailPage() {
       // source of truth. If something leaked earlier, don't resurface it.
       updates.content_text = null;
     } else {
-      // Voice / freeform — direct text edit
-      updates.content_text = editText;
+      // Voice / freeform — write to content_structured. Raw
+      // (content_text) stays frozen as the original transcript. The
+      // user's edits live in the structured markdown column. If they
+      // want a fresh polish from raw, the "Re-polish from raw"
+      // button below regenerates from content_text.
+      updates.content_structured = editText;
+      updates.structured_generated_at = new Date().toISOString();
       updates.word_count = editText.split(/\s+/).filter(Boolean).length;
     }
 
@@ -497,13 +516,68 @@ export default function EntryDetailPage() {
               ))}
             </div>
           ) : (
-            // Voice / freeform: edit full text
-            <textarea
-              ref={primaryEditRef}
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-[15px] text-text-primary leading-relaxed resize-none outline-none focus:border-primary min-h-[200px]"
-            />
+            // Voice / freeform: edit the structured markdown directly.
+            // Raw (content_text) stays frozen — see the Re-polish
+            // button below for the explicit way to regenerate from raw.
+            <div className="space-y-2">
+              <p className="text-[11px] uppercase tracking-widest text-text-tertiary font-semibold">
+                {t('entry.editingStructured')}
+              </p>
+              <textarea
+                ref={primaryEditRef}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-[15px] text-text-primary leading-relaxed resize-none outline-none focus:border-primary min-h-[200px] font-mono"
+              />
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!entry) return;
+                    if (!entry.content_text || entry.content_text.trim().length < 5) return;
+                    const ok = window.confirm(t('entry.repolishConfirm'));
+                    if (!ok) return;
+                    setStructuring(true);
+                    try {
+                      const res = await getStructured(
+                        {
+                          id: entry.id,
+                          content_text: entry.content_text,
+                          content_structured: entry.content_structured,
+                        },
+                        { force: true },
+                      );
+                      // Drop the new polish into the editor; user can
+                      // tweak further before tapping Save.
+                      setEditText(res.text);
+                      // Reflect on the underlying entry so cancel-
+                      // without-save still benefits from the new
+                      // polish (it was persisted by getStructured).
+                      setEntry((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              content_structured: res.text,
+                              structured_generated_at: new Date().toISOString(),
+                            }
+                          : prev,
+                      );
+                    } catch {
+                      // Surface nothing — editor stays as it was.
+                    } finally {
+                      setStructuring(false);
+                    }
+                  }}
+                  disabled={structuring || !entry?.content_text}
+                  className="text-xs font-medium text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {structuring ? t('entry.repolishing') : t('entry.repolishFromRaw')}
+                </button>
+                <p className="text-[11px] text-text-tertiary leading-snug max-w-[60%] text-right">
+                  {t('entry.editingStructuredHint')}
+                </p>
+              </div>
+            </div>
           )}
 
           {/* Editable mood — pulse has its own body/mind system, so

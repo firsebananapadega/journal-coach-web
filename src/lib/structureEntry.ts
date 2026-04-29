@@ -3,7 +3,19 @@
 // Runs in the background the moment a new entry is saved (see
 // journalStore.createEntry). The result lands in `content_structured`
 // and is rendered as Markdown on entry cards + the single-entry
-// editor. Not re-run on view.
+// editor.
+//
+// Edit-the-structured architecture (April 2026):
+//   - `content_text` (raw) is FROZEN after creation. The original
+//     transcript / draft, kept as a historical record.
+//   - `content_structured` (Markdown) is the user's editable working
+//     copy. Generated once on create, then ONLY overwritten when the
+//     user explicitly hits "Re-polish from raw" (which calls this
+//     with `force: true`). Editing an entry through the detail page
+//     writes to content_structured directly via journalStore.updateEntry.
+//   - This file's job: produce a high-quality first polish, retry
+//     transient failures, and never silently corrupt a user-saved
+//     structured edit (compare-and-set in the SQL update).
 //
 // Output is Markdown — bullets, numbered lists, **bold**, *italic*,
 // `---` separators, paragraph breaks. The renderer uses react-markdown
@@ -14,16 +26,16 @@
 //   - Do NOT summarize or omit content.
 //   - Preserve the author's voice and word choice.
 //   - Fix only obvious spelling/punctuation.
-//   - Respect user's voice_dictionary — words listed there always
-//     land with that exact spelling.
+//   - Respect user's voice_dictionary.
 
-import { callGemini } from './geminiClient';
+import { callGemini, RateLimitError } from './geminiClient';
 import { supabase } from './supabase';
 import { withTimeout } from './withTimeout';
 import { wasTruncated, stripTruncationSentinel } from './geminiTruncation';
 
 const STRUCTURE_MODEL = 'gemini-2.5-flash';
 const TIMEOUT_MS = 25_000;
+const RETRY_DELAY_MS = 1_000;
 
 function buildPrompt(raw: string, dictionary: string[]): string {
   const dictBlock =
@@ -89,17 +101,54 @@ export interface StructureResult {
   cached: boolean;
 }
 
+export interface GetStructuredOptions {
+  /** When true, ignore an existing `content_structured` value and
+   *  regenerate from the raw. Used by the "Re-polish from raw" button
+   *  in entry detail. */
+  force?: boolean;
+  /** When true, the persist step uses a compare-and-set guard
+   *  (`.is('content_structured', null)`) so a slow background call
+   *  can't overwrite a structured edit the user already saved. The
+   *  create-time background call sets this to true. Manual / Re-polish
+   *  paths leave it false (they want their write to land). */
+  guardAgainstUserEdits?: boolean;
+}
+
+/**
+ * Sleep helper for the retry pause.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Decide whether an error is worth retrying. Auth + rate-limit are
+ * not (a retry will just hit the same wall); network / timeout /
+ * unknown errors are.
+ */
+function isTransientError(err: unknown): boolean {
+  if (err instanceof RateLimitError) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/not signed in/i.test(msg)) return false;
+  if (/4\d\d/.test(msg) && !/429/.test(msg)) return false;
+  return true;
+}
+
 /**
  * Fetches (or generates + persists) the structured version of an entry.
  * Returns `text` plus a `cached` flag the UI can use to skip the
  * "thinking" spinner when the call was instant.
  */
-export async function getStructured(entry: {
-  id: string;
-  content_text: string | null;
-  content_structured: string | null;
-}): Promise<StructureResult> {
-  if (entry.content_structured && entry.content_structured.trim()) {
+export async function getStructured(
+  entry: {
+    id: string;
+    content_text: string | null;
+    content_structured: string | null;
+  },
+  options: GetStructuredOptions = {},
+): Promise<StructureResult> {
+  // Cached short-circuit — unless caller forces a regenerate.
+  if (!options.force && entry.content_structured && entry.content_structured.trim()) {
     return { text: entry.content_structured, cached: true };
   }
   const raw = (entry.content_text ?? '').trim();
@@ -109,57 +158,89 @@ export async function getStructured(entry: {
 
   const dict = await loadVoiceDictionary();
   const prompt = buildPrompt(raw, dict);
-  const rawResponse = (await callGemini(STRUCTURE_MODEL, prompt, TIMEOUT_MS)).trim();
+
+  // Generation with retry. Up to 2 attempts on transient errors. On
+  // truncation (Gemini hit maxOutputTokens) we also retry once — the
+  // model sometimes produces a complete response on a fresh attempt
+  // even when an earlier one clipped.
+  let rawResponse = '';
+  let lastTransientErr: unknown = null;
+  let truncationRetried = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      rawResponse = (await callGemini(STRUCTURE_MODEL, prompt, TIMEOUT_MS)).trim();
+      // If truncated AND we haven't already used our retry slot for
+      // truncation, try once more before settling.
+      if (wasTruncated(rawResponse) && !truncationRetried && attempt === 0) {
+        truncationRetried = true;
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+      lastTransientErr = null;
+      break;
+    } catch (err) {
+      lastTransientErr = err;
+      if (!isTransientError(err) || attempt >= 1) {
+        // Non-retryable, or out of retries.
+        break;
+      }
+      console.warn('[structureEntry] transient error, retrying', err);
+      await sleep(RETRY_DELAY_MS);
+    }
+  }
+
+  if (lastTransientErr) {
+    console.warn('[structureEntry] failed after retries', lastTransientErr);
+    // Fall back to raw — caller still gets something to render. The
+    // feed backfill will retry on a future fetch.
+    return { text: raw, cached: false };
+  }
 
   // Detect MAX_TOKENS truncation. The server appends a sentinel to
   // any response that hit the output cap. If the polish came back
   // clipped AND it's materially shorter than the raw entry, refuse
   // to persist — overwriting a complete raw with a truncated
-  // structured would erase content the user wrote. Falls through to
-  // the raw entry on read.
+  // structured would erase content the user wrote.
   const truncated = wasTruncated(rawResponse);
   const text = stripTruncationSentinel(rawResponse);
   if (truncated) {
     const rawWords = raw.split(/\s+/).filter(Boolean).length;
     const polishedWords = text.split(/\s+/).filter(Boolean).length;
     const ratio = rawWords === 0 ? 1 : polishedWords / rawWords;
-    console.warn('[structureEntry] truncated response', {
+    console.warn('[structureEntry] truncated response after retry', {
       entryId: entry.id,
       rawWords,
       polishedWords,
       ratio: Math.round(ratio * 100) / 100,
     });
     if (ratio < 0.8) {
-      // Materially clipped — abandon the polish for this attempt.
-      // Returning the raw lets the UI render the verbatim transcript;
-      // a future call (with more headroom now that maxOutputTokens
-      // is 8192) can produce a complete polish.
+      // Materially clipped even on retry — abandon the polish. Caller
+      // gets raw back; a future call (with hopefully more headroom)
+      // can produce a complete polish.
       return { text: raw, cached: false };
     }
-    // Truncation but only mild — still persist the polish (better
-    // than raw, even if the very last sentence got clipped).
+    // Mild truncation only — still persist the polish (better than
+    // raw, even if the very last sentence got clipped).
   }
 
-  // Persist synchronously so the next view is instant. Earlier this
-  // was fire-and-forget with `.catch(() => {})`, which silently ate
-  // RLS / timeout errors — entries ended up still showing raw on
-  // reload because the `content_structured` column never actually
-  // landed in the DB. Awaiting here exposes those errors to the
-  // caller, who can retry or fall back to the text we already have
-  // in hand.
+  // Persist. Compare-and-set guard for the create-time background
+  // call: if the user has already manually edited `content_structured`
+  // by the time this background call resolves (rare race), we don't
+  // overwrite their edit. The Re-polish path leaves the guard off so
+  // it can intentionally replace whatever's there.
   try {
-    const { error } = await withTimeout(
-      supabase
-        .from('journal_entries')
-        .update({
-          content_structured: text,
-          structured_generated_at: new Date().toISOString(),
-          structured_gemini_model: STRUCTURE_MODEL,
-        })
-        .eq('id', entry.id),
-      15_000,
-      'persist-structured',
-    );
+    let query = supabase
+      .from('journal_entries')
+      .update({
+        content_structured: text,
+        structured_generated_at: new Date().toISOString(),
+        structured_gemini_model: STRUCTURE_MODEL,
+      })
+      .eq('id', entry.id);
+    if (options.guardAgainstUserEdits) {
+      query = query.is('content_structured', null);
+    }
+    const { error } = await withTimeout(query, 15_000, 'persist-structured');
     if (error) {
       console.warn('[structureEntry] persist failed', error);
     }

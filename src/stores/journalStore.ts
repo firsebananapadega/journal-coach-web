@@ -10,6 +10,11 @@ import { isOnline } from '../lib/networkStatus';
 // hangs into explicit throws is the only way to recover without a
 // force-quit.
 const READ_MS = 15000;
+
+// Module-level lock for the structured-backfill queue. Prevents two
+// concurrent fetchEntries calls from each kicking off their own
+// backfill pass and double-spending Gemini quota on the same entries.
+let backfillInFlight = false;
 const WRITE_MS = 15000;
 const AUTH_MS = 8000;
 
@@ -72,6 +77,13 @@ interface JournalState {
   // caching in EntryCard to reflect a freshly generated structured
   // view without triggering a refetch.
   applyEntryPatch: (id: string, patch: Partial<JournalEntry>) => void;
+  /** Sequential backfill: scans the current entries slice for rows
+   *  that have raw text but no structured view, runs Gemini on them
+   *  one at a time, and patches the store as each lands. Cap-limited
+   *  per call (default 5) so we don't burn the daily Gemini quota in
+   *  one shot. No-op when offline. Idempotent — already-running
+   *  backfill calls become no-ops via an internal lock. */
+  backfillStructured: (cap?: number) => Promise<void>;
   reset: () => void;
 }
 
@@ -142,6 +154,11 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       set({ error: error instanceof Error ? error.message : 'Failed to fetch entries' });
     } finally {
       set({ loading: false, hasFetched: true });
+      // Kick off a structured backfill pass once entries have landed.
+      // Fire-and-forget — the backfill action handles its own
+      // concurrency lock and offline guard, and the user's view
+      // doesn't block on it.
+      void get().backfillStructured();
     }
   },
 
@@ -217,23 +234,33 @@ export const useJournalStore = create<JournalState>((set, get) => ({
         (async () => {
           try {
             const { getStructured } = await import('../lib/structureEntry');
-            const res = await getStructured({
-              id: created.id,
-              content_text: created.content_text,
-              content_structured: null,
-            });
-            // Reflect the cached result in the store so any mounted
-            // EntryCard rendering this row picks it up.
+            // guardAgainstUserEdits: if the user has already opened
+            // entry-detail and saved a manual edit to content_structured
+            // by the time this background call resolves, the SQL
+            // .is('content_structured', null) filter prevents this
+            // call from overwriting their edit.
+            const res = await getStructured(
+              {
+                id: created.id,
+                content_text: created.content_text,
+                content_structured: null,
+              },
+              { guardAgainstUserEdits: true },
+            );
+            // Reflect the cached result in the store ONLY if the
+            // current in-memory row still has no structured value —
+            // mirrors the SQL guard so we don't clobber an in-memory
+            // user edit either.
             set((s) => ({
-              entries: s.entries.map((e) =>
-                e.id === created.id
-                  ? {
-                      ...e,
-                      content_structured: res.text,
-                      structured_generated_at: new Date().toISOString(),
-                    }
-                  : e,
-              ),
+              entries: s.entries.map((e) => {
+                if (e.id !== created.id) return e;
+                if (e.content_structured && e.content_structured.trim()) return e;
+                return {
+                  ...e,
+                  content_structured: res.text,
+                  structured_generated_at: new Date().toISOString(),
+                };
+              }),
             }));
           } catch (err) {
             console.warn('[journalStore] background structure failed', err);
@@ -251,14 +278,13 @@ export const useJournalStore = create<JournalState>((set, get) => ({
   },
 
   updateEntry: async (id: string, updates: Partial<JournalEntry>) => {
-    // If the raw content changed, invalidate the cached structured
-    // view so the next toggle regenerates it.
-    const invalidatesStructured =
-      Object.prototype.hasOwnProperty.call(updates, 'content_text') &&
-      !Object.prototype.hasOwnProperty.call(updates, 'content_structured');
-    const payload = invalidatesStructured
-      ? { ...updates, content_structured: null, structured_generated_at: null, updated_at: new Date().toISOString() }
-      : { ...updates, updated_at: new Date().toISOString() };
+    // Edit-the-structured architecture: callers write exactly the
+    // fields they want changed, and the store doesn't second-guess
+    // them. Specifically: changing `content_text` does NOT auto-blow-
+    // away `content_structured`. The structured version is the user's
+    // edited working copy and should never be lost without explicit
+    // intent (the "Re-polish from raw" button is the explicit path).
+    const payload = { ...updates, updated_at: new Date().toISOString() };
     set({ entries: get().entries.map((e) => (e.id === id ? { ...e, ...payload } : e)) });
     await enqueue({ op: 'update', table: 'journal_entries', row_id: id, payload });
   },
@@ -370,6 +396,64 @@ export const useJournalStore = create<JournalState>((set, get) => ({
     set((s) => ({
       entries: s.entries.map((e) => (e.id === id ? { ...e, ...patch } : e)),
     })),
+
+  backfillStructured: async (cap = 5) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (backfillInFlight) return;
+    backfillInFlight = true;
+    try {
+      // Snapshot at start — we work off the slice as it was when the
+      // backfill kicked in, so a concurrent fetch can't make us iterate
+      // forever.
+      const snapshot = get().entries;
+      const candidates = snapshot.filter((e) => {
+        if (e.entry_type === 'pulse') return false;
+        if (e.entry_type === 'guided') return false;
+        if (e.entry_type === 'template') return false;
+        const hasRaw = !!e.content_text && e.content_text.trim().length > 5;
+        const hasStructured =
+          !!e.content_structured && e.content_structured.trim().length > 0;
+        return hasRaw && !hasStructured;
+      });
+      if (candidates.length === 0) return;
+      const slice = candidates.slice(0, cap);
+      const { getStructured } = await import('../lib/structureEntry');
+      for (const entry of slice) {
+        try {
+          const res = await getStructured(
+            {
+              id: entry.id,
+              content_text: entry.content_text,
+              content_structured: null,
+            },
+            // Same race protection as the create-time call: if the
+            // user manually saved a structured edit while we were
+            // working through the queue, don't overwrite it.
+            { guardAgainstUserEdits: true },
+          );
+          // Reflect into the in-memory slice — but only if no edit
+          // landed in the meantime.
+          set((s) => ({
+            entries: s.entries.map((e) => {
+              if (e.id !== entry.id) return e;
+              if (e.content_structured && e.content_structured.trim()) return e;
+              return {
+                ...e,
+                content_structured: res.text,
+                structured_generated_at: new Date().toISOString(),
+              };
+            }),
+          }));
+        } catch (err) {
+          console.warn('[journalStore] backfill error for entry', entry.id, err);
+          // Continue with the remaining candidates — one bad entry
+          // shouldn't stop the queue.
+        }
+      }
+    } finally {
+      backfillInFlight = false;
+    }
+  },
 
   reset: () => {
     // Cancel every outstanding undo timer before clearing — otherwise
