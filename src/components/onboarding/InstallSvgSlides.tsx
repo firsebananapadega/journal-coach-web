@@ -294,8 +294,8 @@ function SvgStep3() {
 
 export function getSvgIosSlides(): InstallSlide[] {
   return [
-    { id: 'svg-1', Illustration: SvgStep1, caption: t('onboarding.install.svgStep1') },
-    { id: 'svg-2', Illustration: SvgStep2, caption: t('onboarding.install.svgStep2') },
-    { id: 'svg-3', Illustration: SvgStep3, caption: t('onboarding.install.svgStep3') },
+    { id: 'svg-1', Illustration: SvgStep1, caption: t('onboarding.install.svgStep1'), stepNumber: 1 },
+    { id: 'svg-2', Illustration: SvgStep2, caption: t('onboarding.install.svgStep2'), stepNumber: 2 },
+    { id: 'svg-3', Illustration: SvgStep3, caption: t('onboarding.install.svgStep3'), stepNumber: 3 },
   ];
 }

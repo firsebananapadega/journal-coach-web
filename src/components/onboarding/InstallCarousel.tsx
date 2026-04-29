@@ -24,6 +24,12 @@ export interface InstallSlide {
   Illustration: React.FC;
   caption: string;
   imageSrc?: string;
+  /** Optional step number rendered as a small circular badge above
+   *  the caption. Used by the SVG carousel (iOS non-Safari) so the
+   *  three instructions read as a numbered sequence. iOS Safari's
+   *  5-screenshot carousel intentionally omits this — its slides are
+   *  conceptual taps rather than discrete steps. */
+  stepNumber?: number;
 }
 
 interface Props {
@@ -178,7 +184,22 @@ export default function InstallCarousel({ slides }: Props) {
                 <s.Illustration />
               )}
             </div>
-            <p className="text-base font-semibold text-text-primary text-center mt-3 px-3 leading-snug min-h-[2.75em]">
+            {/* Numbered step badge (SVG carousel only — see InstallSlide
+                docstring). Sits directly above the caption so the three
+                instructions read as 1 → 2 → 3 across the carousel. */}
+            {s.stepNumber !== undefined && (
+              <div
+                className="mt-3 w-8 h-8 rounded-full bg-primary/15 text-primary text-sm font-bold flex items-center justify-center ring-1 ring-primary/30"
+                aria-hidden
+              >
+                {s.stepNumber}
+              </div>
+            )}
+            <p
+              className={`text-base font-semibold text-text-primary text-center px-3 leading-snug min-h-[2.75em] ${
+                s.stepNumber !== undefined ? 'mt-1.5' : 'mt-3'
+              }`}
+            >
               {s.caption}
             </p>
           </div>
