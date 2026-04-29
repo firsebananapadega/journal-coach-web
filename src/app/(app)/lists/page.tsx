@@ -38,45 +38,53 @@ export default function ListsPage() {
     void ensureInbox();
   }, [ensureInbox]);
 
-  // Defensive fallback for the wall-flip race.
+  // Local Dexie fallback for the wall-flip race.
   //
-  // Bug we keep seeing: after switching journal → tasks wall, /lists
-  // briefly mounts during the flip animation. The fetchLists call
-  // fires, but its Dexie hydrate `set({ lists })` somehow doesn't
-  // make it into the final render — state.lists stays empty until
-  // the user navigates away and back. Going to /groceries (which
-  // calls loadActive on a different store, triggering the Zustand
-  // store-level subscriber that resets internal references)
-  // unblocks something and a subsequent fetchLists hydrate sticks.
+  // The bug: after switching journal → tasks wall, /lists renders
+  // with empty state even though Dexie has data. fetchLists's
+  // hydrate `set({ lists })` doesn't seem to take during the flip
+  // animation's multiple re-mounts, and only navigating to
+  // /groceries (a totally unrelated store action) unblocks it.
   //
-  // Couldn't pin the root cause despite several rounds of digging,
-  // so this is the belt-and-braces fix: if state.lists is still
-  // empty 200ms after mount, read Dexie directly and write the rows
-  // back through useListStore.setState. Idempotent — if state is
-  // already populated by then, this is a no-op.
+  // Rather than fight whatever's preventing the store from settling,
+  // read Dexie ourselves into local state. The page renders from
+  // (storeLists OR localDexieLists), so the page is correct as soon
+  // as ONE of them populates. We also push the result back to the
+  // store so subsequent reads (e.g., if the user navigates and comes
+  // back) get a fast hit from the store.
+  const [localDexieLists, setLocalDexieLists] = useState<ListRecord[]>([]);
   useEffect(() => {
-    const id = window.setTimeout(() => {
-      if (useListStore.getState().lists.length > 0) return;
-      const db = getDB();
-      if (!db) return;
-      void db.lists.toArray().then((rows) => {
-        if (rows.length === 0) return;
-        if (useListStore.getState().lists.length > 0) return;
-        const sorted = [...rows].sort((a, b) => {
-          if (a.is_inbox !== b.is_inbox) return a.is_inbox ? -1 : 1;
-          if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-          return (a.created_at ?? '').localeCompare(b.created_at ?? '');
-        }) as ListRecord[];
+    let cancelled = false;
+    const db = getDB();
+    if (!db) return;
+    void db.lists.toArray().then((rows) => {
+      if (cancelled) return;
+      if (rows.length === 0) return;
+      const sorted = [...rows].sort((a, b) => {
+        if (a.is_inbox !== b.is_inbox) return a.is_inbox ? -1 : 1;
+        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+        return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+      }) as ListRecord[];
+      setLocalDexieLists(sorted);
+      // Push to the store if it's behind (or empty). Idempotent.
+      if (useListStore.getState().lists.length === 0) {
         const inbox = sorted.find((l) => l.is_inbox) ?? null;
         useListStore.setState({
           lists: sorted,
           inboxId: inbox?.id ?? null,
           hasFetched: true,
         });
-      }).catch(() => {});
-    }, 200);
-    return () => window.clearTimeout(id);
+      }
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // Render-time fallback: if the store hasn't populated yet, fall
+  // back to whatever the local Dexie read returned. Either source
+  // is the same data (Dexie is the source of truth offline).
+  const effectiveLists = lists.length > 0 ? lists : localDexieLists;
 
   const counts = useMemo(() => {
     const map = new Map<string | null, number>();
@@ -88,8 +96,8 @@ export default function ListsPage() {
     return map;
   }, [tasks]);
 
-  const inbox = lists.find((l) => l.is_inbox);
-  const userLists = lists.filter((l) => !l.is_inbox);
+  const inbox = effectiveLists.find((l) => l.is_inbox);
+  const userLists = effectiveLists.filter((l) => !l.is_inbox);
   const inboxCount = inbox ? counts.get(inbox.id) ?? 0 : 0;
 
   const handleCreate = async () => {
