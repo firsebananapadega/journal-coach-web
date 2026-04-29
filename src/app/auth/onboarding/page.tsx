@@ -92,6 +92,12 @@ export default function OnboardingPage() {
       await completeOnboarding(name.trim() || 'Friend', '', [], guide, chosenUse);
       if (typeof window !== 'undefined') {
         localStorage.setItem('tour_pending', '1');
+        // Sibling handshake for RitualDemo (the 3-card daily-ritual
+        // walkthrough mounted in (app)/layout). The component checks
+        // this flag in addition to profile.ritual_demo_completed so
+        // it ONLY auto-fires for users who just finished onboarding,
+        // not for anyone whose profile fetch is still in flight.
+        localStorage.setItem('ritual_demo_pending', '1');
         // Seed wallState so the first render lands on the right
         // wall. 'both' defaults to journal-side as the friendlier
         // first impression (pulse + letters intro).

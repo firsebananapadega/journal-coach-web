@@ -575,8 +575,59 @@ const translations: Record<string, Record<Locale, string>> = {
   'guided.takingAMoment': { en: 'Taking a moment — composing a thoughtful reply.', es: 'Un momento — redactando una respuesta cuidadosa.' },
   'pulse.emptyTitle': { en: 'No patterns yet', es: 'Aún no hay patrones' },
   'pulse.emptyMessage': { en: 'Check in daily and patterns will appear here.', es: 'Regístrate a diario y los patrones aparecerán aquí.' },
-  // Morning pulse
+  // Morning pulse — single key kept for back-compat (used as the
+  // first entry in the rotating pool). Pool itself is in
+  // src/lib/morningPrompts.ts; per-day rotation is deterministic by
+  // date hash so two devices show the same prompt on the same day.
   'pulse.morning.q1': { en: "What's the one thing that would make today feel like a win?", es: '¿Cuál es la cosa que haría que hoy se sienta como un logro?' },
+  'pulse.morning.q2': {
+    en: 'What state of mind do you want to bring today?',
+    es: '¿Qué estado mental quieres llevar hoy?',
+  },
+  'pulse.morning.q3': {
+    en: "What's the most likely obstacle today, and how will you handle it?",
+    es: '¿Cuál es el obstáculo más probable hoy, y cómo lo manejarás?',
+  },
+  'pulse.morning.q4': {
+    en: 'If today goes well, what will be true at the end of it?',
+    es: 'Si hoy va bien, ¿qué será cierto al final del día?',
+  },
+  'pulse.morning.q5': {
+    en: "What's one thing you're looking forward to today?",
+    es: '¿Qué es algo que esperas con ilusión hoy?',
+  },
+  'pulse.morning.q6': {
+    en: 'What energy are you starting with — and what do you want to protect it from?',
+    es: '¿Con qué energía empiezas — y de qué quieres protegerla?',
+  },
+  'pulse.morning.q7': {
+    en: "What's one small kindness you can offer someone today?",
+    es: '¿Cuál es una pequeña amabilidad que puedes ofrecer hoy a alguien?',
+  },
+  'pulse.morning.q8': {
+    en: "What's one thing you can do today for your future self?",
+    es: '¿Qué es una cosa que puedes hacer hoy por tu yo futuro?',
+  },
+  'pulse.morning.q9': {
+    en: 'What do you want to feel less of today? More of?',
+    es: '¿De qué quieres sentir menos hoy? ¿De qué más?',
+  },
+  'pulse.morning.q10': {
+    en: 'Who do you want to be in your hardest moment today?',
+    es: '¿Quién quieres ser en tu momento más difícil hoy?',
+  },
+  'pulse.morning.q11': {
+    en: "What's been on your mind that you want to set down before the day starts?",
+    es: '¿Qué ha estado en tu mente que quieres soltar antes de que empiece el día?',
+  },
+  'pulse.morning.q12': {
+    en: "What's one thing that's gone well lately you don't want to take for granted?",
+    es: '¿Qué es algo que ha ido bien últimamente que no quieres dar por sentado?',
+  },
+  'pulse.morning.subtext': {
+    en: 'Not a to-do list — those go on Today.',
+    es: 'No es una lista de tareas — esas van en Hoy.',
+  },
   'pulse.morningDone': { en: 'Morning Pulse', es: 'Pulso matutino' },
   'pulse.morningSaved': { en: 'Morning intention saved', es: 'Intención matutina guardada' },
   'pulse.eveningSaved': { en: 'Evening reflection saved', es: 'Reflexión nocturna guardada' },
@@ -794,10 +845,13 @@ const translations: Record<string, Record<Locale, string>> = {
   'onboarding.startJournaling': { en: 'Start Journaling', es: 'Comenzar a escribir' },
 
   // ─── Onboarding v3: welcome / install / tour ───
-  'onboarding.welcome.headline': { en: 'Welcome to your practice.', es: 'Bienvenido a tu práctica.' },
+  'onboarding.welcome.headline': {
+    en: 'Plan your day. Reflect on it. One ritual.',
+    es: 'Planifica tu día. Reflexiona sobre él. Un solo ritual.',
+  },
   'onboarding.welcome.body': {
-    en: 'Journaling is a quiet art. The page is yours — nobody reads it. That’s what makes it honest.',
-    es: 'El diario es un arte silencioso. La página es tuya — nadie la lee. Por eso puede ser honesta.',
+    en: 'A daily ritual for tasks and reflection — pick the side you came for, or use both. Nobody else reads it. That’s what makes it honest.',
+    es: 'Un ritual diario para tareas y reflexión — elige el lado por el que viniste, o usa ambos. Nadie más lo lee. Por eso puede ser honesto.',
   },
   'onboarding.welcome.cta': { en: 'Continue', es: 'Continuar' },
   'onboarding.guide.title': { en: 'Choose your guide', es: 'Elige tu guía' },
@@ -855,6 +909,62 @@ const translations: Record<string, Record<Locale, string>> = {
   'tour.skip': { en: 'Skip', es: 'Saltar' },
   'tour.next': { en: 'Next', es: 'Siguiente' },
   'tour.done': { en: 'Thanks', es: 'Gracias' },
+
+  // ─── Ritual demo (post-onboarding 3-card walkthrough) ───
+  'ritualDemo.skip': { en: 'Skip', es: 'Saltar' },
+  'ritualDemo.next': { en: 'Next', es: 'Siguiente' },
+  'ritualDemo.start': { en: "Let's begin", es: 'Comencemos' },
+  'ritualDemo.stepOf': { en: '{cur} of {total}', es: '{cur} de {total}' },
+
+  // Morning card
+  'ritualDemo.morning.title': { en: 'Start with a question.', es: 'Empieza con una pregunta.' },
+  'ritualDemo.morning.caption': {
+    en: 'Each morning, set the tone for your day. One question. Two minutes.',
+    es: 'Cada mañana, marca el tono de tu día. Una pregunta. Dos minutos.',
+  },
+  'ritualDemo.morning.exampleAnswer': {
+    en: 'Today I want to feel focused, not scattered. The likely obstacle is interruption — when it comes, I close it for ninety minutes.',
+    es: 'Hoy quiero sentirme concentrado, no disperso. El obstáculo probable es la interrupción — cuando llegue, la apago por noventa minutos.',
+  },
+
+  // Tasks card
+  'ritualDemo.tasks.title': { en: 'Capture concrete actions.', es: 'Captura acciones concretas.' },
+  'ritualDemo.tasks.caption': {
+    en: 'Real to-dos go here — not in your morning Pulse. Keeps reflection from becoming a task list.',
+    es: 'Las tareas reales van aquí — no en tu Pulso matutino. Evita que la reflexión se convierta en una lista de pendientes.',
+  },
+  'ritualDemo.tasks.example1': { en: 'Send the proposal to client', es: 'Enviar la propuesta al cliente' },
+  'ritualDemo.tasks.example2': { en: 'Call mom', es: 'Llamar a mamá' },
+  'ritualDemo.tasks.example3': { en: 'Block 90 min for deep work', es: 'Reservar 90 min para trabajo profundo' },
+
+  // Evening card
+  'ritualDemo.evening.title': { en: 'Close the loop.', es: 'Cierra el día.' },
+  'ritualDemo.evening.caption': {
+    en: 'End your day by noticing what fed you and what wasted you.',
+    es: 'Termina el día notando qué te nutrió y qué te desgastó.',
+  },
+  'ritualDemo.evening.exampleWentRight': {
+    en: 'Got the proposal out before lunch. Felt clear.',
+    es: 'Saqué la propuesta antes del almuerzo. Me sentí claro.',
+  },
+  'ritualDemo.evening.exampleDoneBetter': {
+    en: 'Lost an hour to email I could have batched at 5pm.',
+    es: 'Perdí una hora con correos que pude haber agrupado a las 5pm.',
+  },
+
+  // Journal-only freeform card (replaces tasks card for journal-only users)
+  'ritualDemo.journal.title': { en: 'Write what needs writing.', es: 'Escribe lo que necesita salir.' },
+  'ritualDemo.journal.caption': {
+    en: 'Beyond the daily Pulse, your Journal is for longer pieces — anything you want to think through.',
+    es: 'Más allá del Pulso diario, tu Diario es para textos más largos — lo que quieras procesar.',
+  },
+
+  // Tasks-only single card
+  'ritualDemo.tasksOnly.title': { en: 'Plan your day in one place.', es: 'Planifica tu día en un solo lugar.' },
+  'ritualDemo.tasksOnly.caption': {
+    en: 'Capture today\'s actions, organize them into lists, and let the day take shape.',
+    es: 'Captura las acciones de hoy, organízalas en listas, y deja que el día tome forma.',
+  },
 };
 
 export function t(key: string, params?: Record<string, string | number>): string {

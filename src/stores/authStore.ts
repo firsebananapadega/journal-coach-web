@@ -42,6 +42,11 @@ export interface Profile {
   /** How often the weekly guide letter should fire. Default 'weekly'. */
   letter_cadence: LetterCadence;
   tour_completed: boolean;
+  /** Post-onboarding "daily ritual" demo (3-card walkthrough showing
+   *  morning Pulse → tasks → evening Pulse). Mirrors tour_completed
+   *  in shape — flips to true on demo skip or completion so reinstalls
+   *  don't re-fire it. See src/components/onboarding/RitualDemo.tsx. */
+  ritual_demo_completed: boolean;
   install_prompt_dismissed_at: string | null;
   pwa_installed: boolean;
   /** Asked during onboarding — determines which wall (Journal / Tasks)

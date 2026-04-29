@@ -12,6 +12,7 @@ import { WallShell } from '@/components/WallShell';
 import { WallNav } from '@/components/WallNav';
 import { wallForPath } from '@/lib/wallState';
 import GuideTour from '@/components/tour/GuideTour';
+import RitualDemo from '@/components/onboarding/RitualDemo';
 import OfflineIndicator from '@/components/OfflineIndicator';
 import { drainOutbox } from '@/lib/syncQueue';
 
@@ -345,6 +346,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className={outerClass}>
       <UIOverlayRoot />
+      {/* RitualDemo runs once for new users right after onboarding,
+          gated by ritual_demo_pending localStorage + ritual_demo_completed
+          column. Mounted ABOVE GuideTour so it visually owns the screen
+          while active; both are self-gated and won't fight. */}
+      <RitualDemo />
       <GuideTour />
       <OfflineIndicator />
 

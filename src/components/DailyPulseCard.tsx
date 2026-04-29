@@ -12,6 +12,7 @@ import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { parseIntentionToItems } from '@/lib/intentionParser';
+import { getMorningPromptKey } from '@/lib/morningPrompts';
 
 interface Props {
   entries: JournalEntry[];
@@ -65,8 +66,12 @@ function pulseModeOf(e: JournalEntry): PulseMode | null {
   return m === 'morning' || m === 'evening' || m === 'presence' ? m : null;
 }
 
-// Morning: 1 question. Evening: 2 questions.
-const MORNING_QUESTIONS = [{ translationKey: 'pulse.morning.q1' }];
+// Morning: 1 question. Evening: 2 questions. The morning translation
+// key is RESOLVED PER DAY via getMorningPromptKey(today) — see
+// src/lib/morningPrompts.ts. We keep a single-element array here so
+// the rest of this component (step-counting, last-step detection)
+// continues to treat morning as one text step. The actual prompt text
+// is looked up dynamically below where the question renders.
 const EVENING_QUESTIONS = [
   { translationKey: 'pulse.evening.q1' },
   { translationKey: 'pulse.evening.q2' },
@@ -153,7 +158,13 @@ export default function DailyPulseCard({ entries }: Props) {
   // be bucketed as Tuesday's evening-done and hide Tuesday's real
   // evening prompt later that day.
   const today = currentPulseDay();
-  const questions = mode === 'morning' ? MORNING_QUESTIONS : EVENING_QUESTIONS;
+  // Morning: today's rotating question (deterministic by date hash).
+  // Evening: the static two-question array. Kept in this shape so
+  // textQuestionIndex bookkeeping below stays linear.
+  const morningQuestionKey = useMemo(() => getMorningPromptKey(new Date()), []);
+  const questions = mode === 'morning'
+    ? [{ translationKey: morningQuestionKey }]
+    : EVENING_QUESTIONS;
 
   // All of today's pulses, sorted oldest-first (morning before evening).
   // Bucketed by pulseDayOf — see the function's docstring for why a
@@ -891,15 +902,25 @@ export default function DailyPulseCard({ entries }: Props) {
             intention and asks how it went; text steps show the
             existing prompts; check-in steps show body/mind. One
             question per screen. */}
-        <p className="text-lg text-text-primary font-medium leading-snug">
-          {isIntentionStep
-            ? 'How did your morning intention go?'
-            : isTextStep
-            ? t(questions[textQuestionIndex].translationKey)
-            : isBodyStep
-            ? t('pulse.bodyPrompt')
-            : t('pulse.mindPrompt')}
-        </p>
+        <div>
+          <p className="text-lg text-text-primary font-medium leading-snug">
+            {isIntentionStep
+              ? 'How did your morning intention go?'
+              : isTextStep
+              ? t(questions[textQuestionIndex].translationKey)
+              : isBodyStep
+              ? t('pulse.bodyPrompt')
+              : t('pulse.mindPrompt')}
+          </p>
+          {/* Redundancy nudge — shown only on the morning text step.
+              Solves the "I keep listing tasks in my Pulse" failure mode
+              by pointing them at /today, without removing freedom. */}
+          {isTextStep && mode === 'morning' && (
+            <p className="text-xs text-text-tertiary mt-1.5 leading-snug">
+              {t('pulse.morning.subtext')}
+            </p>
+          )}
+        </div>
 
         {/* Recall step — clean bullet list of parsed intentions, each
             with its own outcome pills + optional notes textarea. The
