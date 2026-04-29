@@ -19,6 +19,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { PrimaryUse } from '@/stores/authStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
+import { t } from '@/lib/translations';
 
 interface Props {
   value: PrimaryUse | null;
@@ -138,37 +139,39 @@ export default function PrimaryUseStep({ value, onChange, onContinue }: Props) {
       >
         <div className="max-w-md w-full mx-auto flex-1 flex flex-col">
           <h1 className="text-3xl font-bold text-text-primary text-center leading-tight">
-            What did you come here for?
+            {t('onboarding.primaryUse.headline')}
           </h1>
           <p className="text-base text-text-secondary text-center mt-3 mb-6 leading-snug">
-            Pick one — or tap both. You can change this any time in
-            Settings.
+            {t('onboarding.primaryUse.helper')}
           </p>
 
           {/* Cards — flex-1 so they expand vertically until just above
               the Continue button. min-h-0 lets the flex shrink them
-              cleanly on shorter viewports. */}
+              cleanly on shorter viewports. Card titles lead with the
+              user's GOAL ("Get organized" / "Understand myself")
+              rather than the feature name (Tasks / Journal) so a
+              first-time user picks based on what they came for, not
+              what they think we mean by those terms. */}
           <div className="grid grid-cols-2 gap-4 flex-1 min-h-0 pb-2">
             <Card
               selected={tasks}
               onClick={() => flip('tasks')}
-              title="Tasks"
-              subtext="Get better organized."
+              title={t('onboarding.primaryUse.tasks.title')}
+              subtext={t('onboarding.primaryUse.tasks.subtext')}
               illustration={TasksIllustration}
             />
             <Card
               selected={journal}
               onClick={() => flip('journal')}
-              title="Journal"
-              subtext="Reflect and grow."
+              title={t('onboarding.primaryUse.journal.title')}
+              subtext={t('onboarding.primaryUse.journal.subtext')}
               illustration={JournalIllustration}
             />
           </div>
 
           {tasks && journal && (
             <p className="text-xs text-text-tertiary text-center mt-3 leading-snug">
-              You'll see both walls with a switcher at the top to flip
-              between them.
+              {t('onboarding.primaryUse.bothHint')}
             </p>
           )}
         </div>
@@ -184,7 +187,7 @@ export default function PrimaryUseStep({ value, onChange, onContinue }: Props) {
           disabled={!ready}
           className="w-full py-3.5 bg-primary text-white text-base font-semibold rounded-2xl disabled:opacity-40"
         >
-          Continue
+          {t('onboarding.primaryUse.continue')}
         </motion.button>
       </div>
     </div>

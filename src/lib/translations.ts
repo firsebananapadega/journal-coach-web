@@ -856,6 +856,41 @@ const translations: Record<string, Record<Locale, string>> = {
   'onboarding.settingUp': { en: 'Setting up...', es: 'Configurando...' },
   'onboarding.startJournaling': { en: 'Start Journaling', es: 'Comenzar a escribir' },
 
+  // ─── Onboarding: Primary use (intent-led, not feature-led) ───
+  // Lead with the user's GOAL on each card, not the feature name —
+  // a new user knows whether they came to "get organized" or
+  // "understand themselves" before they know what we mean by Tasks
+  // or Journal. The feature names live in the subtext as a hint.
+  'onboarding.primaryUse.headline': {
+    en: 'What did you come here for?',
+    es: '¿Qué te trajo aquí?',
+  },
+  'onboarding.primaryUse.helper': {
+    en: 'Pick one — or tap both. You can change this any time in Settings.',
+    es: 'Elige una — o toca ambas. Puedes cambiarlo en Ajustes en cualquier momento.',
+  },
+  'onboarding.primaryUse.bothHint': {
+    en: 'You’ll see both walls with a switcher at the top to flip between them.',
+    es: 'Verás ambos muros con un selector arriba para alternar entre ellos.',
+  },
+  'onboarding.primaryUse.tasks.title': {
+    en: 'Get organized',
+    es: 'Organizarme',
+  },
+  'onboarding.primaryUse.tasks.subtext': {
+    en: 'Tasks, lists, what to do today',
+    es: 'Tareas, listas, qué hacer hoy',
+  },
+  'onboarding.primaryUse.journal.title': {
+    en: 'Understand myself',
+    es: 'Conocerme mejor',
+  },
+  'onboarding.primaryUse.journal.subtext': {
+    en: 'Reflect, notice patterns, grow',
+    es: 'Reflexionar, notar patrones, crecer',
+  },
+  'onboarding.primaryUse.continue': { en: 'Continue', es: 'Continuar' },
+
   // ─── Onboarding v3: welcome / install / tour ───
   'onboarding.welcome.headline': {
     en: 'Plan your day. Reflect on it. One ritual.',
