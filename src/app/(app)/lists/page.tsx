@@ -10,10 +10,9 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useListStore, type ListRecord } from '@/stores/listStore';
+import { useListStore } from '@/stores/listStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { t } from '@/lib/translations';
-import { getDB } from '@/lib/db';
 
 export default function ListsPage() {
   const lists = useListStore((s) => s.lists);
@@ -38,54 +37,6 @@ export default function ListsPage() {
     void ensureInbox();
   }, [ensureInbox]);
 
-  // Local Dexie fallback for the wall-flip race.
-  //
-  // The bug: after switching journal → tasks wall, /lists renders
-  // with empty state even though Dexie has data. fetchLists's
-  // hydrate `set({ lists })` doesn't seem to take during the flip
-  // animation's multiple re-mounts, and only navigating to
-  // /groceries (a totally unrelated store action) unblocks it.
-  //
-  // Rather than fight whatever's preventing the store from settling,
-  // read Dexie ourselves into local state. The page renders from
-  // (storeLists OR localDexieLists), so the page is correct as soon
-  // as ONE of them populates. We also push the result back to the
-  // store so subsequent reads (e.g., if the user navigates and comes
-  // back) get a fast hit from the store.
-  const [localDexieLists, setLocalDexieLists] = useState<ListRecord[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    const db = getDB();
-    if (!db) return;
-    void db.lists.toArray().then((rows) => {
-      if (cancelled) return;
-      if (rows.length === 0) return;
-      const sorted = [...rows].sort((a, b) => {
-        if (a.is_inbox !== b.is_inbox) return a.is_inbox ? -1 : 1;
-        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-        return (a.created_at ?? '').localeCompare(b.created_at ?? '');
-      }) as ListRecord[];
-      setLocalDexieLists(sorted);
-      // Push to the store if it's behind (or empty). Idempotent.
-      if (useListStore.getState().lists.length === 0) {
-        const inbox = sorted.find((l) => l.is_inbox) ?? null;
-        useListStore.setState({
-          lists: sorted,
-          inboxId: inbox?.id ?? null,
-          hasFetched: true,
-        });
-      }
-    }).catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Render-time fallback: if the store hasn't populated yet, fall
-  // back to whatever the local Dexie read returned. Either source
-  // is the same data (Dexie is the source of truth offline).
-  const effectiveLists = lists.length > 0 ? lists : localDexieLists;
-
   const counts = useMemo(() => {
     const map = new Map<string | null, number>();
     for (const task of tasks) {
@@ -96,8 +47,8 @@ export default function ListsPage() {
     return map;
   }, [tasks]);
 
-  const inbox = effectiveLists.find((l) => l.is_inbox);
-  const userLists = effectiveLists.filter((l) => !l.is_inbox);
+  const inbox = lists.find((l) => l.is_inbox);
+  const userLists = lists.filter((l) => !l.is_inbox);
   const inboxCount = inbox ? counts.get(inbox.id) ?? 0 : 0;
 
   const handleCreate = async () => {

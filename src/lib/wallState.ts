@@ -134,15 +134,27 @@ export const useWallState = create<WallState>((set, get) => ({
     // Half 1 — current page rotates away on right hinge.
     set({ flipPhase: 'exiting' });
     await sleep(FLIP_HALF_MS);
-    // Mid-flip: navigate. The new page renders inside the wrapper
-    // (which is invisible at this point because rotateY = -90).
-    push(targetPath);
-    // Persist the wall change so it survives a refresh.
-    set({ activeWall: targetWall, flipPhase: 'entering' });
+
+    // Persist activeWall to localStorage BEFORE push. The inline
+    // `wall-pending` script (src/app/layout.tsx) listens for
+    // visibilitychange and reads localStorage.wallState.v1.activeWall
+    // to decide whether to keep the body-hidden CSS class on. iOS
+    // Safari fires a visibilitychange→hidden during the rotateY
+    // transform; if activeWall is still the OLD wall when the
+    // following →visible fires, the script sees a wall-mismatch
+    // (URL on new wall, activeWall on old wall) and leaves the
+    // wall-pending class ON. That class hides body content via
+    // visibility: hidden, which produced the "switch to tasks wall,
+    // /lists is empty until I navigate to /groceries and back" bug.
+    // Writing activeWall first eliminates the gap.
+    set({ activeWall: targetWall });
     writePersisted({
       activeWall: targetWall,
       lastTabPerWall: get().lastTabPerWall,
     });
+
+    push(targetPath);
+    set({ flipPhase: 'entering' });
     // Half 2 — wrapper springs back from rotateY 90 → 0 (handled by
     // WallShell's `entering` keyed branch).
     await sleep(FLIP_HALF_MS);
