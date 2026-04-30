@@ -870,7 +870,15 @@ export default function GuidedSessionPage() {
   // both fully visible. The previous design pushed the dock DOWN by
   // 56px to "tuck Send behind the suggestion bar" — that hid the
   // text being typed, which is what the user reported.
-  const dockBottomOffset = keyboardOpen ? 0 : 12;
+  // Keyboard DOWN: small lift (12px) so the dock isn't glued to the
+  // safe-area edge.
+  // Keyboard UP: NEGATIVE offset — pushes the dock DOWN past
+  // vv.bottom so the input row sits inside the iOS suggestion-bar
+  // strip where chat would otherwise leak. Combined with the bottom
+  // skirt (rendered above the dock JSX), this lands the input row
+  // visibly inside that strip and covers everything below it with
+  // bg-bg. Per user's "move the textbox lower" feedback.
+  const dockBottomOffset = keyboardOpen ? -40 : 12;
 
   // Use vv-based positioning ONLY while the keyboard is open. When
   // the keyboard is closed, fall back to plain fixed-bottom anchoring
@@ -1263,6 +1271,27 @@ export default function GuidedSessionPage() {
         </AnimatePresence>
       </div>
     </div>
+
+    {/* Bottom skirt — a separate solid bg-bg bar that fills any
+        strip between the dock's bottom edge and the on-screen
+        keyboard. iOS visualViewport sometimes reports a vv.bottom
+        that's above the actual keyboard top (it can stop at the top
+        of the suggestion bar), leaving chat content visible in the
+        gap behind/below the dock. The skirt sits at z-index 9 (just
+        below the dock z-10) anchored from `top: vv.bottom` to
+        `bottom: 0` — purely cosmetic, totally independent of the
+        dock's measurement loop. Only renders when keyboard is open. */}
+    {vv && keyboardOpen && (
+      <div
+        aria-hidden
+        className="bg-bg fixed left-0 right-0 pointer-events-none"
+        style={{
+          top: `${vv.offsetTop + vv.height - 1}px`,
+          bottom: 0,
+          zIndex: 9,
+        }}
+      />
+    )}
 
     {/* Input dock — independent fixed-position layer. Its `top` is
         computed from visualViewport so it always floats just above
