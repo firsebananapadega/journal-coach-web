@@ -13,6 +13,7 @@ import { WallNav } from '@/components/WallNav';
 import { wallForPath } from '@/lib/wallState';
 import GuideTour from '@/components/tour/GuideTour';
 import TabFirstVisitPopup from '@/components/onboarding/TabFirstVisitPopup';
+import GratitudeSuggestionMount from '@/components/journal/GratitudeSuggestionMount';
 import OfflineIndicator from '@/components/OfflineIndicator';
 import { drainOutbox } from '@/lib/syncQueue';
 import { useUiStore } from '@/stores/uiStore';
@@ -358,6 +359,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <UIOverlayRoot />
       <GuideTour />
       <TabFirstVisitPopup />
+      <GratitudeSuggestionMount />
       <OfflineIndicator />
 
       {/* Settings gear — fixed top-right, hidden on full-screen and

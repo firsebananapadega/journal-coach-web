@@ -609,6 +609,49 @@ export default function SettingsPage() {
         </button>
       </motion.div>
 
+      {/* Gratitude — auto-detect toggle. When on, the structureEntry
+          pass also returns gratitude excerpts and the journal pages
+          show a "Save to Gratitude?" suggestion sheet. Default on;
+          flip off to suppress entirely. The sheet always confirms
+          before writing — never auto. */}
+      <motion.div {...sectionMotion} className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+          {t('settings.gratitude.title')}
+        </h2>
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-primary">
+                {t('settings.gratitude.toggleLabel')}
+              </p>
+              <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
+                {t('settings.gratitude.toggleHint')}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={profile?.gratitude_auto_detect_enabled !== false}
+              onClick={async () => {
+                const next = profile?.gratitude_auto_detect_enabled === false;
+                await updateProfile({
+                  gratitude_auto_detect_enabled: next,
+                } as Partial<Profile>);
+              }}
+              className={`shrink-0 w-11 h-6 rounded-full p-0.5 transition-colors ${
+                profile?.gratitude_auto_detect_enabled !== false ? 'bg-primary' : 'bg-border'
+              }`}
+            >
+              <span
+                className={`block w-5 h-5 rounded-full bg-white shadow-warm-sm transition-transform ${
+                  profile?.gratitude_auto_detect_enabled !== false ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+
       {/* Tools — orphan-but-active surfaces that don't have nav
           buttons of their own. Currently: Pulse Reflection (a
           dedicated AI-generated patterns view of pulse entries),

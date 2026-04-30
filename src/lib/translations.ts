@@ -1089,6 +1089,45 @@ const translations: Record<string, Record<Locale, string>> = {
   'overdue.reschedule': { en: 'Reschedule', es: 'Reprogramar' },
   'overdue.rescheduledToast': { en: 'Rescheduled', es: 'Reprogramada' },
 
+  // ── Gratitude suggestion sheet ───────────────────────────────
+  'gratitude.introTitle': {
+    en: 'Saving gratitude is a nice habit',
+    es: 'Guardar gratitud es un buen hábito',
+  },
+  'gratitude.introBody': {
+    en: 'When you mention something you’re thankful for in any entry, we’ll offer to save it to your Gratitude notebook. You always see the suggestion first — never automatic.',
+    es: 'Cuando menciones algo por lo que estés agradecido en cualquier entrada, te ofreceremos guardarlo en tu cuaderno de Gratitud. Siempre verás la sugerencia primero — nunca automático.',
+  },
+  'gratitude.suggestionTitle': {
+    en: 'Save these to Gratitude?',
+    es: '¿Guardar esto en Gratitud?',
+  },
+  'gratitude.suggestionHint': {
+    en: 'Tap to deselect anything that doesn’t fit. We’ll save the rest to your Gratitude notebook.',
+    es: 'Toca para deseleccionar lo que no encaje. Guardaremos el resto en tu cuaderno de Gratitud.',
+  },
+  'gratitude.save': { en: 'Save to Gratitude', es: 'Guardar en Gratitud' },
+  'gratitude.skip': { en: 'Skip', es: 'Saltar' },
+  'gratitude.settingsHint': {
+    en: 'You can turn this off any time in Settings → Auto-detect gratitude.',
+    es: 'Puedes desactivar esto cuando quieras en Ajustes → Detectar gratitud automáticamente.',
+  },
+  'gratitude.savedToast': {
+    en: 'Saved to Gratitude',
+    es: 'Guardado en Gratitud',
+  },
+
+  // ── Settings: gratitude auto-detect ──────────────────────────
+  'settings.gratitude.title': { en: 'Gratitude', es: 'Gratitud' },
+  'settings.gratitude.toggleLabel': {
+    en: 'Auto-detect gratitude',
+    es: 'Detectar gratitud automáticamente',
+  },
+  'settings.gratitude.toggleHint': {
+    en: 'When you mention gratitude in an entry, we’ll suggest saving it to your Gratitude notebook (you always confirm first).',
+    es: 'Cuando menciones gratitud en una entrada, te sugeriremos guardarla en tu cuaderno de Gratitud (siempre confirmas primero).',
+  },
+
   // ── Reschedule sheet ─────────────────────────────────────────
   'reschedule.title': { en: 'Reschedule task', es: 'Reprogramar tarea' },
   'reschedule.today': { en: 'Today', es: 'Hoy' },

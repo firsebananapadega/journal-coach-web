@@ -64,6 +64,7 @@ interface NotebookState {
   bySlug: (slug: string | null | undefined) => Notebook | null;
   journalId: () => string | null;
   pulseId: () => string | null;
+  gratitudeId: () => string | null;
 }
 
 function slugify(name: string): string {
@@ -309,5 +310,10 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   pulseId: () => {
     const p = get().notebooks.find((n) => n.system_key === 'pulse');
     return p?.id ?? null;
+  },
+
+  gratitudeId: () => {
+    const g = get().notebooks.find((n) => n.system_key === 'gratitude');
+    return g?.id ?? null;
   },
 }));

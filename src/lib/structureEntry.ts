@@ -42,7 +42,7 @@ function buildPrompt(raw: string, dictionary: string[]): string {
     dictionary.length > 0
       ? `\n\nDICTIONARY (preserve these spellings exactly; correct the transcript to match when it's obviously the same word mis-transcribed):\n${dictionary.map((w) => `- ${w}`).join('\n')}`
       : '';
-  return `You are polishing a voice-dictated journal entry for readability. Output is Markdown and will be rendered with react-markdown + remark-gfm.
+  return `You are polishing a voice-dictated journal entry for readability. Output is Markdown (followed by a single gratitude-detection footer — see the end of this prompt). Polished output will be rendered with react-markdown + remark-gfm.
 
 CONTENT RULES (non-negotiable):
 - Do NOT summarize, condense, or omit ANY content. Every idea in the raw must appear in the output.
@@ -76,7 +76,23 @@ I keep thinking about what Dad said. *I just can't shake it.*${dictBlock}
 RAW ENTRY:
 ${raw.trim()}
 
-Respond with ONLY the polished Markdown — no preamble, no quote marks, no "Here's the polished version:".`;
+Respond with the polished Markdown — no preamble, no quote marks, no "Here's the polished version:".
+
+THEN, after the Markdown, on a single new line at the END of the response, output exactly:
+[GRATITUDE]: <JSON array>
+
+Where the JSON array contains 0–2 sincere first-person gratitude expressions from the AUTHOR. Sincere means: the AUTHOR is genuinely thankful FOR something in their own life. SKIP:
+- Sarcasm ("oh great, more traffic", "yeah I'm so thankful for that")
+- Third-person ("she said she was grateful")
+- Hypotheticals ("I'd be grateful if…")
+- Thanks TO someone ("thanks, mom") — gratitude FOR something matters; gratitude TO someone is just politeness
+
+Each excerpt = complete clause from the original, ≤120 chars. Quote close to the author's wording. Return [] when there's no genuine gratitude.
+
+Examples of correct footer lines:
+[GRATITUDE]: ["I'm really glad the trip came together"]
+[GRATITUDE]: ["I'm grateful for how patient she was today", "happy I made it through the week"]
+[GRATITUDE]: []`;
 }
 
 export async function loadVoiceDictionary(): Promise<string[]> {
@@ -99,6 +115,39 @@ export async function loadVoiceDictionary(): Promise<string[]> {
 export interface StructureResult {
   text: string;
   cached: boolean;
+  /** Sincere first-person gratitude expressions extracted from the
+   *  raw entry (≤2). Empty when none found, or when the response was
+   *  served from cache. The journal pages use this to surface a
+   *  "save to Gratitude?" suggestion sheet at save time. */
+  gratitudeExcerpts?: string[];
+}
+
+/** Parse the [GRATITUDE]: footer line out of the Gemini response.
+ *  Returns the polished Markdown (footer stripped) plus the parsed
+ *  excerpt array. Robust to missing / malformed footers — falls back
+ *  to no excerpts so a parse failure can't lose the polished text. */
+function extractGratitude(rawResponse: string): { polished: string; excerpts: string[] } {
+  // Match the LAST [GRATITUDE]: line — Gemini might mention the marker
+  // verbatim earlier; only the final one is the structured footer.
+  const match = rawResponse.match(/\n\s*\[GRATITUDE\]:\s*(\[[^\n]*\])\s*$/);
+  if (!match) {
+    return { polished: rawResponse, excerpts: [] };
+  }
+  const polished = rawResponse.slice(0, match.index).trimEnd();
+  let excerpts: string[] = [];
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (Array.isArray(parsed)) {
+      excerpts = parsed
+        .filter((x): x is string => typeof x === 'string')
+        .map((x) => x.trim())
+        .filter((x) => x.length > 0)
+        .slice(0, 2);
+    }
+  } catch {
+    // Malformed JSON — drop the gratitude block but keep the polish.
+  }
+  return { polished, excerpts };
 }
 
 export interface GetStructuredOptions {
@@ -202,7 +251,11 @@ export async function getStructured(
   // to persist — overwriting a complete raw with a truncated
   // structured would erase content the user wrote.
   const truncated = wasTruncated(rawResponse);
-  const text = stripTruncationSentinel(rawResponse);
+  const stripped = stripTruncationSentinel(rawResponse);
+  // Pull the [GRATITUDE]: footer out — leaves clean Markdown for the
+  // structured field plus an array of gratitude excerpts that the
+  // journal pages turn into a "save to Gratitude?" suggestion sheet.
+  const { polished: text, excerpts: gratitudeExcerpts } = extractGratitude(stripped);
   if (truncated) {
     const rawWords = raw.split(/\s+/).filter(Boolean).length;
     const polishedWords = text.split(/\s+/).filter(Boolean).length;
@@ -248,5 +301,5 @@ export async function getStructured(
     console.warn('[structureEntry] persist threw', err);
   }
 
-  return { text, cached: false };
+  return { text, cached: false, gratitudeExcerpts };
 }

@@ -1,0 +1,98 @@
+'use client';
+
+// Global mount point for the GratitudeSuggestionSheet. Sits in
+// (app)/layout so the sheet can fire from ANY save surface (/journal,
+// /write, /voice, the BookPage composer, etc.) without each page
+// needing to mount its own observer. The journalStore exposes
+// `pendingGratitudeSuggestion` which the post-structure callback in
+// createEntry sets when Gemini returned excerpts and the user has
+// the feature enabled.
+//
+// On Save: creates a NEW entry per accepted excerpt in the Gratitude
+// system notebook, with metadata.source_entry_id pointing at the
+// original. On Skip: just dismisses. Both clear the pending state.
+// On first ever fire: also flips profile.gratitude_intro_seen → true
+// so the explainer card stops appearing.
+
+import { useMemo } from 'react';
+import { useJournalStore } from '@/stores/journalStore';
+import { useAuthStore, type Profile } from '@/stores/authStore';
+import { useNotebookStore } from '@/stores/notebookStore';
+import { useUiStore } from '@/stores/uiStore';
+import { t } from '@/lib/translations';
+import GratitudeSuggestionSheet from './GratitudeSuggestionSheet';
+
+export default function GratitudeSuggestionMount() {
+  const pending = useJournalStore((s) => s.pendingGratitudeSuggestion);
+  const clear = useJournalStore((s) => s.clearGratitudeSuggestion);
+  const createEntry = useJournalStore((s) => s.createEntry);
+  const profile = useAuthStore((s) => s.profile);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
+  const gratitudeId = useNotebookStore((s) => s.gratitudeId());
+  const showToast = useUiStore((s) => s.showToast);
+
+  const showIntro = useMemo(
+    () => profile?.gratitude_intro_seen === false,
+    [profile?.gratitude_intro_seen],
+  );
+
+  if (!pending || pending.excerpts.length === 0) return null;
+
+  const markIntroSeen = async () => {
+    if (showIntro) {
+      // Fire-and-forget — local state already reflects via the
+      // updateProfile cache; we don't gate the sheet's dismissal
+      // on the network round-trip.
+      updateProfile({ gratitude_intro_seen: true } as Partial<Profile>).catch(() => {});
+    }
+  };
+
+  const handleSave = async (accepted: string[]) => {
+    if (!gratitudeId) {
+      // No system gratitude notebook — just dismiss. (Shouldn't
+      // happen — the seed migration creates it — but defensive.)
+      clear();
+      return;
+    }
+    // One Gratitude entry per accepted excerpt. Each carries a
+    // backlink to the source via metadata.source_entry_id so a
+    // future "open source" affordance can navigate without a
+    // fragile text search.
+    for (const excerpt of accepted) {
+      try {
+        await createEntry({
+          entry_type: 'freeform',
+          content_text: excerpt,
+          notebook_id: gratitudeId,
+          word_count: excerpt.split(/\s+/).filter(Boolean).length,
+          metadata: {
+            source_entry_id: pending.sourceEntryId,
+            kind: 'gratitude_extract',
+          },
+        });
+      } catch (err) {
+        console.warn('[GratitudeSuggestionMount] failed to save excerpt', err);
+      }
+    }
+    if (accepted.length > 0) {
+      showToast(t('gratitude.savedToast'), 'success');
+    }
+    await markIntroSeen();
+    clear();
+  };
+
+  const handleSkip = async () => {
+    await markIntroSeen();
+    clear();
+  };
+
+  return (
+    <GratitudeSuggestionSheet
+      excerpts={pending.excerpts}
+      showIntro={showIntro}
+      onSave={handleSave}
+      onSkip={handleSkip}
+      onClose={handleSkip}
+    />
+  );
+}

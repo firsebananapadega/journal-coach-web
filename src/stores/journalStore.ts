@@ -52,6 +52,14 @@ interface PendingDelete {
   timer: ReturnType<typeof setTimeout>;
 }
 
+/** Pending gratitude suggestion — set by the post-structure
+ *  callback after createEntry, consumed by the journal pages that
+ *  render <GratitudeSuggestionSheet />. Cleared on accept/skip. */
+export interface PendingGratitudeSuggestion {
+  sourceEntryId: string;
+  excerpts: string[];
+}
+
 interface JournalState {
   entries: JournalEntry[];
   loading: boolean;
@@ -62,6 +70,10 @@ interface JournalState {
   // persisted across reloads (if the user refreshes, the delete
   // commits immediately — same as iOS Mail).
   pendingDeletes: Record<string, PendingDelete>;
+  /** Gratitude excerpts surfaced from the most recent createEntry's
+   *  structuring pass. The journal pages observe this and mount
+   *  the suggestion sheet when non-null. Cleared by clearGratitudeSuggestion. */
+  pendingGratitudeSuggestion: PendingGratitudeSuggestion | null;
   fetchEntries: () => Promise<void>;
   createEntry: (entry: NewEntryInput) => Promise<JournalEntry>;
   updateEntry: (id: string, updates: Partial<JournalEntry>) => Promise<void>;
@@ -84,6 +96,9 @@ interface JournalState {
    *  one shot. No-op when offline. Idempotent — already-running
    *  backfill calls become no-ops via an internal lock. */
   backfillStructured: (cap?: number) => Promise<void>;
+  /** Dismisses the pending gratitude suggestion. Called by the sheet
+   *  on Skip and on successful Save. */
+  clearGratitudeSuggestion: () => void;
   reset: () => void;
 }
 
@@ -93,6 +108,7 @@ export const useJournalStore = create<JournalState>((set, get) => ({
   hasFetched: false,
   error: null,
   pendingDeletes: {},
+  pendingGratitudeSuggestion: null,
 
   fetchEntries: async () => {
     try {
@@ -262,6 +278,37 @@ export const useJournalStore = create<JournalState>((set, get) => ({
                 };
               }),
             }));
+            // Gratitude suggestion: surface excerpts if the structure
+            // pass returned any AND the user hasn't disabled the
+            // feature in Settings. The journal pages observe
+            // pendingGratitudeSuggestion and mount the sheet.
+            // Read the auth slice imperatively here (we're in a
+            // background async context — useAuthStore.getState() is
+            // safe and avoids dragging a hook into the store file).
+            try {
+              const excerpts = res.gratitudeExcerpts ?? [];
+              if (excerpts.length > 0) {
+                const { useAuthStore } = await import('./authStore');
+                const profile = useAuthStore.getState().profile;
+                const enabled = profile?.gratitude_auto_detect_enabled ?? true;
+                // Don't show on pulse/guided/template-typed entries
+                // either — those are already structured surfaces.
+                const eligibleType =
+                  created.entry_type !== 'pulse' &&
+                  created.entry_type !== 'guided' &&
+                  created.entry_type !== 'template';
+                if (enabled && eligibleType) {
+                  set({
+                    pendingGratitudeSuggestion: {
+                      sourceEntryId: created.id,
+                      excerpts,
+                    },
+                  });
+                }
+              }
+            } catch (err) {
+              console.warn('[journalStore] gratitude suggestion surface failed', err);
+            }
           } catch (err) {
             console.warn('[journalStore] background structure failed', err);
           }
@@ -397,6 +444,8 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       entries: s.entries.map((e) => (e.id === id ? { ...e, ...patch } : e)),
     })),
 
+  clearGratitudeSuggestion: () => set({ pendingGratitudeSuggestion: null }),
+
   backfillStructured: async (cap = 5) => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     if (backfillInFlight) return;
@@ -462,6 +511,13 @@ export const useJournalStore = create<JournalState>((set, get) => ({
     for (const p of Object.values(get().pendingDeletes)) {
       clearTimeout(p.timer);
     }
-    set({ entries: [], loading: false, hasFetched: false, error: null, pendingDeletes: {} });
+    set({
+      entries: [],
+      loading: false,
+      hasFetched: false,
+      error: null,
+      pendingDeletes: {},
+      pendingGratitudeSuggestion: null,
+    });
   },
 }));

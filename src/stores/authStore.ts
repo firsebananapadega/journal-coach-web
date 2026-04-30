@@ -52,6 +52,14 @@ export interface Profile {
    *  "Show onboarding guide" toggle) re-enables the popups along with
    *  the linear tour. Populated by TabFirstVisitPopup. */
   tour_seen_tabs: string[];
+  /** When true, the structureEntry pass also returns gratitude
+   *  excerpts and the journal pages show a suggestion sheet. Default
+   *  true; user can disable in Settings. */
+  gratitude_auto_detect_enabled: boolean;
+  /** Flips true the first time the user sees the gratitude
+   *  suggestion sheet so the one-time explainer card only shows
+   *  once. Survives the auto-detect toggle. */
+  gratitude_intro_seen: boolean;
   install_prompt_dismissed_at: string | null;
   pwa_installed: boolean;
   /** Asked during onboarding — determines which wall (Journal / Tasks)
