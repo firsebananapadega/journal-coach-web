@@ -1053,7 +1053,7 @@ const translations: Record<string, Record<Locale, string>> = {
 
   // ── Overdue section ──────────────────────────────────────────
   'overdue.label': { en: 'Overdue', es: 'Atrasadas' },
-  'overdue.moveAll': { en: 'Move all →', es: 'Mover todas →' },
+  'overdue.moveAll': { en: 'Move all to today →', es: 'Mover todas a hoy →' },
   'overdue.today': { en: 'Today', es: 'Hoy' },
   'overdue.tomorrow': { en: 'Tomorrow', es: 'Mañana' },
   'overdue.archive': { en: 'Archive', es: 'Archivar' },
