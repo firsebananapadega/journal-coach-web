@@ -66,6 +66,24 @@ function log(tag: string, extra?: Record<string, unknown>) {
   console.log('[pulse-reminder-cron]', JSON.stringify({ tag, ts: Date.now(), ...extra }));
 }
 
+/** Format a "HH:MM" reminder time as a 12-hour clock for the
+ *  notification title. "07:00" → "7:00 AM", "19:55" → "7:55 PM"
+ *  for en-US; Spanish gets "7:55 p.m." style via Intl. Returns the
+ *  raw input if it doesn't parse so a malformed value can't break
+ *  the notification. */
+function formatReminderTime(hhmm: string, locale: 'en-US' | 'es-MX'): string {
+  const m = hhmm.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return hhmm;
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    return hhmm;
+  }
+  const d = new Date();
+  d.setHours(hh, mm, 0, 0);
+  return new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }).format(d);
+}
+
 /** Format `now` in `tz` as { hh, mm, yyyymmdd } using Intl. Returns
  *  null when the timezone string is invalid. */
 function localParts(now: Date, tz: string): { hh: number; mm: number; yyyymmdd: string } | null {
@@ -150,6 +168,7 @@ async function sendPulsePush(
   mode: 'morning' | 'evening' | 'presence',
   displayName: string,
   language: 'en-US' | 'es-MX',
+  reminderTime: string,
 ): Promise<'sent' | 'no-subs' | 'failed'> {
   const { data: subs } = await admin
     .from('push_subscriptions')
@@ -159,28 +178,35 @@ async function sendPulsePush(
   if (!subs || subs.length === 0) return 'no-subs';
 
   const isSpanish = language === 'es-MX';
-  const greeting = displayName ? `, ${displayName}` : '';
+  // Format the reminder time as a 12-hour clock for the title (a
+  // user with reminder set to "19:55" sees "7:55 PM"). Locale-aware
+  // so es-MX users get "7:55 p.m." which is the convention there.
+  const formattedTime = formatReminderTime(reminderTime, isSpanish ? 'es-MX' : 'en-US');
+  // Sharper copy: emoji + time + clear noun. The time + clock emoji
+  // make the notification recognizable in a stack at a glance even
+  // when the body text is collapsed.
+  const emoji = mode === 'morning' ? '☀️' : mode === 'evening' ? '🌙' : '⏸️';
   const title = isSpanish
     ? mode === 'morning'
-      ? `Pulso matutino${greeting}`
+      ? `${emoji} ${formattedTime} — Pulso matutino`
       : mode === 'evening'
-      ? `Pulso nocturno${greeting}`
-      : `Una pausa de 30 segundos${greeting}`
+      ? `${emoji} ${formattedTime} — Pulso nocturno`
+      : `${emoji} ${formattedTime} — Pausa de mediodía`
     : mode === 'morning'
-    ? `Morning pulse${greeting}`
+    ? `${emoji} ${formattedTime} — Morning Pulse`
     : mode === 'evening'
-    ? `Evening pulse${greeting}`
-    : `A 30-second pause${greeting}`;
+    ? `${emoji} ${formattedTime} — Evening Pulse`
+    : `${emoji} ${formattedTime} — Mid-day Pause`;
   const body = isSpanish
     ? mode === 'morning'
-      ? 'Toma 30 segundos para fijar tu intención de hoy.'
+      ? 'Una pregunta. Dos minutos.'
       : mode === 'evening'
-      ? 'Una breve reflexión antes de descansar.'
+      ? 'Cierra el día.'
       : '¿Dónde está tu atención ahora mismo?'
     : mode === 'morning'
-    ? "Take 30 seconds to set today's intention."
+    ? 'One question. Two minutes.'
     : mode === 'evening'
-    ? 'A short reflection before you wind down.'
+    ? 'Close the loop on your day.'
     : "Where's your attention right now?";
   // All three pulse modes (morning / mid-day Presence / evening) now
   // land on the Pulse tab — Presence functionality was folded into
@@ -200,7 +226,21 @@ async function sendPulsePush(
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         payload,
-        { TTL: 60 * 60 * 4, urgency: 'normal' }, // 4-hour TTL — pulse is time-sensitive but not high
+        {
+          TTL: 60 * 60 * 4, // 4-hour TTL
+          urgency: 'high', // bumped from 'normal' so iOS doesn't batch-defer
+          // iOS web push respects apns-priority + apns-push-type. With
+          // priority 10 + push-type 'alert', the notification surfaces
+          // immediately and (when the user has Time Sensitive enabled
+          // in Focus settings) breaks through Focus modes. Critical
+          // Alerts bypass silent mode too, but those require Apple
+          // entitlements unavailable to PWAs — this is the strongest
+          // we can do.
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+        },
       );
       sent += 1;
       admin
@@ -309,7 +349,7 @@ export async function POST(req: Request) {
         } else if (await pulseDoneToday(admin, p.id, 'morning', local.yyyymmdd, tz)) {
           results.push({ userId: p.id, status: 'morning-already-done' });
         } else {
-          const r = await sendPulsePush(admin, p.id, 'morning', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US');
+          const r = await sendPulsePush(admin, p.id, 'morning', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US', morningTime);
           await admin
             .from('profiles')
             .update({ last_morning_pulse_reminder_at: now.toISOString() })
@@ -328,7 +368,7 @@ export async function POST(req: Request) {
         } else if (await pulseDoneToday(admin, p.id, 'evening', local.yyyymmdd, tz)) {
           results.push({ userId: p.id, status: 'evening-already-done' });
         } else {
-          const r = await sendPulsePush(admin, p.id, 'evening', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US');
+          const r = await sendPulsePush(admin, p.id, 'evening', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US', eveningTime);
           await admin
             .from('profiles')
             .update({ last_evening_pulse_reminder_at: now.toISOString() })
@@ -353,7 +393,7 @@ export async function POST(req: Request) {
           // additional pauses voluntarily; we just don't push them.
           results.push({ userId: p.id, status: 'presence-already-done' });
         } else {
-          const r = await sendPulsePush(admin, p.id, 'presence', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US');
+          const r = await sendPulsePush(admin, p.id, 'presence', p.display_name ?? '', p.language === 'es-MX' ? 'es-MX' : 'en-US', presenceTime);
           await admin
             .from('profiles')
             .update({ last_presence_pulse_reminder_at: now.toISOString() })

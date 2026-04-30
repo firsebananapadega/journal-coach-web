@@ -101,7 +101,7 @@ async function sendQuarterlyPush(
 
   const payload = JSON.stringify({
     kind: 'quarterly_letter',
-    title: `${guideName}: a season in review`,
+    title: `✨ Your quarterly letter from ${guideName}`,
     body: preview.slice(0, 180),
     data: {
       quarterly_id: letterId,
@@ -115,7 +115,14 @@ async function sendQuarterlyPush(
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         payload,
-        { TTL: 60 * 60 * 24 * 14, urgency: 'normal' }, // 2 weeks — these are slow letters
+        {
+          TTL: 60 * 60 * 24 * 14, // 2 weeks — these are slow letters
+          urgency: 'high',
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+        },
       );
       sent += 1;
       admin

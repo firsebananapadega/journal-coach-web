@@ -65,9 +65,18 @@ async function deliverForTask(
   );
 
   const isSpanish = language === 'es-MX';
+  // Sharper title — task text leads with the clock emoji, so a
+  // glance at the lockscreen tells the user WHAT the reminder is
+  // about (vs. the prior "Reminder" → body model where the body
+  // got truncated in iOS notification stacks).
+  const taskText = (task.reminder_message || task.text || '').slice(0, 80);
   const payload = JSON.stringify({
-    title: isSpanish ? 'Recordatorio' : 'Reminder',
-    body: (task.reminder_message || task.text || '').slice(0, 240),
+    title: taskText
+      ? `⏰ ${taskText}`
+      : isSpanish
+      ? '⏰ Recordatorio'
+      : '⏰ Reminder',
+    body: isSpanish ? 'Toca para ver.' : 'Tap to open.',
     data: {
       task_id: task.id,
       snooze_token: snoozeToken,
@@ -84,7 +93,17 @@ async function deliverForTask(
           keys: { p256dh: s.p256dh, auth: s.auth },
         },
         payload,
-        { TTL: 600, urgency: 'high' },
+        {
+          TTL: 600,
+          urgency: 'high',
+          // iOS web push: priority 10 + push-type 'alert' = surfaces
+          // immediately AND breaks through Focus modes when the user
+          // has Time Sensitive enabled for this app.
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+        },
       );
       sent += 1;
       admin

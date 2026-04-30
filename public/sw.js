@@ -6,7 +6,7 @@
 // network serves the previously-loaded shell + chunks instead of a
 // browser "no internet" page.
 
-const CACHE_NAME = 'journalcoach-v7';
+const CACHE_NAME = 'journalcoach-v8';
 
 // Routes the user is likely to land on after install. Pre-fetched in
 // `install` so the very first offline cold-open has them. Hashed JS
@@ -208,7 +208,17 @@ self.addEventListener('push', (event) => {
         tag,
         data: { ...(data || {}), kind },
         actions,
-        requireInteraction: false,
+        // requireInteraction: keeps the notification on screen until
+        // the user dismisses or taps. Android Chrome respects this
+        // strongly; iOS Safari partial — system can still auto-dismiss
+        // from the lockscreen but the entry stays in the notification
+        // center until cleared.
+        requireInteraction: true,
+        // Chunky six-pulse pattern ending with a longer buzz — more
+        // attention-grabbing than the system default. Android plays
+        // this exact pattern; iOS substitutes its system vibrate but
+        // still registers the longer overall duration.
+        vibrate: [300, 100, 300, 100, 300, 100, 600],
       });
       if (isPulse) {
         try {

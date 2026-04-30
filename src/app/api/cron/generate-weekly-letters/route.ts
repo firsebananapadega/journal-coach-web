@@ -116,7 +116,7 @@ async function sendLetterPush(
 
   const payload = JSON.stringify({
     kind: 'weekly_letter',
-    title: `${guideName} wrote you a letter`,
+    title: `✨ Your weekly letter from ${guideName}`,
     body: preview.slice(0, 180),
     data: {
       letter_id: letterId,
@@ -130,7 +130,16 @@ async function sendLetterPush(
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         payload,
-        { TTL: 60 * 60 * 24 * 3, urgency: 'normal' }, // 3 days — plenty
+        {
+          TTL: 60 * 60 * 24 * 3, // 3 days — plenty
+          urgency: 'high', // bumped — match the rest of the system
+          // iOS time-sensitive flags so the letter surfaces promptly
+          // and breaks through Focus modes (when the user opts in).
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+        },
       );
       sent += 1;
       admin

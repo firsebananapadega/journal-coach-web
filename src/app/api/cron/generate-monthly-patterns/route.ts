@@ -98,7 +98,7 @@ async function sendPatternPush(
 
   const payload = JSON.stringify({
     kind: 'monthly_pattern',
-    title: `${guideName}: a month of patterns`,
+    title: `📈 Your monthly patterns are in`,
     body: preview.slice(0, 180),
     data: {
       pattern_id: patternId,
@@ -112,7 +112,14 @@ async function sendPatternPush(
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         payload,
-        { TTL: 60 * 60 * 24 * 7, urgency: 'normal' },
+        {
+          TTL: 60 * 60 * 24 * 7,
+          urgency: 'high',
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+        },
       );
       sent += 1;
       admin
