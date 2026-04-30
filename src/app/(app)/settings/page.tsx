@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import GuideMascot from '@/components/mascot/GuideMascot';
 import { staggerContainer, staggerItem, prefersReducedMotion } from '@/lib/motionVariants';
-import { useAuthStore, type LetterCadence, type PrimaryUse } from '@/stores/authStore';
+import { useAuthStore, type LetterCadence, type PrimaryUse, type Profile } from '@/stores/authStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -564,6 +564,63 @@ export default function SettingsPage() {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Tutorial — replay onboarding tour + tab popups. The toggle
+          reflects "tour will replay on next load" — when ON, we
+          reset tour_completed + tour_seen_tabs + the localStorage
+          flag, so the next page load fires the tour fresh. The
+          tour itself flips the toggle back OFF when it finishes
+          or is skipped. Lets the user iterate on onboarding without
+          making throwaway accounts. */}
+      <motion.div {...sectionMotion} className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.tutorial.title')}</h2>
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-primary">
+                {t('settings.tutorial.toggleLabel')}
+              </p>
+              <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
+                {t('settings.tutorial.toggleHint')}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!profile?.tour_completed}
+              onClick={async () => {
+                const replayOn = !!profile?.tour_completed;
+                if (replayOn) {
+                  // User wants to see the tour again — reset all flags.
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('tour_pending', '1');
+                    localStorage.removeItem('tour_seen_tabs.v1');
+                  }
+                  await updateProfile({
+                    tour_completed: false,
+                    tour_seen_tabs: [],
+                  } as Partial<Profile>);
+                } else {
+                  // User wants to suppress — mark complete + seen.
+                  if (typeof window !== 'undefined') {
+                    localStorage.removeItem('tour_pending');
+                  }
+                  await updateProfile({ tour_completed: true } as Partial<Profile>);
+                }
+              }}
+              className={`shrink-0 w-11 h-6 rounded-full p-0.5 transition-colors ${
+                !profile?.tour_completed ? 'bg-primary' : 'bg-border'
+              }`}
+            >
+              <span
+                className={`block w-5 h-5 rounded-full bg-white shadow-warm-sm transition-transform ${
+                  !profile?.tour_completed ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
         </div>
       </motion.div>

@@ -47,6 +47,11 @@ export interface Profile {
    *  in shape — flips to true on demo skip or completion so reinstalls
    *  don't re-fire it. See src/components/onboarding/RitualDemo.tsx. */
   ritual_demo_completed: boolean;
+  /** First-visit-popup tracking: each path in this array has had its
+   *  one-line tab popup dismissed. Resetting this (via the Settings
+   *  "Show onboarding guide" toggle) re-enables the popups along with
+   *  the linear tour. Populated by TabFirstVisitPopup. */
+  tour_seen_tabs: string[];
   install_prompt_dismissed_at: string | null;
   pwa_installed: boolean;
   /** Asked during onboarding — determines which wall (Journal / Tasks)

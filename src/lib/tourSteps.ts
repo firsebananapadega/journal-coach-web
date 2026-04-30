@@ -1,87 +1,148 @@
-// Guided tour — step definitions. Each step advances via either:
-//   (a) user tapping Show me / Next / Thanks on the tour card
-//       (when showNextButton === true), or
-//   (b) an ambient event watched by <GuideTour/>:
-//         'wall-changed' → useWallState().activeWall switches
+// Onboarding tour — step definitions, bucket-aware.
 //
-// Tour narrative (per user direction):
-//   1. Welcome modal (brief)
-//   2. Guided chat — journal-wall center pill (→ /guided)
-//   3. Pulse tab — "three questions a day" framing
-//   4. Wall switch — user taps the edge tab to flip to tasks
-//   5. Capture mic — tasks-wall center pill (→ /voice)
-//   6. Outro modal (brief)
+// Goal: cover the must-know path for a brand-new user without
+// overloading them. The full Both-bucket tour is 6 steps:
+//
+//   1. Pulse welcome (where they land)
+//   2. Free-write button (the pencil center pill on the journal wall)
+//   3. Wall switcher (the JOURNAL/TASKS edge tab — tap or Next flips)
+//   4. Capture mic (the mic center pill on the tasks wall)
+//   5. Wall switcher back
+//   6. Outro
+//
+// Tasks-only and Journal-only buckets see filtered subsets — the
+// `buckets` field on each step decides who gets it. The orchestrator
+// (GuideTour) picks the right slice at `start()` time using
+// `profile.primary_use`.
+//
+// Each step has an optional `route` — when set, the orchestrator
+// navigates there before showing the step. That's how Next on step 3
+// flips the wall (router.push('/today')) and lands you on step 4.
 
 import type { BodhiPose } from '@/components/mascot/poses';
-import type { TourLineKey } from '@/lib/guideConfigs';
+import type { PrimaryUse } from '@/stores/authStore';
 
-export type TourStepId = 'welcome' | 'guidedChat' | 'pulseTab' | 'wallSwitch' | 'captureMic' | 'outro';
+export type TourStepId =
+  | 'pulseWelcome'
+  | 'freeWriteButton'
+  | 'wallSwitchToTasks'
+  | 'tasksWelcome'
+  | 'captureMic'
+  | 'wallSwitchToJournal'
+  | 'outro';
 
-export type AutoAdvance = 'wall-changed' | 'pathname-voice' | 'preview-closed';
+export type AutoAdvance = 'wall-changed';
 
 export interface TourStep {
   id: TourStepId;
+  /** Route this step lives on. Orchestrator router.pushes here on
+   *  step enter if the user isn't already there. Omit to "stay put"
+   *  (e.g. the outro). */
+  route?: string;
+  /** CSS selector for the highlighted anchor. null = centered card,
+   *  no spotlight. */
   anchorSelector: string | null;
   pose: BodhiPose;
-  copyKey: TourLineKey;
-  nudgeKey?: TourLineKey;
-  idleNudgeMs?: number;
+  /** Translation key for the body copy (1–2 sentences). */
+  copyKey: string;
+  /** When set, the step auto-advances on this ambient event in
+   *  addition to the Next button. `wall-changed` fires when the user
+   *  taps the highlighted wall edge tab themselves — no need to wait
+   *  for them to find the Next button. */
   autoAdvance?: AutoAdvance;
   showNextButton: boolean;
-  nextLabelKey: 'tour.showMe' | 'tour.next' | 'tour.done';
+  nextLabelKey: 'tour.next' | 'tour.done';
   wiggleAnchor?: boolean;
+  /** Which buckets see this step. */
+  buckets: Array<PrimaryUse>;
 }
 
 export const TOUR_STEPS: TourStep[] = [
   {
-    id: 'welcome',
+    id: 'pulseWelcome',
+    route: '/pulse',
     anchorSelector: null,
     pose: 'wave',
-    copyKey: 'welcome',
-    nudgeKey: 'welcomeNudge',
+    copyKey: 'tour.pulseWelcome',
     showNextButton: true,
-    nextLabelKey: 'tour.showMe',
+    nextLabelKey: 'tour.next',
+    buckets: ['journal', 'both'],
   },
   {
-    id: 'guidedChat',
+    id: 'freeWriteButton',
+    route: '/pulse',
+    // The wall-nav center button. On the journal side it's the
+    // pencil-on-book glyph that opens free-form writing.
     anchorSelector: '[data-tour="capture-button"]',
     pose: 'think',
-    copyKey: 'guidedChat',
+    copyKey: 'tour.freeWriteButton',
     showNextButton: true,
     nextLabelKey: 'tour.next',
+    buckets: ['journal', 'both'],
   },
   {
-    id: 'pulseTab',
-    anchorSelector: '[data-tour="tab-pulse"]',
-    pose: 'listen',
-    copyKey: 'pulseTab',
-    showNextButton: true,
-    nextLabelKey: 'tour.next',
-  },
-  {
-    id: 'wallSwitch',
+    id: 'wallSwitchToTasks',
+    route: '/pulse',
     anchorSelector: '[data-tour="wall-edge-tab"]',
     pose: 'peek',
-    copyKey: 'wallSwitch',
+    copyKey: 'tour.wallSwitchToTasks',
     autoAdvance: 'wall-changed',
     showNextButton: true,
     nextLabelKey: 'tour.next',
     wiggleAnchor: true,
+    buckets: ['both'],
+  },
+  {
+    id: 'tasksWelcome',
+    route: '/today',
+    anchorSelector: null,
+    pose: 'wave',
+    copyKey: 'tour.tasksWelcome',
+    showNextButton: true,
+    nextLabelKey: 'tour.next',
+    // Both-bucket users skip this — they got the welcome via the
+    // wall-switch step itself; tasks-only users land cold so they
+    // need an explicit welcome to /today.
+    buckets: ['tasks'],
   },
   {
     id: 'captureMic',
+    route: '/today',
+    // Same selector as the journal-side center button — the wall
+    // determines which glyph appears, but the DOM anchor is shared.
     anchorSelector: '[data-tour="capture-button"]',
     pose: 'think',
-    copyKey: 'captureMic',
+    copyKey: 'tour.captureMic',
     showNextButton: true,
     nextLabelKey: 'tour.next',
+    buckets: ['tasks', 'both'],
+  },
+  {
+    id: 'wallSwitchToJournal',
+    route: '/today',
+    anchorSelector: '[data-tour="wall-edge-tab"]',
+    pose: 'peek',
+    copyKey: 'tour.wallSwitchToJournal',
+    showNextButton: true,
+    nextLabelKey: 'tour.next',
+    buckets: ['both'],
   },
   {
     id: 'outro',
+    // No route — outro fires wherever the user is when they arrive
+    // here, so the close-out doesn't yank them around.
     anchorSelector: null,
     pose: 'celebrate',
-    copyKey: 'outro',
+    copyKey: 'tour.outro',
     showNextButton: true,
     nextLabelKey: 'tour.done',
+    buckets: ['tasks', 'journal', 'both'],
   },
 ];
+
+/** Filter the master step list down to what the given bucket sees.
+ *  Returns a fresh array so callers can mutate freely. */
+export function getStepsForBucket(bucket: PrimaryUse | null | undefined): TourStep[] {
+  const target = bucket ?? 'both';
+  return TOUR_STEPS.filter((step) => step.buckets.includes(target));
+}

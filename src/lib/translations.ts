@@ -377,8 +377,8 @@ const translations: Record<string, Record<Locale, string>> = {
   'checkin.mind.sharp': { en: 'Sharp', es: 'Agudo' },
 
   'voice.capturePlaceholder': {
-    en: 'Talk freely — priorities, plans, groceries, ideas…',
-    es: 'Habla libremente — tareas, eventos, despensa, ideas…',
+    en: 'Talk freely — tasks, groceries, reminders, ideas…',
+    es: 'Habla libremente — tareas, despensa, recordatorios, ideas…',
   },
   'voice.capture': { en: 'Capture', es: 'Capturar' },
   'groceries.placeholder': { en: 'Add a grocery item…', es: 'Agregar artículo…' },
@@ -986,7 +986,75 @@ const translations: Record<string, Record<Locale, string>> = {
   'tour.showMe': { en: 'Show me', es: 'Muéstrame' },
   'tour.skip': { en: 'Skip', es: 'Saltar' },
   'tour.next': { en: 'Next', es: 'Siguiente' },
-  'tour.done': { en: 'Thanks', es: 'Gracias' },
+  'tour.done': { en: 'Got it', es: 'Listo' },
+
+  // ── Tour body copy (≤2 sentences each, generic voice) ─────────
+  'tour.pulseWelcome': {
+    en: 'Welcome to your Pulse. Quick check-ins morning and evening — a different question each day.',
+    es: 'Bienvenido a tu Pulso. Revisiones rápidas en la mañana y la noche — una pregunta distinta cada día.',
+  },
+  'tour.freeWriteButton': {
+    en: 'Tap here for free writing. Anything off-prompt goes here, and it gets structured automatically.',
+    es: 'Toca aquí para escribir libremente. Lo que no encaje en el Pulso vive aquí, y se estructura automáticamente.',
+  },
+  'tour.wallSwitchToTasks': {
+    en: 'This flips you to your tasks side. Tap to try.',
+    es: 'Esto te cambia al lado de tareas. Toca para probarlo.',
+  },
+  'tour.tasksWelcome': {
+    en: 'Welcome to your tasks side. Capture anything by tapping the mic below.',
+    es: 'Bienvenido al lado de tareas. Captura cualquier cosa tocando el micrófono abajo.',
+  },
+  'tour.captureMic': {
+    en: 'Tap and talk — this captures anything. Try “milk and eggs from Whole Foods,” “finish the proposal Thursday,” or “remind me to call Mom Friday at 5.”',
+    es: 'Toca y habla — esto captura cualquier cosa. Prueba "leche y huevos de Whole Foods", "termina la propuesta el jueves" o "recuérdame llamar a mamá el viernes a las 5".',
+  },
+  'tour.wallSwitchToJournal': {
+    en: 'And tap here to switch back. You can flip between sides anytime.',
+    es: 'Y toca aquí para volver. Puedes cambiar de lado cuando quieras.',
+  },
+  'tour.outro': {
+    en: "You're set. Replay this tour anytime from Settings.",
+    es: 'Listo. Repite este tour cuando quieras desde Ajustes.',
+  },
+
+  // ── First-visit tab popups (1 sentence each, "Got it" dismiss) ─
+  'tabPopup.notebooks': {
+    en: 'Your past entries live here — each one structured automatically the moment you save.',
+    es: 'Tus entradas pasadas viven aquí — cada una estructurada automáticamente al guardarla.',
+  },
+  'tabPopup.patterns': {
+    en: 'Themes that show up across your entries — refreshed each week.',
+    es: 'Temas que aparecen en tus entradas — actualizados cada semana.',
+  },
+  'tabPopup.guided': {
+    en: 'Your guide. Tap and start writing — useful for anything that needs unpacking.',
+    es: 'Tu guía. Toca y empieza a escribir — útil para cualquier cosa que necesite desahogarse.',
+  },
+  'tabPopup.upcoming': {
+    en: 'Tasks scheduled for later, sorted by date.',
+    es: 'Tareas programadas para más adelante, ordenadas por fecha.',
+  },
+  'tabPopup.lists': {
+    en: 'Group tasks into projects, or share a list with someone — like the grocery list.',
+    es: 'Agrupa tareas en proyectos, o comparte una lista con alguien — como la lista de compras.',
+  },
+  'tabPopup.groceries': {
+    en: 'Your shared grocery list. Works offline; syncs the moment you’re online.',
+    es: 'Tu lista de compras compartida. Funciona sin conexión; se sincroniza apenas vuelves en línea.',
+  },
+  'tabPopup.gotIt': { en: 'Got it', es: 'Listo' },
+
+  // ── Settings: onboarding toggle ───────────────────────────────
+  'settings.tutorial.title': { en: 'Tutorial', es: 'Tutorial' },
+  'settings.tutorial.toggleLabel': {
+    en: 'Show onboarding guide',
+    es: 'Mostrar guía de bienvenida',
+  },
+  'settings.tutorial.toggleHint': {
+    en: 'When on, the welcome tour replays the next time you open the app.',
+    es: 'Cuando está activo, el tour de bienvenida se reproduce la próxima vez que abras la app.',
+  },
 
   // ─── Ritual demo (post-onboarding 3-card walkthrough) ───
   'ritualDemo.skip': { en: 'Skip', es: 'Saltar' },
