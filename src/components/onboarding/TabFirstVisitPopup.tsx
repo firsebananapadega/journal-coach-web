@@ -125,10 +125,12 @@ export default function TabFirstVisitPopup() {
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           className="fixed inset-x-3 z-[55] pointer-events-none"
           style={{
-            // Sit above the wall nav (which is bottom-fixed at z-50
-            // with safe-area bottom). pb-36 in the layout gives us the
-            // strip; we anchor at calc(safe-area + ~88px) to clear it.
-            bottom: 'calc(env(safe-area-inset-bottom) + 96px)',
+            // Sit ABOVE the wall nav with breathing room. The wall
+            // nav itself is ~84px tall + safe-area. 140px puts the
+            // popup ~50px above the nav strip — high enough to read
+            // as a distinct overlay rather than feeling glued to the
+            // nav (the prior 96px was visually too close).
+            bottom: 'calc(env(safe-area-inset-bottom) + 140px)',
           }}
           role="dialog"
           aria-live="polite"

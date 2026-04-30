@@ -13,7 +13,7 @@ interface SpeechBubbleProps {
 
 export default function SpeechBubble({ text, tail = 'bottom-left' }: SpeechBubbleProps) {
   return (
-    <div className="relative max-w-[260px]">
+    <div className="relative max-w-[320px]">
       <AnimatePresence mode="wait">
         <motion.div
           key={text}
@@ -21,9 +21,9 @@ export default function SpeechBubble({ text, tail = 'bottom-left' }: SpeechBubbl
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -4 }}
           transition={{ duration: 0.22, ease: 'easeOut' }}
-          className="relative bg-surface-elevated border border-border rounded-2xl px-4 py-3 shadow-warm-md"
+          className="relative bg-surface-elevated border border-border rounded-2xl px-4 py-3.5 shadow-warm-md"
         >
-          <p className="text-sm text-text-primary leading-snug">{text}</p>
+          <p className="text-base text-text-primary leading-snug">{text}</p>
           {tail === 'bottom-left' && (
             <span
               aria-hidden

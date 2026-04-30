@@ -568,60 +568,74 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Tutorial — replay onboarding tour + tab popups. The toggle
-          reflects "tour will replay on next load" — when ON, we
-          reset tour_completed + tour_seen_tabs + the localStorage
-          flag, so the next page load fires the tour fresh. The
-          tour itself flips the toggle back OFF when it finishes
-          or is skipped. Lets the user iterate on onboarding without
-          making throwaway accounts. */}
+      {/* Tutorial — replay onboarding tour + tab popups. ACTION
+          button (not a toggle) so it's clear that tapping starts
+          the tour, not just flipping a setting. On tap: reset all
+          flags AND auto-navigate to the right starting route so the
+          user doesn't have to leave Settings themselves. */}
       <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.tutorial.title')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-text-primary">
-                {t('settings.tutorial.toggleLabel')}
-              </p>
-              <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
-                {t('settings.tutorial.toggleHint')}
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={!profile?.tour_completed}
-              onClick={async () => {
-                const replayOn = !!profile?.tour_completed;
-                if (replayOn) {
-                  // User wants to see the tour again — reset all flags.
-                  if (typeof window !== 'undefined') {
-                    localStorage.setItem('tour_pending', '1');
-                    localStorage.removeItem('tour_seen_tabs.v1');
-                  }
-                  await updateProfile({
-                    tour_completed: false,
-                    tour_seen_tabs: [],
-                  } as Partial<Profile>);
-                } else {
-                  // User wants to suppress — mark complete + seen.
-                  if (typeof window !== 'undefined') {
-                    localStorage.removeItem('tour_pending');
-                  }
-                  await updateProfile({ tour_completed: true } as Partial<Profile>);
-                }
-              }}
-              className={`shrink-0 w-11 h-6 rounded-full p-0.5 transition-colors ${
-                !profile?.tour_completed ? 'bg-primary' : 'bg-border'
-              }`}
-            >
-              <span
-                className={`block w-5 h-5 rounded-full bg-white shadow-warm-sm transition-transform ${
-                  !profile?.tour_completed ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
+        <button
+          type="button"
+          onClick={async () => {
+            // Clear all tour-state flags so the orchestrator's
+            // auto-start re-fires.
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('tour_pending', '1');
+              localStorage.removeItem('tour_seen_tabs.v1');
+            }
+            await updateProfile({
+              tour_completed: false,
+              tour_seen_tabs: [],
+            } as Partial<Profile>);
+            // Navigate to the bucket-appropriate starting route. The
+            // tour orchestrator's first step has the same route, so
+            // this just gets us out of /settings — the orchestrator
+            // takes over once /home or /today mounts.
+            const dest = profile?.primary_use === 'tasks' ? '/today' : '/home';
+            router.push(dest);
+          }}
+          className="w-full bg-surface rounded-2xl border border-border p-4 shadow-warm-sm flex items-center justify-between gap-3 hover:border-primary transition-colors text-left"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-primary">
+              {t('settings.tutorial.replayAction')}
+            </p>
+            <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
+              {t('settings.tutorial.replayHint')}
+            </p>
           </div>
+          <span className="text-text-tertiary text-xl shrink-0" aria-hidden>›</span>
+        </button>
+      </motion.div>
+
+      {/* Tools — orphan-but-active surfaces that don't have nav
+          buttons of their own. Currently: Pulse Reflection (a
+          dedicated AI-generated patterns view of pulse entries),
+          Habits (recurring-practice tracker), and Templates (guided
+          journal template browser). Surfacing them here so they're
+          discoverable without polluting the wall nav. */}
+      <motion.div {...sectionMotion} className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.tools.title')}</h2>
+        <div className="bg-surface rounded-2xl border border-border shadow-warm-sm divide-y divide-border overflow-hidden">
+          {[
+            { href: '/pulse', label: t('settings.tools.pulseReflection'), hint: t('settings.tools.pulseReflectionHint') },
+            { href: '/habits', label: t('settings.tools.habits'), hint: t('settings.tools.habitsHint') },
+            { href: '/templates', label: t('settings.tools.templates'), hint: t('settings.tools.templatesHint') },
+          ].map((tool) => (
+            <button
+              key={tool.href}
+              type="button"
+              onClick={() => router.push(tool.href)}
+              className="w-full p-4 flex items-center justify-between gap-3 hover:bg-surface-elevated transition-colors text-left"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-text-primary">{tool.label}</p>
+                <p className="text-xs text-text-tertiary mt-0.5 leading-snug">{tool.hint}</p>
+              </div>
+              <span className="text-text-tertiary text-xl shrink-0" aria-hidden>›</span>
+            </button>
+          ))}
         </div>
       </motion.div>
 

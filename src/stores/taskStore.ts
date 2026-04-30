@@ -52,6 +52,12 @@ export interface Task {
   remind_snoozed_until: string | null; // future UTC when a notification
                                        // is snoozed; cron re-fires at this time.
   reminder_message: string | null;     // override text; null → use `text`.
+  /** Soft-archive timestamp. NULL = active. Set by the overdue UI's
+   *  "Archive" actions (stale-prompt + bankruptcy escape) so a user
+   *  can hide irrelevant items without marking them complete. The
+   *  fetchAll path silently filters archived rows out of `tasks`,
+   *  so consumers don't need to add a filter clause. */
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -81,6 +87,14 @@ interface TaskState {
     flags: { urgent?: boolean; important?: boolean; triaged?: boolean },
   ) => Promise<void>;
   removeTask: (id: string) => Promise<void>;
+  /** Bulk-set due_date for many tasks at once (overdue UI uses this
+   *  for the "Move all →" action and per-item swipe-to-Today). */
+  bulkSetDueDate: (taskIds: string[], dueDate: string | null) => Promise<void>;
+  /** Bulk-archive: set archived_at = now() for many tasks. Powers
+   *  the stale-prompt Archive action and the 30+ overdue bankruptcy
+   *  escape. Archived rows are silently filtered from the tasks
+   *  slice — they won't reappear until /archive is built. */
+  bulkArchive: (taskIds: string[]) => Promise<void>;
   // Batch re-ordering: pass the NEW sequence of task ids (for a
   // specific subgroup the caller cares about — a day, a list, etc).
   // The store rewrites those rows' sort_order in the given order.
@@ -157,6 +171,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         .from('tasks')
         .select('*')
         .eq('user_id', user.id)
+        // Filter out soft-archived rows at the source so every consumer
+        // gets a clean active-only slice without needing its own
+        // .filter(t => !t.archived_at) on every read.
+        .is('archived_at', null)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true });
       if (error) throw error;
@@ -215,6 +233,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       remind_sent_at: null,
       remind_snoozed_until: null,
       reminder_message: input.reminder_message ?? null,
+      archived_at: null,
       created_at: now,
       updated_at: now,
     };
@@ -249,6 +268,42 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   removeTask: async (id) => {
     set({ tasks: get().tasks.filter((t) => t.id !== id) });
     await enqueue({ op: 'delete', table: 'tasks', row_id: id, payload: null });
+  },
+
+  bulkSetDueDate: async (taskIds, dueDate) => {
+    if (taskIds.length === 0) return;
+    const now = new Date().toISOString();
+    const idSet = new Set(taskIds);
+    set({
+      tasks: get().tasks.map((t) =>
+        idSet.has(t.id) ? { ...t, due_date: dueDate, updated_at: now } : t,
+      ),
+    });
+    for (const id of taskIds) {
+      await enqueue({
+        op: 'update',
+        table: 'tasks',
+        row_id: id,
+        payload: { due_date: dueDate, updated_at: now },
+      });
+    }
+  },
+
+  bulkArchive: async (taskIds) => {
+    if (taskIds.length === 0) return;
+    const now = new Date().toISOString();
+    const idSet = new Set(taskIds);
+    // Optimistically remove from the slice — the next fetchAll
+    // would filter them out anyway via .is('archived_at', null).
+    set({ tasks: get().tasks.filter((t) => !idSet.has(t.id)) });
+    for (const id of taskIds) {
+      await enqueue({
+        op: 'update',
+        table: 'tasks',
+        row_id: id,
+        payload: { archived_at: now, updated_at: now },
+      });
+    }
   },
 
   reorderTasks: async (orderedIds) => {

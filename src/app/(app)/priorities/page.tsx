@@ -34,6 +34,8 @@ import { AddTaskSheet } from '@/components/AddTaskSheet';
 import { useTaskStore, type Task } from '@/stores/taskStore';
 import type { ListRecord } from '@/stores/listStore';
 import { useListStore } from '@/stores/listStore';
+import OverdueSection from '@/components/today/OverdueSection';
+import { isOverdue } from '@/lib/overdueUtils';
 
 function buildWeekDates(): Date[] {
   const today = new Date();
@@ -170,6 +172,21 @@ export default function PrioritiesPage() {
         }),
     [scheduledTasks, selectedDate],
   );
+
+  // Overdue computation — only meaningful when the user is viewing
+  // TODAY (not a past or future date in the week strip). Past-date
+  // views show that day's snapshot; future-date views haven't happened
+  // yet. Both cases would render a confusing "overdue" header.
+  const overdueTasks = useMemo(
+    () =>
+      selectedDate === todayDateStr
+        ? scheduledTasks.filter((t) => isOverdue(t, todayDateStr))
+        : [],
+    [scheduledTasks, selectedDate, todayDateStr],
+  );
+
+  const bulkSetDueDate = useTaskStore((s) => s.bulkSetDueDate);
+  const bulkArchive = useTaskStore((s) => s.bulkArchive);
 
   // The unified /today list reads exclusively from tasks. Loose
   // priorities have been backfilled into tasks (Inbox + due_date),
@@ -369,6 +386,21 @@ export default function PrioritiesPage() {
             }
             void useTaskStore.getState().removeTask(id);
           }}
+        />
+      )}
+
+      {/* Overdue — only appears when viewing today (not past/future
+          days in the week strip) AND there's at least one overdue
+          item. Sits at the top of the list. Warm amber styling, NOT
+          red. Manual rollforward via "Move all →" header button +
+          per-item Today/Tomorrow buttons; stale items (14+ days)
+          expose Archive. */}
+      {overdueTasks.length > 0 && viewMode === 'list' && (
+        <OverdueSection
+          tasks={overdueTasks}
+          todayStr={todayDateStr}
+          onBulkSetDueDate={bulkSetDueDate}
+          onBulkArchive={bulkArchive}
         />
       )}
 

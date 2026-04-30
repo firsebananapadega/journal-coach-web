@@ -38,8 +38,8 @@ interface TourCardProps {
 function computeAnchoredPosition(rect: Rect): { left: number; top: number } {
   const vw = typeof window !== 'undefined' ? window.innerWidth : 360;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 640;
-  const cardW = 300;
-  const cardH = 160;
+  const cardW = 340;
+  const cardH = 180;
   const gap = 14;
 
   // Place below if the anchor is high on the screen; above otherwise.
@@ -81,10 +81,10 @@ export default function TourCard({
           ? 'fixed inset-0 z-[80] pointer-events-none flex items-center justify-center p-6'
           : 'fixed z-[80] pointer-events-none'
       }
-      style={anchoredStyle ? { left: anchoredStyle.left, top: anchoredStyle.top, width: 300 } : undefined}
+      style={anchoredStyle ? { left: anchoredStyle.left, top: anchoredStyle.top, width: 340 } : undefined}
     >
       <motion.div
-        className="pointer-events-auto w-full max-w-[320px]"
+        className="pointer-events-auto w-full max-w-[360px]"
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0 }}
@@ -103,7 +103,7 @@ export default function TourCard({
           <button
             type="button"
             onClick={onSkip}
-            className="text-xs text-text-tertiary hover:text-text-secondary px-3 py-1.5"
+            className="text-sm text-text-tertiary hover:text-text-secondary px-4 py-2"
           >
             {skipLabel}
           </button>
@@ -111,7 +111,7 @@ export default function TourCard({
             <button
               type="button"
               onClick={onNext}
-              className="text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-full px-4 py-1.5 shadow-warm-md"
+              className="text-sm font-semibold text-white bg-primary hover:bg-primary-dark rounded-full px-5 py-2 shadow-warm-md"
             >
               {nextLabel}
             </button>

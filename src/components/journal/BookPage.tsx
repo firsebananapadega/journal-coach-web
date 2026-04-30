@@ -588,8 +588,13 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
                   value={composer}
                   onChange={(e) => setComposer(e.target.value)}
                   placeholder={t('journalWrite.placeholder')}
-                  className="w-full min-h-[40vh] bg-transparent text-base leading-relaxed text-text-primary placeholder:text-text-tertiary/60 border-0 outline-none focus:outline-none focus:ring-0 resize-none"
-                  style={{ lineHeight: 1.7 }}
+                  // Fill the visible area between the top header
+                  // (~120px) and the fixed save bar (~110px) so the
+                  // textarea reaches right above the save button on
+                  // modern phone viewports without leaving an empty
+                  // strip below it.
+                  className="w-full bg-transparent text-base leading-relaxed text-text-primary placeholder:text-text-tertiary/60 border-0 outline-none focus:outline-none focus:ring-0 resize-none"
+                  style={{ lineHeight: 1.7, minHeight: 'calc(100dvh - 240px)' }}
                 />
               </div>
             </div>

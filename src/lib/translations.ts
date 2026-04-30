@@ -989,9 +989,9 @@ const translations: Record<string, Record<Locale, string>> = {
   'tour.done': { en: 'Got it', es: 'Listo' },
 
   // ── Tour body copy (≤2 sentences each, generic voice) ─────────
-  'tour.pulseWelcome': {
-    en: 'Welcome to your Pulse. Quick check-ins morning and evening — a different question each day.',
-    es: 'Bienvenido a tu Pulso. Revisiones rápidas en la mañana y la noche — una pregunta distinta cada día.',
+  'tour.journalWelcome': {
+    en: 'Welcome to your journal side. Daily check-ins, free writing, and patterns over time.',
+    es: 'Bienvenido a tu lado de diario. Revisiones diarias, escritura libre, y patrones con el tiempo.',
   },
   'tour.freeWriteButton': {
     en: 'Tap here for free writing. Anything off-prompt goes here, and it gets structured automatically.',
@@ -1036,8 +1036,8 @@ const translations: Record<string, Record<Locale, string>> = {
     es: 'Tareas programadas para más adelante, ordenadas por fecha.',
   },
   'tabPopup.lists': {
-    en: 'Group tasks into projects, or share a list with someone — like the grocery list.',
-    es: 'Agrupa tareas en proyectos, o comparte una lista con alguien — como la lista de compras.',
+    en: 'A way to group tasks into projects.',
+    es: 'Una forma de agrupar tareas en proyectos.',
   },
   'tabPopup.groceries': {
     en: 'Your shared grocery list. Works offline; syncs the moment you’re online.',
@@ -1045,15 +1045,70 @@ const translations: Record<string, Record<Locale, string>> = {
   },
   'tabPopup.gotIt': { en: 'Got it', es: 'Listo' },
 
-  // ── Settings: onboarding toggle ───────────────────────────────
-  'settings.tutorial.title': { en: 'Tutorial', es: 'Tutorial' },
-  'settings.tutorial.toggleLabel': {
-    en: 'Show onboarding guide',
-    es: 'Mostrar guía de bienvenida',
+  // ── Overdue section ──────────────────────────────────────────
+  'overdue.label': { en: 'Overdue', es: 'Atrasadas' },
+  'overdue.moveAll': { en: 'Move all →', es: 'Mover todas →' },
+  'overdue.today': { en: 'Today', es: 'Hoy' },
+  'overdue.tomorrow': { en: 'Tomorrow', es: 'Mañana' },
+  'overdue.archive': { en: 'Archive', es: 'Archivar' },
+  'overdue.stillRelevant': { en: 'Still relevant?', es: '¿Sigue siendo relevante?' },
+  'overdue.expand': {
+    en: '+ {count} more (tap to expand)',
+    es: '+ {count} más (toca para expandir)',
   },
-  'settings.tutorial.toggleHint': {
-    en: 'When on, the welcome tour replays the next time you open the app.',
-    es: 'Cuando está activo, el tour de bienvenida se reproduce la próxima vez que abras la app.',
+  'overdue.collapse': { en: 'Show less', es: 'Mostrar menos' },
+  'overdue.bankruptcyTitle': {
+    en: 'You have {count} overdue tasks',
+    es: 'Tienes {count} tareas atrasadas',
+  },
+  'overdue.bankruptcyHint': {
+    en: 'Archive them all to start fresh.',
+    es: 'Archívalas todas para empezar de nuevo.',
+  },
+  'overdue.archiveAll': { en: 'Archive all', es: 'Archivar todas' },
+  'overdue.archiveAllConfirm': {
+    en: 'Archive all {count} overdue tasks? This hides them — they won’t show in Today anymore.',
+    es: '¿Archivar las {count} tareas atrasadas? Esto las oculta — ya no aparecerán en Hoy.',
+  },
+  'overdue.movedToast': {
+    en: 'Moved {count} {label} to today',
+    es: 'Se movieron {count} {label} a hoy',
+  },
+  'overdue.archivedToast': {
+    en: 'Archived {count} tasks',
+    es: 'Se archivaron {count} tareas',
+  },
+  'overdue.taskWord': { en: 'task', es: 'tarea' },
+  'overdue.tasksWord': { en: 'tasks', es: 'tareas' },
+
+  // ── Settings: onboarding replay action + tools ───────────────
+  'settings.tutorial.title': { en: 'Tutorial', es: 'Tutorial' },
+  'settings.tutorial.replayAction': {
+    en: 'Replay onboarding',
+    es: 'Repetir bienvenida',
+  },
+  'settings.tutorial.replayHint': {
+    en: 'Walk through the welcome tour and tab tips again.',
+    es: 'Vuelve a recorrer el tour de bienvenida y las pistas de las pestañas.',
+  },
+  'settings.tools.title': { en: 'Tools', es: 'Herramientas' },
+  'settings.tools.pulseReflection': {
+    en: 'Pulse Reflection',
+    es: 'Reflexión del Pulso',
+  },
+  'settings.tools.pulseReflectionHint': {
+    en: 'Patterns and themes from your morning and evening Pulse entries.',
+    es: 'Patrones y temas de tus entradas de Pulso matutinas y nocturnas.',
+  },
+  'settings.tools.habits': { en: 'Habits', es: 'Hábitos' },
+  'settings.tools.habitsHint': {
+    en: 'Track recurring practices.',
+    es: 'Lleva el seguimiento de prácticas recurrentes.',
+  },
+  'settings.tools.templates': { en: 'Templates', es: 'Plantillas' },
+  'settings.tools.templatesHint': {
+    en: 'Browse and try guided journal templates.',
+    es: 'Explora y prueba plantillas guiadas de diario.',
   },
 
   // ─── Ritual demo (post-onboarding 3-card walkthrough) ───

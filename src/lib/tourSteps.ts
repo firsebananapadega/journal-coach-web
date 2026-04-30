@@ -23,7 +23,7 @@ import type { BodhiPose } from '@/components/mascot/poses';
 import type { PrimaryUse } from '@/stores/authStore';
 
 export type TourStepId =
-  | 'pulseWelcome'
+  | 'journalWelcome'
   | 'freeWriteButton'
   | 'wallSwitchToTasks'
   | 'tasksWelcome'
@@ -59,18 +59,23 @@ export interface TourStep {
 
 export const TOUR_STEPS: TourStep[] = [
   {
-    id: 'pulseWelcome',
-    route: '/pulse',
+    id: 'journalWelcome',
+    // /home is where the user actually lands after onboarding (journal
+    // wall's home page) — NOT /pulse. The original onboarding flow
+    // sends destination = '/home' for journal/both buckets, so the
+    // tour should fire from there too. /pulse is a separate (orphan)
+    // analysis page, not the journal landing.
+    route: '/home',
     anchorSelector: null,
     pose: 'wave',
-    copyKey: 'tour.pulseWelcome',
+    copyKey: 'tour.journalWelcome',
     showNextButton: true,
     nextLabelKey: 'tour.next',
     buckets: ['journal', 'both'],
   },
   {
     id: 'freeWriteButton',
-    route: '/pulse',
+    route: '/home',
     // The wall-nav center button. On the journal side it's the
     // pencil-on-book glyph that opens free-form writing.
     anchorSelector: '[data-tour="capture-button"]',
@@ -82,7 +87,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: 'wallSwitchToTasks',
-    route: '/pulse',
+    route: '/home',
     anchorSelector: '[data-tour="wall-edge-tab"]',
     pose: 'peek',
     copyKey: 'tour.wallSwitchToTasks',
