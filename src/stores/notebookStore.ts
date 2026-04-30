@@ -50,6 +50,12 @@ interface NotebookState {
   fetchNotebooks: () => Promise<void>;
   createNotebook: (input: NewNotebookInput) => Promise<Notebook>;
   updateNotebook: (id: string, updates: Partial<Notebook>) => Promise<void>;
+  /** Persist a new ordering. Caller passes the full ordered list of
+   *  notebook ids; the store rewrites every row's sort_order to its
+   *  index in that list (so the DB matches the on-screen order
+   *  exactly). Optimistic — UI reflects the new order immediately;
+   *  server writes happen in the background. */
+  reorderNotebooks: (orderedIds: string[]) => Promise<void>;
   archiveNotebook: (id: string) => Promise<void>;
   reset: () => void;
 
@@ -85,7 +91,17 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
         try {
           const cached = await db.notebooks.toArray();
           if (cached.length > 0) {
-            set({ notebooks: cached as Notebook[] });
+            // Dexie's toArray() doesn't guarantee insertion order, so
+            // sort to match the Supabase ORDER BY (sort_order ASC,
+            // created_at ASC). Without this, offline cold-opens (and
+            // the moment between Dexie hydrate + Supabase fetch on
+            // online opens) showed notebooks in a shuffled order —
+            // exactly the bug the user reported.
+            const sorted = [...cached].sort((a, b) => {
+              if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+              return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+            });
+            set({ notebooks: sorted as Notebook[] });
           }
         } catch {}
       }
@@ -196,6 +212,49 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       throw error;
     } finally {
       set({ loading: false });
+    }
+  },
+
+  reorderNotebooks: async (orderedIds: string[]) => {
+    if (orderedIds.length === 0) return;
+    const orderById = new Map<string, number>();
+    orderedIds.forEach((id, i) => orderById.set(id, i));
+    const now = new Date().toISOString();
+    // Optimistically reorder the in-memory slice + reassign sort_order.
+    set({
+      notebooks: get()
+        .notebooks.map((n) => {
+          const next = orderById.get(n.id);
+          return next != null ? { ...n, sort_order: next } : n;
+        })
+        .sort((a, b) => a.sort_order - b.sort_order),
+    });
+    // Mirror to Dexie so the next cold-start has the new order.
+    const db = getDB();
+    if (db) {
+      try {
+        await db.notebooks.bulkPut(get().notebooks);
+      } catch {}
+    }
+    // Fire one UPDATE per row. The notebooks table doesn't have a
+    // bulk-update RPC; sequential updates are fine at the personal-
+    // app scale (handful of notebooks).
+    for (const [id, sort_order] of orderById.entries()) {
+      try {
+        await withTimeout(
+          supabase
+            .from('notebooks')
+            .update({ sort_order, updated_at: now })
+            .eq('id', id),
+          WRITE_MS,
+          'reorderNotebooks',
+        );
+      } catch {
+        // Soft fail — the optimistic in-memory order persists; the
+        // next online fetch will re-sync from Supabase. If the user
+        // was offline mid-reorder, their device shows the new order
+        // until the next sync.
+      }
     }
   },
 

@@ -14,6 +14,12 @@ const translations: Record<string, Record<Locale, string>> = {
   // ─── Common ───
   'common.loading': { en: 'Loading...', es: 'Cargando...' },
   'common.done': { en: 'Done', es: 'Listo' },
+  'common.reorder': { en: 'Reorder', es: 'Reordenar' },
+  'common.deleteStore': { en: 'Delete this store', es: 'Eliminar esta tienda' },
+  'common.deleteStoreConfirm': {
+    en: 'Delete the entire {store} store and all its items? This cannot be undone.',
+    es: '¿Eliminar toda la tienda {store} y sus artículos? No se puede deshacer.',
+  },
   'common.back': { en: 'Back', es: 'Atrás' },
   'common.cancel': { en: 'Cancel', es: 'Cancelar' },
   'common.delete': { en: 'Delete', es: 'Eliminar' },
@@ -1080,6 +1086,16 @@ const translations: Record<string, Record<Locale, string>> = {
   },
   'overdue.taskWord': { en: 'task', es: 'tarea' },
   'overdue.tasksWord': { en: 'tasks', es: 'tareas' },
+  'overdue.reschedule': { en: 'Reschedule', es: 'Reprogramar' },
+  'overdue.rescheduledToast': { en: 'Rescheduled', es: 'Reprogramada' },
+
+  // ── Reschedule sheet ─────────────────────────────────────────
+  'reschedule.title': { en: 'Reschedule task', es: 'Reprogramar tarea' },
+  'reschedule.today': { en: 'Today', es: 'Hoy' },
+  'reschedule.tomorrow': { en: 'Tomorrow', es: 'Mañana' },
+  'reschedule.nextWeek': { en: 'Next week', es: 'Próxima semana' },
+  'reschedule.pickDate': { en: 'Pick a date', es: 'Elige una fecha' },
+  'reschedule.confirm': { en: 'Reschedule', es: 'Reprogramar' },
 
   // ── Settings: onboarding replay action + tools ───────────────
   'settings.tutorial.title': { en: 'Tutorial', es: 'Tutorial' },

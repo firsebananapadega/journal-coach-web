@@ -53,6 +53,11 @@ function GroceriesInner() {
   const [shareOpen, setShareOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [showJoinedPrompt, setShowJoinedPrompt] = useState(justJoined);
+  // Per-store edit mode. Tapping the Edit button on a store header
+  // flips this to that store's id; rows in that store render inline
+  // edit inputs instead of the tap-to-toggle behavior. Only one
+  // store can be in edit mode at a time. Tapping Done flips it back.
+  const [editingStoreId, setEditingStoreId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadActive();
@@ -238,19 +243,23 @@ function GroceriesInner() {
         {groups.map((group) => {
           const groupItems = itemsByGroup.get(group.id) ?? [];
           const collapsed = collapsedStores.has(group.id);
+          const isEditingThisStore = editingStoreId === group.id;
           return (
-            <SwipeToDelete
+            // Store group is NO LONGER swipe-deletable. Per-store
+            // delete now lives inside Edit mode (with confirmation),
+            // matching the user's "I shouldn't have the option to
+            // delete the entire store list by swiping" feedback.
+            <div
               key={group.id}
-              onDelete={() => removeGroup(group.id)}
+              className="bg-surface rounded-xl border border-border overflow-hidden"
             >
-              <div className="bg-surface rounded-xl border border-border overflow-hidden">
-                <button
-                  onClick={() => toggleCollapsed(group.id)}
-                  className="w-full flex items-center justify-between p-3 text-left hover:bg-surface-elevated transition-colors"
-                  aria-expanded={!collapsed}
-                  aria-controls={`grocery-group-${group.id}`}
-                >
-                  <div className="flex items-center gap-2">
+                <div className="w-full flex items-center justify-between p-3">
+                  <button
+                    onClick={() => toggleCollapsed(group.id)}
+                    className="flex-1 flex items-center gap-2 text-left hover:opacity-90 transition-opacity"
+                    aria-expanded={!collapsed}
+                    aria-controls={`grocery-group-${group.id}`}
+                  >
                     <motion.svg
                       animate={
                         prefersReducedMotion
@@ -274,12 +283,32 @@ function GroceriesInner() {
                     <p className="text-base font-bold uppercase tracking-wide text-text-primary">
                       {group.store}
                     </p>
+                  </button>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs text-text-tertiary tabular-nums">
+                      {groupItems.filter((i) => i.completed).length}/
+                      {groupItems.length}
+                    </span>
+                    {/* Edit / Done toggle. Only one store can be in
+                        edit mode at a time. Tapping Edit ALSO expands
+                        the store if it was collapsed, so the user
+                        immediately sees the items they're editing. */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isEditingThisStore) {
+                          setEditingStoreId(null);
+                        } else {
+                          setEditingStoreId(group.id);
+                          if (collapsed) toggleCollapsed(group.id);
+                        }
+                      }}
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      {isEditingThisStore ? t('common.done') : t('common.edit')}
+                    </button>
                   </div>
-                  <span className="text-xs text-text-tertiary">
-                    {groupItems.filter((i) => i.completed).length}/
-                    {groupItems.length}
-                  </span>
-                </button>
+                </div>
 
                 <motion.div
                   id={`grocery-group-${group.id}`}
@@ -302,6 +331,7 @@ function GroceriesInner() {
                       >
                         <GroceryItemRow
                           item={item}
+                          forceEditing={isEditingThisStore}
                           onToggle={() => toggleItem(item.id)}
                           onRename={(name) => renameItem(item.id, name)}
                         />
@@ -311,10 +341,28 @@ function GroceriesInner() {
                       placeholder={t('groceries.addToStore', { store: group.store })}
                       onAdd={(name) => addItem(group.id, name)}
                     />
+                    {/* Delete-this-store action — only visible inside
+                        Edit mode. Confirmation required (per user
+                        request) so a stray tap can't wipe the store. */}
+                    {isEditingThisStore && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const ok = window.confirm(
+                            t('common.deleteStoreConfirm', { store: group.store }),
+                          );
+                          if (!ok) return;
+                          removeGroup(group.id);
+                          setEditingStoreId(null);
+                        }}
+                        className="w-full mt-2 py-2.5 rounded-lg text-sm font-medium text-error hover:bg-error/10 transition-colors"
+                      >
+                        {t('common.deleteStore')}
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               </div>
-            </SwipeToDelete>
           );
         })}
       </div>
@@ -327,45 +375,28 @@ function GroceriesInner() {
 
 function GroceryItemRow({
   item,
+  forceEditing = false,
   onToggle,
   onRename,
 }: {
   item: GroceryItem;
+  /** When true (driven by per-store Edit mode in the parent), this
+   *  row renders the inline rename input instead of the read-only
+   *  text. Replaces the previous double-tap-to-edit pattern. */
+  forceEditing?: boolean;
   onToggle: () => void;
   onRename: (name: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const editing = forceEditing;
 
   useEffect(() => {
-    if (!editing) setDraft(item.name);
-  }, [item.name, editing]);
+    setDraft(item.name);
+  }, [item.name, forceEditing]);
 
-  // Single tap on the item text → toggles complete (matches TaskCard's
-  // /today behavior). Double tap inside 220ms → opens inline edit. The
-  // checkbox button (separate) stays as instant toggle so users who
-  // know that target still get the no-delay path.
-  const TAP_WINDOW_MS = 180;
-  const tapTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    return () => {
-      if (tapTimerRef.current !== null) {
-        window.clearTimeout(tapTimerRef.current);
-      }
-    };
-  }, []);
   const handleTextTap = () => {
-    if (tapTimerRef.current !== null) {
-      window.clearTimeout(tapTimerRef.current);
-      tapTimerRef.current = null;
-      setEditing(true);
-      return;
-    }
-    tapTimerRef.current = window.setTimeout(() => {
-      tapTimerRef.current = null;
-      onToggle();
-    }, TAP_WINDOW_MS);
+    onToggle();
   };
 
   const commit = () => {
@@ -375,7 +406,6 @@ function GroceryItemRow({
     } else {
       setDraft(item.name);
     }
-    setEditing(false);
   };
 
   return (
@@ -407,16 +437,16 @@ function GroceryItemRow({
       {editing ? (
         <input
           ref={inputRef}
-          autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
               commit();
+              (e.target as HTMLInputElement).blur();
             } else if (e.key === 'Escape') {
               setDraft(item.name);
-              setEditing(false);
+              (e.target as HTMLInputElement).blur();
             }
           }}
           onBlur={commit}

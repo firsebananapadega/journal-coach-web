@@ -40,6 +40,10 @@ interface ListState {
   /** Set the icon (a single emoji string). Pass an empty string to
    *  clear back to the default 📁 in render code. */
   updateListIcon: (id: string, icon: string) => Promise<void>;
+  /** Persist a new ordering for the user's lists (Inbox is always
+   *  pinned and not part of the orderedIds). The store rewrites
+   *  every row's sort_order to its index in that list. Optimistic. */
+  reorderLists: (orderedIds: string[]) => Promise<void>;
   deleteList: (id: string) => Promise<void>;
   reset: () => void;
 }
@@ -230,6 +234,30 @@ export const useListStore = create<ListState>((set, get) => ({
       lists: get().lists.map((l) => (l.id === id ? { ...l, ...next } : l)),
     });
     await enqueue({ op: 'update', table: 'lists', row_id: id, payload: next });
+  },
+
+  reorderLists: async (orderedIds) => {
+    if (orderedIds.length === 0) return;
+    const orderById = new Map<string, number>();
+    // Inbox stays pinned at sort_order 0 by convention; user lists
+    // start their numbering at 1 to leave room.
+    orderedIds.forEach((id, i) => orderById.set(id, i + 1));
+    const now = new Date().toISOString();
+    set({
+      lists: get().lists.map((l) => {
+        if (l.is_inbox) return l;
+        const next = orderById.get(l.id);
+        return next != null ? { ...l, sort_order: next, updated_at: now } : l;
+      }),
+    });
+    for (const [id, sort_order] of orderById.entries()) {
+      await enqueue({
+        op: 'update',
+        table: 'lists',
+        row_id: id,
+        payload: { sort_order, updated_at: now },
+      });
+    }
   },
 
   deleteList: async (id) => {

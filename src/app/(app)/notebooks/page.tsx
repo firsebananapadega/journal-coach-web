@@ -3,13 +3,31 @@
 // /notebooks — the list view of all the user's notebooks. Each card
 // shows the name, color indicator, entry count, and last-updated.
 // Tapping a card routes to /notebooks/[slug] which shows the same
-// book-page experience scoped to that notebook.
+// book-page experience scoped to that notebook. A header "Reorder"
+// button toggles drag-to-reorder mode (persists sort_order so the
+// new order survives reloads — fixes the prior shuffle bug).
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useJournalStore } from '@/stores/journalStore';
-import { useNotebookStore } from '@/stores/notebookStore';
+import { useNotebookStore, type Notebook } from '@/stores/notebookStore';
 import { useUiStore } from '@/stores/uiStore';
 import { t } from '@/lib/translations';
 import { getLocale } from '@/lib/language';
@@ -32,6 +50,7 @@ export default function NotebooksIndexPage() {
   const fetchNotebooks = useNotebookStore((s) => s.fetchNotebooks);
   const hasFetchedNotebooks = useNotebookStore((s) => s.hasFetched);
   const createNotebook = useNotebookStore((s) => s.createNotebook);
+  const reorderNotebooks = useNotebookStore((s) => s.reorderNotebooks);
 
   const entries = useJournalStore((s) => s.entries);
   const fetchEntries = useJournalStore((s) => s.fetchEntries);
@@ -42,6 +61,45 @@ export default function NotebooksIndexPage() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
+  // Reorder mode: when true, each row shows a drag handle and the
+  // header swaps "Reorder" for "Done". Drags update the local
+  // ordering immediately; "Done" persists via reorderNotebooks.
+  const [reordering, setReordering] = useState(false);
+  // Local copy of notebooks during reorder — drags shuffle this
+  // array; we only sync to the store on Done.
+  const [draftOrder, setDraftOrder] = useState<Notebook[] | null>(null);
+  const displayedNotebooks = reordering && draftOrder ? draftOrder : notebooks;
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  );
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setDraftOrder((prev) => {
+      const base = prev ?? notebooks;
+      const oldIndex = base.findIndex((n) => n.id === active.id);
+      const newIndex = base.findIndex((n) => n.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return base;
+      return arrayMove(base, oldIndex, newIndex);
+    });
+  }, [notebooks]);
+
+  const enterReorderMode = () => {
+    setDraftOrder(notebooks);
+    setReordering(true);
+  };
+  const finishReorder = async () => {
+    const finalOrder = draftOrder ?? notebooks;
+    setReordering(false);
+    await reorderNotebooks(finalOrder.map((n) => n.id));
+    setDraftOrder(null);
+  };
+  const cancelReorder = () => {
+    setReordering(false);
+    setDraftOrder(null);
+  };
 
   useEffect(() => {
     if (!hasFetchedNotebooks) fetchNotebooks().catch(() => {});
@@ -85,59 +143,121 @@ export default function NotebooksIndexPage() {
       />
 
       <div className="relative z-10 max-w-md mx-auto px-5 pt-16 pb-24 space-y-5">
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-            {t('notebooks.title')}
-          </h1>
-          <p className="text-sm text-text-secondary mt-1">
-            {t('notebooks.subtitle')}
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold text-text-primary tracking-tight">
+              {t('notebooks.title')}
+            </h1>
+            <p className="text-sm text-text-secondary mt-1">
+              {t('notebooks.subtitle')}
+            </p>
+          </div>
+          {/* Reorder toggle — text button on the same line as the
+              "Notebooks" header. Tapping enters reorder mode where
+              rows are draggable; tapping "Done" persists sort_order. */}
+          {notebooks.length > 1 && (
+            reordering ? (
+              <div className="flex gap-2 shrink-0 mt-1">
+                <button
+                  type="button"
+                  onClick={cancelReorder}
+                  className="text-xs text-text-tertiary hover:text-text-secondary px-2 py-1"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={finishReorder}
+                  className="text-xs font-semibold text-white bg-primary rounded-full px-3 py-1.5 shadow-warm-sm"
+                >
+                  {t('common.done')}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={enterReorderMode}
+                className="shrink-0 mt-1 text-xs font-semibold text-primary hover:underline px-2 py-1"
+              >
+                {t('common.reorder')}
+              </button>
+            )
+          )}
         </div>
 
-        <ul className="space-y-2">
-          {notebooks.map((n) => {
-            const s = stats.get(n.id);
-            const count = s?.count ?? 0;
-            const last = formatRelative(s?.last ?? null);
-            return (
-              <motion.li
-                key={n.id}
-                initial={prefersReducedMotion ? undefined : { opacity: 0, y: 4 }}
-                animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-              >
-                <Link
-                  href={`/notebooks/${n.slug}`}
-                  className="flex items-center gap-3 p-3.5 rounded-2xl bg-surface-elevated border border-border hover:border-primary/60 transition-colors"
+        {reordering ? (
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={displayedNotebooks.map((n) => n.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="space-y-2">
+                {displayedNotebooks.map((n) => {
+                  const s = stats.get(n.id);
+                  const count = s?.count ?? 0;
+                  const last = formatRelative(s?.last ?? null);
+                  return (
+                    <SortableNotebookRow
+                      key={n.id}
+                      notebook={n}
+                      count={count}
+                      last={last}
+                    />
+                  );
+                })}
+              </ul>
+            </SortableContext>
+          </DndContext>
+        ) : (
+          <ul className="space-y-2">
+            {displayedNotebooks.map((n) => {
+              const s = stats.get(n.id);
+              const count = s?.count ?? 0;
+              const last = formatRelative(s?.last ?? null);
+              return (
+                <motion.li
+                  key={n.id}
+                  initial={prefersReducedMotion ? undefined : { opacity: 0, y: 4 }}
+                  animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
                 >
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: `${n.color}22`, color: n.color }}
-                    aria-hidden
+                  <Link
+                    href={`/notebooks/${n.slug}`}
+                    className="flex items-center gap-3 p-3.5 rounded-2xl bg-surface-elevated border border-border hover:border-primary/60 transition-colors"
                   >
-                    <NotebookGlyph icon={n.icon} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-text-primary truncate">
-                        {n.name}
-                      </p>
-                      {n.kind === 'system' && (
-                        <span className="text-[9px] font-semibold text-text-tertiary uppercase tracking-wider border border-border px-1 rounded">
-                          {t('notebooks.systemTag')}
-                        </span>
-                      )}
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ background: `${n.color}22`, color: n.color }}
+                      aria-hidden
+                    >
+                      <NotebookGlyph icon={n.icon} />
                     </div>
-                    <p className="text-xs text-text-tertiary mt-0.5">
-                      {count} {count === 1 ? t('notebooks.entry') : t('notebooks.entries')}
-                      {last && ` · ${last}`}
-                    </p>
-                  </div>
-                  <span className="text-text-tertiary text-sm">›</span>
-                </Link>
-              </motion.li>
-            );
-          })}
-        </ul>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-text-primary truncate">
+                          {n.name}
+                        </p>
+                        {n.kind === 'system' && (
+                          <span className="text-[9px] font-semibold text-text-tertiary uppercase tracking-wider border border-border px-1 rounded">
+                            {t('notebooks.systemTag')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-text-tertiary mt-0.5">
+                        {count} {count === 1 ? t('notebooks.entry') : t('notebooks.entries')}
+                        {last && ` · ${last}`}
+                      </p>
+                    </div>
+                    <span className="text-text-tertiary text-sm">›</span>
+                  </Link>
+                </motion.li>
+              );
+            })}
+          </ul>
+        )}
 
         {/* Cross-link to structure notes — they're a different
             organizational lens than notebooks (notebooks = where an
@@ -207,6 +327,70 @@ export default function NotebooksIndexPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// Sortable row for the reorder mode. Drag-handle takes the full
+// row except the trailing chevron area; we don't navigate during
+// reorder (the row isn't a Link in this mode).
+function SortableNotebookRow({
+  notebook: n,
+  count,
+  last,
+}: {
+  notebook: Notebook;
+  count: number;
+  last: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: n.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    touchAction: 'none',
+  };
+  return (
+    <li ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <div
+        className="flex items-center gap-3 p-3.5 rounded-2xl bg-surface-elevated border border-primary/30 shadow-warm-sm cursor-grab active:cursor-grabbing"
+      >
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: `${n.color}22`, color: n.color }}
+          aria-hidden
+        >
+          <NotebookGlyph icon={n.icon} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-text-primary truncate">
+              {n.name}
+            </p>
+            {n.kind === 'system' && (
+              <span className="text-[9px] font-semibold text-text-tertiary uppercase tracking-wider border border-border px-1 rounded">
+                {t('notebooks.systemTag')}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-text-tertiary mt-0.5">
+            {count} {count === 1 ? t('notebooks.entry') : t('notebooks.entries')}
+            {last && ` · ${last}`}
+          </p>
+        </div>
+        {/* Grip glyph signaling draggable state */}
+        <span className="text-text-tertiary shrink-0" aria-hidden>
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="currentColor">
+            <circle cx={9} cy={6} r={1.5} />
+            <circle cx={15} cy={6} r={1.5} />
+            <circle cx={9} cy={12} r={1.5} />
+            <circle cx={15} cy={12} r={1.5} />
+            <circle cx={9} cy={18} r={1.5} />
+            <circle cx={15} cy={18} r={1.5} />
+          </svg>
+        </span>
+      </div>
+    </li>
   );
 }
 
