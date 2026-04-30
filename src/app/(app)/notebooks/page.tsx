@@ -219,11 +219,11 @@ export default function NotebooksIndexPage() {
               const count = s?.count ?? 0;
               const last = formatRelative(s?.last ?? null);
               return (
-                <motion.li
-                  key={n.id}
-                  initial={prefersReducedMotion ? undefined : { opacity: 0, y: 4 }}
-                  animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-                >
+                // No mount animation — back-navigation re-mounts the
+                // page and a fade-in-from-y4 on every row reads as a
+                // jarring flicker. The list is mostly static; the
+                // animation didn't add value.
+                <li key={n.id}>
                   <Link
                     href={`/notebooks/${n.slug}`}
                     className="flex items-center gap-3 p-3.5 rounded-2xl bg-surface-elevated border border-border hover:border-primary/60 transition-colors"
@@ -253,7 +253,7 @@ export default function NotebooksIndexPage() {
                     </div>
                     <span className="text-text-tertiary text-sm">›</span>
                   </Link>
-                </motion.li>
+                </li>
               );
             })}
           </ul>

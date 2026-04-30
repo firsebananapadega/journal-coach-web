@@ -76,22 +76,30 @@ I keep thinking about what Dad said. *I just can't shake it.*${dictBlock}
 RAW ENTRY:
 ${raw.trim()}
 
-Respond with the polished Markdown — no preamble, no quote marks, no "Here's the polished version:".
+OUTPUT FORMAT (CRITICAL — both parts required, in this order):
 
-THEN, after the Markdown, on a single new line at the END of the response, output exactly:
-[GRATITUDE]: <JSON array>
+1. The polished Markdown — no preamble, no quote marks, no "Here's the polished version:".
+2. THEN, on its own line at the very end, this footer exactly:
+   [GRATITUDE]: <JSON array>
 
-Where the JSON array contains 0–2 sincere first-person gratitude expressions from the AUTHOR. Sincere means: the AUTHOR is genuinely thankful FOR something in their own life. SKIP:
+The JSON array contains 0–2 sincere first-person gratitude expressions from the AUTHOR. Sincere means: the AUTHOR is genuinely thankful FOR something in their own life. INCLUDE expressions like:
+- "I'm thankful…" / "I'm grateful…" / "I'm so glad…" / "I'm happy that…"
+- "I'm really glad the trip came together"
+- "thankful about my wife today"
+
+EXCLUDE:
 - Sarcasm ("oh great, more traffic", "yeah I'm so thankful for that")
 - Third-person ("she said she was grateful")
 - Hypotheticals ("I'd be grateful if…")
-- Thanks TO someone ("thanks, mom") — gratitude FOR something matters; gratitude TO someone is just politeness
+- Thanks TO someone ("thanks, mom") — gratitude FOR something only
 
-Each excerpt = complete clause from the original, ≤120 chars. Quote close to the author's wording. Return [] when there's no genuine gratitude.
+Each excerpt = a clause from the original, ≤120 chars. Quote close to the author's wording. Return [] when truly nothing applies.
 
-Examples of correct footer lines:
+The [GRATITUDE]: line is REQUIRED on EVERY response — even when the array is empty. Do not omit it. Do not wrap the array in code fences. Do not add commentary after the array.
+
+Correct footer examples:
 [GRATITUDE]: ["I'm really glad the trip came together"]
-[GRATITUDE]: ["I'm grateful for how patient she was today", "happy I made it through the week"]
+[GRATITUDE]: ["I'm thankful about my wife today", "grateful I was able to plan a trip with my wife"]
 [GRATITUDE]: []`;
 }
 
@@ -122,21 +130,68 @@ export interface StructureResult {
   gratitudeExcerpts?: string[];
 }
 
-/** Parse the [GRATITUDE]: footer line out of the Gemini response.
+/** Parse the [GRATITUDE]: footer out of the Gemini response.
  *  Returns the polished Markdown (footer stripped) plus the parsed
- *  excerpt array. Robust to missing / malformed footers — falls back
- *  to no excerpts so a parse failure can't lose the polished text. */
+ *  excerpt array. Robust to:
+ *    - Marker at start, end, or anywhere (uses LAST occurrence)
+ *    - Multi-line array (pretty-printed JSON)
+ *    - Trailing whitespace / newlines after the array
+ *    - Strings containing brackets or escaped quotes
+ *    - Nested arrays
+ *  Falls back to no excerpts on parse failure so a malformed footer
+ *  can't lose the polished text. */
 function extractGratitude(rawResponse: string): { polished: string; excerpts: string[] } {
-  // Match the LAST [GRATITUDE]: line — Gemini might mention the marker
-  // verbatim earlier; only the final one is the structured footer.
-  const match = rawResponse.match(/\n\s*\[GRATITUDE\]:\s*(\[[^\n]*\])\s*$/);
-  if (!match) {
+  const marker = '[GRATITUDE]:';
+  const markerIdx = rawResponse.lastIndexOf(marker);
+  if (markerIdx < 0) {
     return { polished: rawResponse, excerpts: [] };
   }
-  const polished = rawResponse.slice(0, match.index).trimEnd();
+  // Walk forward from the marker to find the start of the array.
+  const after = rawResponse.slice(markerIdx + marker.length);
+  const arrayStart = after.indexOf('[');
+  if (arrayStart < 0) {
+    return { polished: rawResponse, excerpts: [] };
+  }
+  // Bracket-balance scan, respecting JSON string semantics so a `]`
+  // inside a quoted string doesn't close the array prematurely.
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let endIdx = -1;
+  for (let i = arrayStart; i < after.length; i++) {
+    const ch = after[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '[') depth++;
+    else if (ch === ']') {
+      depth--;
+      if (depth === 0) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+  if (endIdx < 0) {
+    console.warn('[structureEntry] gratitude marker found but array unbalanced', {
+      preview: after.slice(arrayStart, arrayStart + 200),
+    });
+    return { polished: rawResponse.slice(0, markerIdx).trimEnd(), excerpts: [] };
+  }
+  const arrStr = after.slice(arrayStart, endIdx + 1);
   let excerpts: string[] = [];
   try {
-    const parsed = JSON.parse(match[1]);
+    const parsed = JSON.parse(arrStr);
     if (Array.isArray(parsed)) {
       excerpts = parsed
         .filter((x): x is string => typeof x === 'string')
@@ -144,9 +199,14 @@ function extractGratitude(rawResponse: string): { polished: string; excerpts: st
         .filter((x) => x.length > 0)
         .slice(0, 2);
     }
-  } catch {
-    // Malformed JSON — drop the gratitude block but keep the polish.
+  } catch (err) {
+    console.warn('[structureEntry] failed to parse gratitude array', {
+      arrStr,
+      err: err instanceof Error ? err.message : String(err),
+    });
   }
+  // Strip everything from the marker onward — that's the footer.
+  const polished = rawResponse.slice(0, markerIdx).trimEnd();
   return { polished, excerpts };
 }
 
