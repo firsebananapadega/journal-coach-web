@@ -130,6 +130,11 @@ export const TOUR_STEPS: TourStep[] = [
     copyKey: 'tour.wallSwitchToJournal',
     showNextButton: true,
     nextLabelKey: 'tour.next',
+    // Mirror the wallSwitchToTasks step — the bouncing wiggle drew
+    // the user's eye to the wall-edge tab on that step, and they
+    // missed it on the way back. Adding it here gives the same
+    // visual cue both directions.
+    wiggleAnchor: true,
     buckets: ['both'],
   },
   {
