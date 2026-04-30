@@ -880,22 +880,13 @@ export default function GuidedSessionPage() {
   // toggle — visible as a small layout "jitter" in the chat surface.
   // Stable anchoring kills the jitter while keyboard handling stays
   // intact (since we still go vv-bound the moment the keyboard rises).
-  const dockTop = vv
-    ? vv.offsetTop + vv.height - dockHeight - dockBottomOffset
-    : 0;
-  // Chat layer ENDS at dockTop (not at vv.bottom) so chat content
-  // can never render in the strip between the input row and the
-  // keyboard. iOS Safari sometimes reports visualViewport bounds
-  // that include the suggestion bar area, leaking chat content
-  // through what should be the dock area. Clipping to dockTop is
-  // the robust fix — there's literally nothing to show through.
   const chatStyle: React.CSSProperties = vv && keyboardOpen
     ? {
         position: 'fixed',
         top: `${vv.offsetTop}px`,
         left: 0,
         right: 0,
-        height: `${Math.max(0, dockTop - vv.offsetTop)}px`,
+        height: `${vv.height}px`,
         zIndex: 1,
       }
     : {
@@ -906,6 +897,9 @@ export default function GuidedSessionPage() {
         height: '100dvh',
         zIndex: 1,
       };
+  const dockTop = vv
+    ? vv.offsetTop + vv.height - dockHeight - dockBottomOffset
+    : 0;
   // When the page is non-immersive (wall nav visible), the dock has
   // to sit ABOVE the nav or it gets covered and the user can't reach
   // the textarea. ~80px clears the visible nav across viewports;
@@ -918,17 +912,8 @@ export default function GuidedSessionPage() {
     : '0px';
   const dockStyle: React.CSSProperties = vv && keyboardOpen
     ? {
-        // FULL-WALL pattern: dock spans from dockTop ALL THE WAY
-        // down to the document bottom (bottom: 0). The actual input
-        // row sits at the TOP of the dock (its natural position);
-        // the area below the input row is filled with the dock's
-        // bg-bg and is hidden behind the keyboard. This guarantees
-        // no chat content can show in the strip between the input
-        // and the keyboard, regardless of how iOS reports the
-        // visible viewport. Per user's "wall, not strip" feedback.
         position: 'fixed',
         top: `${dockTop}px`,
-        bottom: 0,
         left: 0,
         right: 0,
         zIndex: 10,
