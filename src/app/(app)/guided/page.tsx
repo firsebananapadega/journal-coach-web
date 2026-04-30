@@ -880,31 +880,22 @@ export default function GuidedSessionPage() {
   // toggle — visible as a small layout "jitter" in the chat surface.
   // Stable anchoring kills the jitter while keyboard handling stays
   // intact (since we still go vv-bound the moment the keyboard rises).
-  // How far below its "natural" position to push the input row when
-  // the keyboard is open. iOS visualViewport bounds sometimes leave
-  // a strip between vv.bottom and the actual top of the on-screen
-  // keyboard where chat content can leak through; pushing the input
-  // row down by this many pixels lands it inside that strip so the
-  // strip is no longer visible. Combined with the dock's `bottom: 0`
-  // styling below, the bg-bg coverage moves with the input row so
-  // no new gap appears.
-  const KEYBOARD_OPEN_INPUT_OFFSET = 40;
   const dockTop = vv
     ? vv.offsetTop + vv.height - dockHeight - dockBottomOffset
-      + (keyboardOpen ? KEYBOARD_OPEN_INPUT_OFFSET : 0)
     : 0;
-  // Chat layer fills the visible viewport — the dock floats on top
-  // of it as an opaque layer, so chat content behind the dock is
-  // hidden by the dock's bg-bg without needing to clip the chat
-  // explicitly. (Earlier attempt to clip chat at dockTop made the
-  // chat noticeably shorter and broke the layout — reverted.)
+  // Chat layer ENDS at dockTop (not at vv.bottom) so chat content
+  // can never render in the strip between the input row and the
+  // keyboard. iOS Safari sometimes reports visualViewport bounds
+  // that include the suggestion bar area, leaking chat content
+  // through what should be the dock area. Clipping to dockTop is
+  // the robust fix — there's literally nothing to show through.
   const chatStyle: React.CSSProperties = vv && keyboardOpen
     ? {
         position: 'fixed',
         top: `${vv.offsetTop}px`,
         left: 0,
         right: 0,
-        height: `${vv.height}px`,
+        height: `${Math.max(0, dockTop - vv.offsetTop)}px`,
         zIndex: 1,
       }
     : {
