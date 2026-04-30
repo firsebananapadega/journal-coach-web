@@ -136,16 +136,16 @@ export default function TabFirstVisitPopup() {
           aria-live="polite"
         >
           <div
-            className="pointer-events-auto max-w-md mx-auto bg-surface border border-border rounded-2xl shadow-warm-md p-4 space-y-3"
+            className="pointer-events-auto max-w-md mx-auto bg-surface border border-border rounded-2xl shadow-warm-md p-5 space-y-3"
           >
-            <p className="text-sm text-text-primary leading-relaxed">
+            <p className="text-lg text-text-primary leading-snug">
               {copyKey && t(copyKey)}
             </p>
             <div className="flex justify-end">
               <button
                 type="button"
                 onClick={dismiss}
-                className="text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-full px-4 py-1.5 shadow-warm-sm"
+                className="text-base font-semibold text-white bg-primary hover:bg-primary-dark rounded-full px-5 py-2 shadow-warm-sm"
               >
                 {t('tabPopup.gotIt')}
               </button>
