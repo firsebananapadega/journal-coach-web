@@ -6,6 +6,8 @@ import { useJournalStore, type JournalEntry } from '@/stores/journalStore';
 import { useNotebookStore } from '@/stores/notebookStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useAuthStore } from '@/stores/authStore';
+import { usePushPromptStore } from '@/stores/pushPromptStore';
+import { ensureSubscribed } from '@/lib/push';
 import GuideMascot from '@/components/mascot/GuideMascot';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { t } from '@/lib/translations';
@@ -131,6 +133,11 @@ export default function DailyPulseCard({ entries }: Props) {
   const hasFetched = useJournalStore((s) => s.hasFetched);
   const celebrate = useUiStore((s) => s.celebrate);
   const showToast = useUiStore((s) => s.showToast);
+  const showPushPrompt = usePushPromptStore((s) => s.show);
+  // Profile snapshot for the "first pulse → enable reminders" gate.
+  // Reading the prefs lets us suppress the prompt for users who
+  // already have morning OR evening reminders enabled.
+  const notificationPrefs = useAuthStore((s) => s.profile?.notification_preferences);
   // Resolve the Pulse system notebook so every pulse entry lands there
   // (rather than defaulting to the user's Journal notebook). If the
   // notebook hasn't been fetched yet we fall back to null, which makes
@@ -471,6 +478,33 @@ export default function DailyPulseCard({ entries }: Props) {
       showToast(
         mode === 'morning' ? t('pulse.morningSaved') : t('pulse.eveningSaved')
       );
+      // First-pulse-ever push prompt. If the user just saved their
+      // FIRST pulse (no pulse entries existed before this save) AND
+      // they have neither morning nor evening reminders enabled,
+      // prompt them to turn reminders on. Otherwise the user is
+      // unlikely to come back tomorrow.
+      // Captured BEFORE the createEntry call would have been ideal,
+      // but the entries slice already reflects optimistic insert by
+      // the time we reach here — so we count "before this save" by
+      // subtracting 1 from the current pulse-entry count.
+      try {
+        const pulseCountAfter = entries.filter((e) => e.entry_type === 'pulse').length;
+        const wasFirstPulse = pulseCountAfter <= 1;
+        const morningOn = notificationPrefs?.morning_reminder === true;
+        const eveningOn = notificationPrefs?.evening_reminder === true;
+        if (wasFirstPulse && !morningOn && !eveningOn) {
+          // Mirror the voice-page pattern: only show the prompt if
+          // we're not already 'ok' (subscribed + permitted). The
+          // prompt's own dismissed-flag handling prevents repeat
+          // nags within 30 days.
+          const push = await ensureSubscribed();
+          if (push !== 'ok') {
+            showPushPrompt();
+          }
+        }
+      } catch (err) {
+        console.warn('[DailyPulseCard] push prompt gate failed', err);
+      }
     } catch (err) {
       console.error('Failed to save pulse:', err);
       // CRITICAL: do NOT reset answer1/answer2/scores on failure. The
