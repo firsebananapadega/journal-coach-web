@@ -146,14 +146,18 @@ export default function JournalWritingPage() {
             onChange={(e) => setContent(e.target.value)}
             placeholder={t('journalWrite.placeholder')}
             className="
-              w-full min-h-[40vh]
+              w-full
               bg-transparent
               text-[19px] leading-relaxed text-text-primary
               placeholder:text-text-tertiary/60
               border-0 outline-none focus:outline-none focus:ring-0
               resize-none tracking-[0.005em]
             "
-            style={{ lineHeight: 1.65 }}
+            // Fill the visible area between the page header (~70px)
+            // and the fixed action bar (~130px from pb above) so the
+            // textarea sits flush above Save without leaving an empty
+            // strip below it. Matches the BookPage composer's pattern.
+            style={{ lineHeight: 1.65, minHeight: 'calc(100dvh - 240px)' }}
           />
           {wordCount > 0 && (
             <p className="mt-4 text-[10px] text-text-tertiary tracking-wider uppercase">

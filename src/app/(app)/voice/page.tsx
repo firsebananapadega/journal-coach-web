@@ -525,8 +525,13 @@ export default function VoiceEntryPage() {
         </button>
       </div>
 
-      {/* Textarea — capped height, scrolls internally */}
-      <div className="px-5 pt-4 flex-shrink-0" style={{ height: '26vh' }}>
+      {/* Textarea — capped height, scrolls internally. Bumped from
+           26vh → 52vh per user request: dictating a longer capture
+           (e.g. multi-item grocery list, full task dump) was hitting
+           the cap and scrolling internally before the user could see
+           what was transcribed. The flex-1 spacer below still pushes
+           the mic block to the bottom so thumb position is preserved. */}
+      <div className="px-5 pt-4 flex-shrink-0" style={{ height: '52vh' }}>
         {!speechSupported && (
           <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
             <p className="text-xs text-warning">{t('voice.browserWarning')}</p>
