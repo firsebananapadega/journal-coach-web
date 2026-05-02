@@ -102,9 +102,9 @@ export default function WoopSheet({ open, onClose }: Props) {
   // input and textarea.
   const wishInputRef = useRef<HTMLInputElement | null>(null);
   const outcomeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const obstacleRef0 = useRef<HTMLInputElement | null>(null);
-  const obstacleRef1 = useRef<HTMLInputElement | null>(null);
-  const obstacleRef2 = useRef<HTMLInputElement | null>(null);
+  const obstacleRef0 = useRef<HTMLTextAreaElement | null>(null);
+  const obstacleRef1 = useRef<HTMLTextAreaElement | null>(null);
+  const obstacleRef2 = useRef<HTMLTextAreaElement | null>(null);
   const obstacleRefs = [obstacleRef0, obstacleRef1, obstacleRef2];
 
   // Lock body scroll while open. Reset state on close.
@@ -179,28 +179,28 @@ export default function WoopSheet({ open, onClose }: Props) {
   const wishMic = useSelectionAwareMic({
     textareaRef: wishInputRef as unknown as React.RefObject<HTMLTextAreaElement>,
     value: wish,
-    onChange: (next) => setWish(next.slice(0, 80)),
+    onChange: (next) => setWish(next.slice(0, 120)),
   });
   const outcomeMic = useSelectionAwareMic({
     textareaRef: outcomeTextareaRef,
     value: outcome,
-    onChange: (next) => setOutcome(next.slice(0, 240)),
+    onChange: (next) => setOutcome(next.slice(0, 800)),
     autoRestart: true,
   });
   const obstacleMic0 = useSelectionAwareMic({
-    textareaRef: obstacleRef0 as unknown as React.RefObject<HTMLTextAreaElement>,
+    textareaRef: obstacleRef0,
     value: obstacles[0] ?? '',
-    onChange: (next) => updateObstacle(0, next.slice(0, 100)),
+    onChange: (next) => updateObstacle(0, next.slice(0, 500)),
   });
   const obstacleMic1 = useSelectionAwareMic({
-    textareaRef: obstacleRef1 as unknown as React.RefObject<HTMLTextAreaElement>,
+    textareaRef: obstacleRef1,
     value: obstacles[1] ?? '',
-    onChange: (next) => updateObstacle(1, next.slice(0, 100)),
+    onChange: (next) => updateObstacle(1, next.slice(0, 500)),
   });
   const obstacleMic2 = useSelectionAwareMic({
-    textareaRef: obstacleRef2 as unknown as React.RefObject<HTMLTextAreaElement>,
+    textareaRef: obstacleRef2,
     value: obstacles[2] ?? '',
-    onChange: (next) => updateObstacle(2, next.slice(0, 100)),
+    onChange: (next) => updateObstacle(2, next.slice(0, 500)),
   });
   const obstacleMics = [obstacleMic0, obstacleMic1, obstacleMic2];
 
@@ -343,7 +343,7 @@ export default function WoopSheet({ open, onClose }: Props) {
                           ref={wishInputRef}
                           type="text"
                           value={wish}
-                          onChange={(e) => setWish(e.target.value.slice(0, 80))}
+                          onChange={(e) => setWish(e.target.value.slice(0, 120))}
                           placeholder={t('plans.wishPlaceholder')}
                           autoFocus
                           className="w-full pl-4 pr-14 py-3.5 bg-surface border border-border rounded-xl text-[17px] text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
@@ -356,7 +356,7 @@ export default function WoopSheet({ open, onClose }: Props) {
                         )}
                       </div>
                       <p className="text-xs text-text-tertiary mt-2">
-                        {wish.length} / 80
+                        {wish.length} / 120
                       </p>
                     </>
                   )}
@@ -373,10 +373,10 @@ export default function WoopSheet({ open, onClose }: Props) {
                         <textarea
                           ref={outcomeTextareaRef}
                           value={outcome}
-                          onChange={(e) => setOutcome(e.target.value.slice(0, 240))}
+                          onChange={(e) => setOutcome(e.target.value.slice(0, 800))}
                           placeholder={t('plans.outcomePlaceholder')}
                           autoFocus
-                          rows={4}
+                          rows={6}
                           className="w-full pl-4 pr-14 py-3.5 bg-surface border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
                         />
                         {speechSupported && (
@@ -388,7 +388,7 @@ export default function WoopSheet({ open, onClose }: Props) {
                         )}
                       </div>
                       <p className="text-xs text-text-tertiary mt-2">
-                        {outcome.length} / 240
+                        {outcome.length} / 800
                       </p>
                     </>
                   )}
@@ -406,26 +406,26 @@ export default function WoopSheet({ open, onClose }: Props) {
                           const slotRef = obstacleRefs[i];
                           const slotMic = obstacleMics[i];
                           return (
-                            <div key={i} className="flex items-center gap-2">
+                            <div key={i} className="flex items-start gap-2">
                               <div className="relative flex-1">
-                                <input
+                                <textarea
                                   ref={slotRef}
-                                  type="text"
+                                  rows={3}
                                   value={o}
-                                  onChange={(e) => updateObstacle(i, e.target.value.slice(0, 100))}
+                                  onChange={(e) => updateObstacle(i, e.target.value.slice(0, 500))}
                                   placeholder={
                                     i === 0
                                       ? t('plans.obstaclePlaceholder1')
                                       : t('plans.obstaclePlaceholderMore')
                                   }
                                   autoFocus={i === obstacles.length - 1}
-                                  className="w-full pl-4 pr-12 py-3 bg-surface border border-border rounded-xl text-[15px] text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
+                                  className="w-full pl-4 pr-12 py-3 bg-surface border border-border rounded-xl text-[15px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
                                 />
                                 {speechSupported && slotMic && (
                                   <MicButton
                                     isListening={slotMic.isListening}
                                     {...slotMic.micButtonProps}
-                                    className="!w-8 !h-8 !right-2"
+                                    className="!w-8 !h-8 !right-2 !top-3 !translate-y-0"
                                   />
                                 )}
                               </div>
