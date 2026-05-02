@@ -13,7 +13,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useAuthStore, type PrimaryUse } from '@/stores/authStore';
+import { useAuthStore, type PrimaryUse, type Profile } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import type { GuideId } from '@/lib/guideConfigs';
@@ -91,8 +91,26 @@ export default function OnboardingPage() {
       // on a selection, but defensive.
       const chosenUse: PrimaryUse = primaryUse ?? 'both';
       await completeOnboarding(name.trim() || 'Friend', '', [], guide, chosenUse);
+      // Defensively reset tour state — if the user signed up before
+      // (e.g. their Supabase profile already had tour_completed=true
+      // from a prior incarnation), GuideTour's auto-start would skip
+      // the tour because tour_completed gate is true. Resetting here
+      // mirrors what Settings → Replay Onboarding does so completing
+      // the welcome flow always lands on a fresh tour state.
+      try {
+        await updateProfile({
+          tour_completed: false,
+          tour_seen_tabs: [],
+        } as Partial<Profile>);
+      } catch {
+        // Non-fatal — the localStorage flag below still triggers the
+        // tour for users with tour_completed already false.
+      }
       if (typeof window !== 'undefined') {
         localStorage.setItem('tour_pending', '1');
+        // Also clear any stale tab-popup tracking so the per-tab
+        // first-visit popups fire alongside the linear tour.
+        localStorage.removeItem('tour_seen_tabs.v1');
         // Seed wallState so the first render lands on the right
         // wall. 'both' defaults to journal-side as the friendlier
         // first impression (pulse + letters intro).

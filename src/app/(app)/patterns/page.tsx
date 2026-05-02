@@ -471,7 +471,19 @@ export default function PatternsPage() {
 
   return (
     <div className="max-w-lg mx-auto px-5 pt-16 pb-24 space-y-5">
-      <h1 className="text-2xl font-bold text-text-primary">{t('tab.patterns')}</h1>
+      <div className="flex items-end justify-between gap-3">
+        <h1 className="text-2xl font-bold text-text-primary">{t('tab.patterns')}</h1>
+        {/* Pulse Reflection — relocated from Settings → Tools per
+            user request. Routes to /pulse, the AI-generated
+            patterns view of pulse entries. Subtle text-link so it
+            doesn't compete with the main Patterns cards below. */}
+        <Link
+          href="/pulse"
+          className="text-xs font-semibold text-primary hover:underline whitespace-nowrap pb-1"
+        >
+          {t('settings.tools.pulseReflection')} →
+        </Link>
+      </div>
 
       {/* ─── 1. Latest letter ─────────────────────────────────── */}
       {latestLetter ? (

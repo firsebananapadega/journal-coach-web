@@ -100,7 +100,11 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: 'tasksWelcome',
     route: '/today',
-    anchorSelector: null,
+    // Anchor on the capture button so the spotlight points at the
+    // mic the copy is referring to ("mic below — talk and we sort
+    // it"). Was null previously, which left the bubble unanchored
+    // and the user with no visual cue.
+    anchorSelector: '[data-tour="capture-button"]',
     pose: 'wave',
     copyKey: 'tour.tasksWelcome',
     showNextButton: true,

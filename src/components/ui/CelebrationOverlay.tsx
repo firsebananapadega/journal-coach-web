@@ -2,10 +2,11 @@
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo } from 'react';
-import GuideMascot from '@/components/mascot/GuideMascot';
 import { useUiStore } from '@/stores/uiStore';
 
-const PARTICLE_COUNT = 22;
+// Bumped from 22 → 40 — without the mascot in the center as a focal
+// point, a denser burst reads better as "this is the celebration."
+const PARTICLE_COUNT = 40;
 const PARTICLE_COLORS = [
   'var(--theme-primary)',
   'var(--theme-primary-light)',
@@ -96,16 +97,10 @@ function CelebrationBurst({ seed, reduce }: { seed: number; reduce: boolean }) {
         transition={{ duration: 0.5, ease: 'easeOut' }}
       />
 
-      {/* Bodhi celebrating */}
-      <motion.div
-        initial={{ scale: 0, rotate: -12, opacity: 0 }}
-        animate={{ scale: 1, rotate: 0, opacity: 1 }}
-        exit={{ scale: 0.8, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 380, damping: 18 }}
-        className="relative"
-      >
-        <GuideMascot pose="celebrate" size="xl" glow animate={!reduce} />
-      </motion.div>
+      {/* Mascot removed per user request — confetti particles +
+          radial glow are the celebration. Particles look more
+          "burst" when there's no big mascot in the center stealing
+          their thunder, so leaving the layout otherwise unchanged. */}
 
       {/* Particle burst */}
       {!reduce &&

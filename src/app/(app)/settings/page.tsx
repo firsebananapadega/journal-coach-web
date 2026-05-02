@@ -304,27 +304,30 @@ export default function SettingsPage() {
       </motion.div>
       )}
 
-      {/* Templates — nav link */}
-      <motion.div {...sectionMotion} className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.templates')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm">
-          <button
-            onClick={() => router.push('/templates')}
-            className="w-full flex items-center justify-between"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-xl">📋</span>
-              <div className="text-left">
-                <p className="text-sm font-medium text-text-primary">{t('settings.manageTemplates')}</p>
-                <p className="text-xs text-text-secondary">
-                  {t('settings.activeOnHome', { count: String(enabledTemplateCount) })}
-                </p>
+      {/* Templates — nav link. COMMENTED OUT per user request
+          (2026-05-02). Restore by removing the {false &&} wrapper. */}
+      {false && (
+        <motion.div {...sectionMotion} className="space-y-2">
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.templates')}</h2>
+          <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm">
+            <button
+              onClick={() => router.push('/templates')}
+              className="w-full flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xl">📋</span>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-text-primary">{t('settings.manageTemplates')}</p>
+                  <p className="text-xs text-text-secondary">
+                    {t('settings.activeOnHome', { count: String(enabledTemplateCount) })}
+                  </p>
+                </div>
               </div>
-            </div>
-            <span className="text-text-tertiary text-sm">&#8250;</span>
-          </button>
-        </div>
-      </motion.div>
+              <span className="text-text-tertiary text-sm">&#8250;</span>
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Pulse reminders — fire push notifications at the user's
           chosen morning + evening times. The cron at
@@ -540,30 +543,27 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Language */}
+      {/* Language — toggle pills only. The redundant
+          "🇺🇸 English" / "🇲🇽 Español" label that previously sat
+          on the left was dropped per user feedback (the toggle's
+          active-state styling already conveys the current pick). */}
       <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.language')}</h2>
         <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-text-primary">
-              {LANGUAGES.find((l) => l.code === currentLang)?.flag}{' '}
-              {LANGUAGES.find((l) => l.code === currentLang)?.label}
-            </span>
-            <div className="flex gap-2">
-              {LANGUAGES.map((lang) => (
-                <button
-                  key={lang.code}
-                  onClick={() => handleLanguageChange(lang.code)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-                    currentLang === lang.code
-                      ? 'bg-primary border-primary text-white'
-                      : 'border-border text-text-secondary'
-                  }`}
-                >
-                  {lang.flag} {lang.label}
-                </button>
-              ))}
-            </div>
+          <div className="flex gap-2 justify-center">
+            {LANGUAGES.map((lang) => (
+              <button
+                key={lang.code}
+                onClick={() => handleLanguageChange(lang.code)}
+                className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                  currentLang === lang.code
+                    ? 'bg-primary border-primary text-white'
+                    : 'border-border text-text-secondary'
+                }`}
+              >
+                {lang.flag} {lang.label}
+              </button>
+            ))}
           </div>
         </div>
       </motion.div>
@@ -613,7 +613,10 @@ export default function SettingsPage() {
           pass also returns gratitude excerpts and the journal pages
           show a "Save to Gratitude?" suggestion sheet. Default on;
           flip off to suppress entirely. The sheet always confirms
-          before writing — never auto. */}
+          before writing — never auto.
+          HIDDEN for tasks-only users since gratitude is journaling-
+          side. Mirrors the same pattern used by other journal sections. */}
+      {profile?.primary_use !== 'tasks' && (
       <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           {t('settings.gratitude.title')}
@@ -651,36 +654,37 @@ export default function SettingsPage() {
           </div>
         </div>
       </motion.div>
+      )}
 
-      {/* Tools — orphan-but-active surfaces that don't have nav
-          buttons of their own. Currently: Pulse Reflection (a
-          dedicated AI-generated patterns view of pulse entries),
-          Habits (recurring-practice tracker), and Templates (guided
-          journal template browser). Surfacing them here so they're
-          discoverable without polluting the wall nav. */}
-      <motion.div {...sectionMotion} className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.tools.title')}</h2>
-        <div className="bg-surface rounded-2xl border border-border shadow-warm-sm divide-y divide-border overflow-hidden">
-          {[
-            { href: '/pulse', label: t('settings.tools.pulseReflection'), hint: t('settings.tools.pulseReflectionHint') },
-            { href: '/habits', label: t('settings.tools.habits'), hint: t('settings.tools.habitsHint') },
-            { href: '/templates', label: t('settings.tools.templates'), hint: t('settings.tools.templatesHint') },
-          ].map((tool) => (
-            <button
-              key={tool.href}
-              type="button"
-              onClick={() => router.push(tool.href)}
-              className="w-full p-4 flex items-center justify-between gap-3 hover:bg-surface-elevated transition-colors text-left"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-text-primary">{tool.label}</p>
-                <p className="text-xs text-text-tertiary mt-0.5 leading-snug">{tool.hint}</p>
-              </div>
-              <span className="text-text-tertiary text-xl shrink-0" aria-hidden>›</span>
-            </button>
-          ))}
-        </div>
-      </motion.div>
+      {/* Tools section — COMMENTED OUT (2026-05-02). Pulse Reflection
+          moved to the Patterns page header. Habits + Templates hidden
+          for now (per user). Kept inert (not deleted) so unblock is a
+          single edit. */}
+      {false && (
+        <motion.div {...sectionMotion} className="space-y-2">
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.tools.title')}</h2>
+          <div className="bg-surface rounded-2xl border border-border shadow-warm-sm divide-y divide-border overflow-hidden">
+            {[
+              { href: '/pulse', label: t('settings.tools.pulseReflection'), hint: t('settings.tools.pulseReflectionHint') },
+              { href: '/habits', label: t('settings.tools.habits'), hint: t('settings.tools.habitsHint') },
+              { href: '/templates', label: t('settings.tools.templates'), hint: t('settings.tools.templatesHint') },
+            ].map((tool) => (
+              <button
+                key={tool.href}
+                type="button"
+                onClick={() => router.push(tool.href)}
+                className="w-full p-4 flex items-center justify-between gap-3 hover:bg-surface-elevated transition-colors text-left"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-text-primary">{tool.label}</p>
+                  <p className="text-xs text-text-tertiary mt-0.5 leading-snug">{tool.hint}</p>
+                </div>
+                <span className="text-text-tertiary text-xl shrink-0" aria-hidden>›</span>
+              </button>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Privacy */}
       <motion.div {...sectionMotion} className="space-y-2">
@@ -739,38 +743,43 @@ export default function SettingsPage() {
         </motion.div>
       )}
 
-      {/* Habits — compact display + nav link */}
-      <motion.div {...sectionMotion} className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.habits')}</h2>
-        <div className="bg-surface rounded-2xl border border-border p-4 space-y-3 shadow-warm-sm">
-          {activeHabits.length > 0 ? (
-            <div className="space-y-2">
-              {activeHabits.map((habit) => (
-                <div key={habit.id} className="flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-text-primary truncate">{habit.name}</p>
-                    <p className="text-xs text-text-tertiary capitalize">{habit.time_of_day} · {habit.frequency}</p>
+      {/* Habits — compact display + nav link. COMMENTED OUT
+          (2026-05-02) per user request. Restore by removing the
+          {false &&} wrapper. The /habits route still resolves and
+          existing habit data is preserved. */}
+      {false && (
+        <motion.div {...sectionMotion} className="space-y-2">
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.habits')}</h2>
+          <div className="bg-surface rounded-2xl border border-border p-4 space-y-3 shadow-warm-sm">
+            {activeHabits.length > 0 ? (
+              <div className="space-y-2">
+                {activeHabits.map((habit) => (
+                  <div key={habit.id} className="flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text-primary truncate">{habit.name}</p>
+                      <p className="text-xs text-text-tertiary capitalize">{habit.time_of_day} · {habit.frequency}</p>
+                    </div>
+                    <button
+                      onClick={() => { if (confirm(t('settings.confirmDeleteHabit', { name: habit.name }))) deleteHabit(habit.id); }}
+                      className="text-text-tertiary hover:text-error text-xs px-2"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <button
-                    onClick={() => { if (confirm(t('settings.confirmDeleteHabit', { name: habit.name }))) deleteHabit(habit.id); }}
-                    className="text-text-tertiary hover:text-error text-xs px-2"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-text-tertiary">{t('settings.noHabits')}</p>
-          )}
-          <button
-            onClick={() => router.push('/habits')}
-            className="w-full py-2.5 bg-surface-elevated text-primary rounded-xl text-sm font-medium hover:bg-primary/10 transition-colors"
-          >
-            {t('settings.manageHabits')} &#8250;
-          </button>
-        </div>
-      </motion.div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-text-tertiary">{t('settings.noHabits')}</p>
+            )}
+            <button
+              onClick={() => router.push('/habits')}
+              className="w-full py-2.5 bg-surface-elevated text-primary rounded-xl text-sm font-medium hover:bg-primary/10 transition-colors"
+            >
+              {t('settings.manageHabits')} &#8250;
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Sign Out */}
       <motion.button
