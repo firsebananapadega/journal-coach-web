@@ -15,13 +15,15 @@
 // Splitting forces the user to actually consider each piece rather
 // than skim a single form.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUiStore } from '@/stores/uiStore';
 import { usePlanStore } from '@/stores/planStore';
 import { generateWoopPlans, type WoopGeneratedItem } from '@/lib/woopGenerator';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
+import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
+import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 
 const MAX_OBSTACLES = 3;
 
@@ -31,6 +33,47 @@ interface Props {
 }
 
 type Step = 'wish' | 'outcome' | 'obstacles' | 'plan';
+
+/** Inline tap-to-speak button. Same shape as the one in PresenceCapture
+ *  so users get a consistent affordance everywhere mic input is offered.
+ *  Spread the hook's micButtonProps onto it. */
+function MicButton({
+  isListening,
+  className,
+  ...rest
+}: {
+  isListening: boolean;
+  className?: string;
+} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'>) {
+  return (
+    <button
+      type="button"
+      aria-label={
+        isListening
+          ? t('template.stopRecording')
+          : t('template.tapToSpeak')
+      }
+      className={`absolute top-1/2 right-2.5 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
+        isListening
+          ? 'bg-error text-white scale-105'
+          : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
+      } ${className ?? ''}`}
+      {...rest}
+    >
+      {isListening ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          <line x1="12" x2="12" y1="19" y2="22" />
+        </svg>
+      )}
+    </button>
+  );
+}
 
 export default function WoopSheet({ open, onClose }: Props) {
   const showToast = useUiStore((s) => s.showToast);
@@ -46,6 +89,23 @@ export default function WoopSheet({ open, onClose }: Props) {
   // Track which item the user has tapped "Different idea" on so we
   // only regenerate that one when refining.
   const [regeneratingIdx, setRegeneratingIdx] = useState<number | null>(null);
+
+  // Speech-recognition support detection — keeps mic buttons hidden
+  // on browsers without Web Speech (e.g. desktop Firefox).
+  const [speechSupported] = useState(
+    () => typeof window !== 'undefined' && isSpeechRecognitionSupported(),
+  );
+
+  // Refs for the per-field mic hooks. The wish + obstacle fields are
+  // <input>s but we cast the refs to HTMLTextAreaElement because the
+  // hook only touches .value / selection, which are shared between
+  // input and textarea.
+  const wishInputRef = useRef<HTMLInputElement | null>(null);
+  const outcomeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const obstacleRef0 = useRef<HTMLInputElement | null>(null);
+  const obstacleRef1 = useRef<HTMLInputElement | null>(null);
+  const obstacleRef2 = useRef<HTMLInputElement | null>(null);
+  const obstacleRefs = [obstacleRef0, obstacleRef1, obstacleRef2];
 
   // Lock body scroll while open. Reset state on close.
   useEffect(() => {
@@ -111,9 +171,48 @@ export default function WoopSheet({ open, onClose }: Props) {
     setObstacles((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  // Per-field mic hooks. Defined AFTER updateObstacle so each
+  // onChange closure captures the live mutator. `useSelectionAwareMic`
+  // re-binds onChange via a ref on every render, so re-creating the
+  // closure here is harmless. Pre-allocate three obstacle slots
+  // (matching MAX_OBSTACLES) so we don't violate the rules of hooks.
+  const wishMic = useSelectionAwareMic({
+    textareaRef: wishInputRef as unknown as React.RefObject<HTMLTextAreaElement>,
+    value: wish,
+    onChange: (next) => setWish(next.slice(0, 80)),
+  });
+  const outcomeMic = useSelectionAwareMic({
+    textareaRef: outcomeTextareaRef,
+    value: outcome,
+    onChange: (next) => setOutcome(next.slice(0, 240)),
+    autoRestart: true,
+  });
+  const obstacleMic0 = useSelectionAwareMic({
+    textareaRef: obstacleRef0 as unknown as React.RefObject<HTMLTextAreaElement>,
+    value: obstacles[0] ?? '',
+    onChange: (next) => updateObstacle(0, next.slice(0, 100)),
+  });
+  const obstacleMic1 = useSelectionAwareMic({
+    textareaRef: obstacleRef1 as unknown as React.RefObject<HTMLTextAreaElement>,
+    value: obstacles[1] ?? '',
+    onChange: (next) => updateObstacle(1, next.slice(0, 100)),
+  });
+  const obstacleMic2 = useSelectionAwareMic({
+    textareaRef: obstacleRef2 as unknown as React.RefObject<HTMLTextAreaElement>,
+    value: obstacles[2] ?? '',
+    onChange: (next) => updateObstacle(2, next.slice(0, 100)),
+  });
+  const obstacleMics = [obstacleMic0, obstacleMic1, obstacleMic2];
+
   const updateGenerated = (idx: number, value: string) => {
     setGenerated((prev) =>
       prev ? prev.map((g, i) => (i === idx ? { ...g, if_then: value } : g)) : prev,
+    );
+  };
+
+  const updateReminderTime = (idx: number, value: string | null) => {
+    setGenerated((prev) =>
+      prev ? prev.map((g, i) => (i === idx ? { ...g, reminder_time: value } : g)) : prev,
     );
   };
 
@@ -144,7 +243,11 @@ export default function WoopSheet({ open, onClose }: Props) {
   const handleSave = async () => {
     if (!generated || generated.length === 0) return;
     const trimmed = generated
-      .map((g) => ({ obstacle_text: g.obstacle.trim(), if_then_text: g.if_then.trim() }))
+      .map((g) => ({
+        obstacle_text: g.obstacle.trim(),
+        if_then_text: g.if_then.trim(),
+        reminder_time: g.reminder_time ?? null,
+      }))
       .filter((g) => g.obstacle_text && g.if_then_text);
     if (trimmed.length === 0) return;
     setSaving(true);
@@ -235,14 +338,23 @@ export default function WoopSheet({ open, onClose }: Props) {
                       <p className="text-sm text-text-secondary leading-relaxed mb-5">
                         {t('plans.wishHint')}
                       </p>
-                      <input
-                        type="text"
-                        value={wish}
-                        onChange={(e) => setWish(e.target.value.slice(0, 80))}
-                        placeholder={t('plans.wishPlaceholder')}
-                        autoFocus
-                        className="w-full px-4 py-3.5 bg-surface border border-border rounded-xl text-[17px] text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
-                      />
+                      <div className="relative">
+                        <input
+                          ref={wishInputRef}
+                          type="text"
+                          value={wish}
+                          onChange={(e) => setWish(e.target.value.slice(0, 80))}
+                          placeholder={t('plans.wishPlaceholder')}
+                          autoFocus
+                          className="w-full pl-4 pr-14 py-3.5 bg-surface border border-border rounded-xl text-[17px] text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
+                        />
+                        {speechSupported && (
+                          <MicButton
+                            isListening={wishMic.isListening}
+                            {...wishMic.micButtonProps}
+                          />
+                        )}
+                      </div>
                       <p className="text-xs text-text-tertiary mt-2">
                         {wish.length} / 80
                       </p>
@@ -257,14 +369,24 @@ export default function WoopSheet({ open, onClose }: Props) {
                       <p className="text-sm text-text-secondary leading-relaxed mb-5">
                         {t('plans.outcomeHint')}
                       </p>
-                      <textarea
-                        value={outcome}
-                        onChange={(e) => setOutcome(e.target.value.slice(0, 240))}
-                        placeholder={t('plans.outcomePlaceholder')}
-                        autoFocus
-                        rows={4}
-                        className="w-full px-4 py-3.5 bg-surface border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
-                      />
+                      <div className="relative">
+                        <textarea
+                          ref={outcomeTextareaRef}
+                          value={outcome}
+                          onChange={(e) => setOutcome(e.target.value.slice(0, 240))}
+                          placeholder={t('plans.outcomePlaceholder')}
+                          autoFocus
+                          rows={4}
+                          className="w-full pl-4 pr-14 py-3.5 bg-surface border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
+                        />
+                        {speechSupported && (
+                          <MicButton
+                            isListening={outcomeMic.isListening}
+                            {...outcomeMic.micButtonProps}
+                            className="!top-3 !translate-y-0"
+                          />
+                        )}
+                      </div>
                       <p className="text-xs text-text-tertiary mt-2">
                         {outcome.length} / 240
                       </p>
@@ -280,35 +402,49 @@ export default function WoopSheet({ open, onClose }: Props) {
                         {t('plans.obstaclesHint')}
                       </p>
                       <div className="space-y-3">
-                        {obstacles.map((o, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={o}
-                              onChange={(e) => updateObstacle(i, e.target.value.slice(0, 100))}
-                              placeholder={
-                                i === 0
-                                  ? t('plans.obstaclePlaceholder1')
-                                  : t('plans.obstaclePlaceholderMore')
-                              }
-                              autoFocus={i === obstacles.length - 1}
-                              className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-[15px] text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
-                            />
-                            {obstacles.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => removeObstacle(i)}
-                                className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-tertiary hover:text-error hover:bg-error/10 transition-colors"
-                                aria-label={t('common.remove')}
-                              >
-                                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                                  <line x1="18" y1="6" x2="6" y2="18" />
-                                  <line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
-                              </button>
-                            )}
-                          </div>
-                        ))}
+                        {obstacles.map((o, i) => {
+                          const slotRef = obstacleRefs[i];
+                          const slotMic = obstacleMics[i];
+                          return (
+                            <div key={i} className="flex items-center gap-2">
+                              <div className="relative flex-1">
+                                <input
+                                  ref={slotRef}
+                                  type="text"
+                                  value={o}
+                                  onChange={(e) => updateObstacle(i, e.target.value.slice(0, 100))}
+                                  placeholder={
+                                    i === 0
+                                      ? t('plans.obstaclePlaceholder1')
+                                      : t('plans.obstaclePlaceholderMore')
+                                  }
+                                  autoFocus={i === obstacles.length - 1}
+                                  className="w-full pl-4 pr-12 py-3 bg-surface border border-border rounded-xl text-[15px] text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
+                                />
+                                {speechSupported && slotMic && (
+                                  <MicButton
+                                    isListening={slotMic.isListening}
+                                    {...slotMic.micButtonProps}
+                                    className="!w-8 !h-8 !right-2"
+                                  />
+                                )}
+                              </div>
+                              {obstacles.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeObstacle(i)}
+                                  className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-tertiary hover:text-error hover:bg-error/10 transition-colors"
+                                  aria-label={t('common.remove')}
+                                >
+                                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                       {obstacles.length < MAX_OBSTACLES && (
                         <button
@@ -352,6 +488,46 @@ export default function WoopSheet({ open, onClose }: Props) {
                                 disabled={isRegen}
                                 className="w-full px-3 py-2 bg-bg border border-border rounded-xl text-[15px] leading-relaxed text-text-primary outline-none focus:border-primary resize-none disabled:opacity-50"
                               />
+
+                              {/* Daily reminder. Pre-filled when the
+                                  generator inferred a clock-time from
+                                  the obstacle (sleep, wind-down). User
+                                  can clear or pick a different time;
+                                  the cron pings them at this local
+                                  time daily until the plan is closed. */}
+                              <div className="flex items-center justify-between gap-2 pt-1">
+                                <label className="flex items-center gap-2 text-xs text-text-secondary font-medium">
+                                  <span aria-hidden>⏰</span>
+                                  <span>{t('plans.remindMe')}</span>
+                                </label>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="time"
+                                    value={g.reminder_time ?? ''}
+                                    onChange={(e) =>
+                                      updateReminderTime(i, e.target.value || null)
+                                    }
+                                    disabled={isRegen}
+                                    aria-label={t('plans.remindMe')}
+                                    className="px-2 py-1 bg-bg border border-border rounded-lg text-sm text-text-primary outline-none focus:border-primary disabled:opacity-50"
+                                  />
+                                  {g.reminder_time && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateReminderTime(i, null)}
+                                      disabled={isRegen}
+                                      aria-label={t('plans.clearReminder')}
+                                      className="w-7 h-7 flex items-center justify-center rounded-full text-text-tertiary hover:text-error hover:bg-error/10 transition-colors disabled:opacity-50"
+                                    >
+                                      <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
                               <div className="flex justify-end">
                                 <button
                                   type="button"

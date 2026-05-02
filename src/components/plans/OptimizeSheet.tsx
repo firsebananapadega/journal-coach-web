@@ -87,6 +87,8 @@ export default function OptimizeSheet({ plan, items, recentCompletions, onClose 
       } else if (dir === 'newAngle') {
         // Keep working items as-is; regenerate ONLY the not-working
         // ones with the same obstacle text (different framing).
+        // Preserve reminder_time on kept items so the user doesn't
+        // lose a reminder schedule that's already working.
         const items: WoopGeneratedItem[] = [];
         for (const s of stats) {
           if (s.isNotWorking) {
@@ -95,9 +97,19 @@ export default function OptimizeSheet({ plan, items, recentCompletions, onClose 
               outcome: plan.outcome,
               obstacles: [s.item.obstacle_text],
             });
-            items.push(re[0] ?? { obstacle: s.item.obstacle_text, if_then: s.item.if_then_text });
+            items.push(
+              re[0] ?? {
+                obstacle: s.item.obstacle_text,
+                if_then: s.item.if_then_text,
+                reminder_time: s.item.reminder_time,
+              },
+            );
           } else {
-            items.push({ obstacle: s.item.obstacle_text, if_then: s.item.if_then_text });
+            items.push({
+              obstacle: s.item.obstacle_text,
+              if_then: s.item.if_then_text,
+              reminder_time: s.item.reminder_time,
+            });
           }
         }
         setGenerated(items);
@@ -127,12 +139,22 @@ export default function OptimizeSheet({ plan, items, recentCompletions, onClose 
     );
   };
 
+  const updateReminderTime = (idx: number, value: string | null) => {
+    setGenerated((prev) =>
+      prev ? prev.map((g, i) => (i === idx ? { ...g, reminder_time: value } : g)) : prev,
+    );
+  };
+
   const handleSave = async () => {
     if (!generated || generated.length === 0) return;
     setSaving(true);
     try {
       const trimmed = generated
-        .map((g) => ({ obstacle_text: g.obstacle.trim(), if_then_text: g.if_then.trim() }))
+        .map((g) => ({
+          obstacle_text: g.obstacle.trim(),
+          if_then_text: g.if_then.trim(),
+          reminder_time: g.reminder_time ?? null,
+        }))
         .filter((g) => g.obstacle_text && g.if_then_text);
       if (trimmed.length === 0) {
         setSaving(false);
@@ -286,6 +308,34 @@ export default function OptimizeSheet({ plan, items, recentCompletions, onClose 
                       rows={2}
                       className="w-full px-3 py-2 bg-bg border border-border rounded-xl text-[14px] leading-relaxed text-text-primary outline-none focus:border-primary resize-none"
                     />
+                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                      <label className="flex items-center gap-1.5 text-[11px] text-text-secondary font-medium">
+                        <span aria-hidden>⏰</span>
+                        <span>{t('plans.remindMe')}</span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="time"
+                          value={g.reminder_time ?? ''}
+                          onChange={(e) => updateReminderTime(i, e.target.value || null)}
+                          aria-label={t('plans.remindMe')}
+                          className="px-2 py-1 bg-bg border border-border rounded-lg text-[13px] text-text-primary outline-none focus:border-primary"
+                        />
+                        {g.reminder_time && (
+                          <button
+                            type="button"
+                            onClick={() => updateReminderTime(i, null)}
+                            aria-label={t('plans.clearReminder')}
+                            className="w-6 h-6 flex items-center justify-center rounded-full text-text-tertiary hover:text-error hover:bg-error/10 transition-colors"
+                          >
+                            <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

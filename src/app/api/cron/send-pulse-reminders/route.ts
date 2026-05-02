@@ -404,6 +404,159 @@ export async function POST(req: Request) {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // Plan reminders — daily push at user-local plan_items.reminder_time.
+  //
+  // Independent of morning/evening/presence pulses: a user who has all
+  // pulse toggles off may still want plan reminders, and vice versa.
+  // Tasks-only users ARE eligible (plans are productivity-shaped, not
+  // journaling, so the tasks-only opt-out doesn't apply).
+  //
+  // Dedup: plan_items.last_reminder_sent_at — we don't fire a second
+  // push the same user-local day even if the cron ticks 3+ times in
+  // the ±5 min window.
+  // ─────────────────────────────────────────────────────────────────
+  const planResults = await firePlanReminders(admin, now);
+  for (const r of planResults) results.push(r);
+
   log('done', { count: results.length });
   return NextResponse.json({ processed: results.length, results });
+}
+
+interface PlanItemRow {
+  id: string;
+  if_then_text: string;
+  reminder_time: string;
+  last_reminder_sent_at: string | null;
+  plans: {
+    id: string;
+    user_id: string;
+    title: string;
+  } | null;
+}
+
+async function firePlanReminders(
+  admin: SupabaseClient,
+  now: Date,
+): Promise<Array<{ userId: string; status: string }>> {
+  const out: Array<{ userId: string; status: string }> = [];
+
+  const { data: rows, error: rowsErr } = await admin
+    .from('plan_items')
+    .select('id, if_then_text, reminder_time, last_reminder_sent_at, plans!inner(id, user_id, title, status)')
+    .not('reminder_time', 'is', null)
+    .eq('plans.status', 'active')
+    .limit(500);
+  if (rowsErr) {
+    log('plan-fetch-failed', { msg: rowsErr.message });
+    return out;
+  }
+  const items = (rows as unknown as PlanItemRow[]) ?? [];
+  if (items.length === 0) return out;
+
+  // Bulk fetch the owning users' timezones + language so we don't
+  // round-trip per item.
+  const userIds = Array.from(
+    new Set(items.map((it) => it.plans?.user_id).filter((u): u is string => !!u)),
+  );
+  const { data: profileRows } = await admin
+    .from('profiles')
+    .select('id, timezone, language, display_name')
+    .in('id', userIds);
+  const profileMap = new Map<string, { tz: string; lang: 'en-US' | 'es-MX'; name: string }>();
+  for (const r of (profileRows ?? []) as Array<{
+    id: string;
+    timezone: string | null;
+    language: string | null;
+    display_name: string | null;
+  }>) {
+    profileMap.set(r.id, {
+      tz: r.timezone || 'UTC',
+      lang: r.language === 'es-MX' ? 'es-MX' : 'en-US',
+      name: r.display_name ?? '',
+    });
+  }
+
+  for (const it of items) {
+    const userId = it.plans?.user_id;
+    if (!userId) continue;
+    const prof = profileMap.get(userId);
+    if (!prof) continue;
+    const local = localParts(now, prof.tz);
+    if (!local) {
+      out.push({ userId, status: 'plan-tz-invalid' });
+      continue;
+    }
+    const diff = minutesDiff(local, it.reminder_time);
+    if (diff === null || diff > WINDOW_MIN) continue;
+    if (alreadySentToday(it.last_reminder_sent_at, local.yyyymmdd, prof.tz)) {
+      out.push({ userId, status: 'plan-already-sent' });
+      continue;
+    }
+    const r = await sendPlanPush(admin, userId, it, prof.lang);
+    await admin
+      .from('plan_items')
+      .update({ last_reminder_sent_at: now.toISOString() })
+      .eq('id', it.id);
+    out.push({ userId, status: `plan-${r}` });
+  }
+  return out;
+}
+
+async function sendPlanPush(
+  admin: SupabaseClient,
+  userId: string,
+  item: PlanItemRow,
+  language: 'en-US' | 'es-MX',
+): Promise<'sent' | 'no-subs' | 'failed'> {
+  const { data: subs } = await admin
+    .from('push_subscriptions')
+    .select('id, endpoint, p256dh, auth')
+    .eq('user_id', userId)
+    .eq('active', true);
+  if (!subs || subs.length === 0) return 'no-subs';
+
+  const isSpanish = language === 'es-MX';
+  const formattedTime = formatReminderTime(item.reminder_time, isSpanish ? 'es-MX' : 'en-US');
+  // The if-then text is the user-meaningful payload; the time leads
+  // so the lockscreen at-a-glance read is "9:45 PM — plug phone in".
+  const ifThen = item.if_then_text.slice(0, 120);
+  const title = `⏰ ${formattedTime} — ${ifThen}`;
+  const body = isSpanish ? 'Tu plan WOOP. Toca para abrir.' : 'Your WOOP plan. Tap to open.';
+  const payload = JSON.stringify({
+    kind: 'plan_reminder',
+    title,
+    body,
+    data: { plan_item_id: item.id, url: '/home' },
+  });
+
+  let sent = 0;
+  for (const s of subs as SubRow[]) {
+    try {
+      await webpush.sendNotification(
+        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        payload,
+        {
+          TTL: 60 * 60 * 4,
+          urgency: 'high',
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+        },
+      );
+      sent += 1;
+      admin
+        .from('push_subscriptions')
+        .update({ last_used_at: new Date().toISOString() })
+        .eq('id', s.id)
+        .then(() => {});
+    } catch (err) {
+      const e = err as { statusCode?: number };
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        await admin.from('push_subscriptions').delete().eq('id', s.id);
+      }
+    }
+  }
+  return sent > 0 ? 'sent' : 'failed';
 }

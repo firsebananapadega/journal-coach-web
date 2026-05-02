@@ -17,7 +17,28 @@ import { usePlanStore } from '@/stores/planStore';
 import { useUiStore } from '@/stores/uiStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
+import { getLanguage } from '@/lib/language';
 import OptimizeSheet from './OptimizeSheet';
+
+/** Format "HH:MM" 24-hour as a 12-hour clock for display.
+ *  "21:45" → "9:45 PM" (en-US) / "9:45 p.m." (es-MX). Returns the
+ *  raw string if it doesn't parse so a malformed value can't crash
+ *  the card. */
+function formatReminderClock(hhmm: string): string {
+  const m = hhmm.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return hhmm;
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    return hhmm;
+  }
+  const d = new Date();
+  d.setHours(hh, mm, 0, 0);
+  return new Intl.DateTimeFormat(getLanguage(), {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(d);
+}
 
 const OPTIMIZE_THRESHOLD = 5;
 
@@ -130,6 +151,17 @@ export default function ActivePlanCard() {
                         }`}
                       >
                         {item.if_then_text}
+                        {item.reminder_time && (
+                          <span
+                            className="ml-2 inline-flex items-center gap-1 align-middle px-1.5 py-0.5 rounded-md bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap"
+                            aria-label={t('plans.dailyReminderAt', {
+                              time: formatReminderClock(item.reminder_time),
+                            })}
+                          >
+                            <span aria-hidden>⏰</span>
+                            {formatReminderClock(item.reminder_time)}
+                          </span>
+                        )}
                       </span>
                     </button>
                   </li>

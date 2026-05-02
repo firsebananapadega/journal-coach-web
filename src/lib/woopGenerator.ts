@@ -31,6 +31,11 @@ interface WoopInput {
 export interface WoopGeneratedItem {
   obstacle: string;
   if_then: string;
+  /** "HH:MM" 24-hour. Set when the if-then trigger is a clock time
+   *  ("If it's 9:45 PM, then I'll start winding down" → "21:45") so
+   *  the app can offer to schedule a daily reminder. Null/undefined
+   *  for situational triggers ("If I sit at my desk, …"). */
+  reminder_time?: string | null;
 }
 
 function buildPrompt(input: WoopInput): string {
@@ -56,12 +61,13 @@ RULES:
 - Productivity / habits / learning style ONLY — no medical, dietary, or therapeutic claims
 - Stay second-person-implicit ("I'll do X"), no "you should"
 - No preamble, no commentary, no markdown
+- WHEN the obstacle naturally implies a clock time (sleep, waking, evening wind-down, midday breaks, end-of-workday), pick a sensible specific time and include it BOTH inside the if-clause AND in a separate "reminder_time" field formatted as "HH:MM" 24-hour. Example: obstacle "I scroll past midnight" → if_then "If it's 9:45 PM, then I'll plug my phone in across the room.", reminder_time "21:45". OMIT reminder_time (or set null) when the trigger is purely situational.
 
 OUTPUT FORMAT (strict JSON, nothing else):
 {
   "items": [
-    { "obstacle": "<copy of obstacle 1>", "if_then": "If …, then I'll …" },
-    { "obstacle": "<copy of obstacle 2>", "if_then": "If …, then I'll …" }
+    { "obstacle": "<copy of obstacle 1>", "if_then": "If …, then I'll …", "reminder_time": "21:45" or null },
+    { "obstacle": "<copy of obstacle 2>", "if_then": "If …, then I'll …", "reminder_time": null }
   ]
 }
 
@@ -95,7 +101,9 @@ function parseResponse(raw: string, obstacles: string[]): WoopGeneratedItem[] {
   }
   const slice = cleaned.slice(start, end + 1);
   try {
-    const parsed = JSON.parse(slice) as { items?: Array<{ obstacle?: string; if_then?: string }> };
+    const parsed = JSON.parse(slice) as {
+      items?: Array<{ obstacle?: string; if_then?: string; reminder_time?: string | null }>;
+    };
     const items = parsed.items;
     if (!Array.isArray(items)) return obstacles.map(fallbackItem);
     // Pad with fallbacks if Gemini returned fewer than expected;
@@ -108,12 +116,28 @@ function parseResponse(raw: string, obstacles: string[]): WoopGeneratedItem[] {
       return {
         obstacle: o,
         if_then: item.if_then.trim().slice(0, 240),
+        reminder_time: normalizeReminderTime(item.reminder_time),
       };
     });
   } catch (err) {
     console.warn('[woopGenerator] failed to parse response', { err, slice });
     return obstacles.map(fallbackItem);
   }
+}
+
+/** Accept "HH:MM", "H:MM", or null/undefined. Returns canonicalized
+ *  "HH:MM" or null. Anything malformed → null so the UI just skips
+ *  the reminder offer instead of showing a broken time. */
+function normalizeReminderTime(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const m = raw.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    return null;
+  }
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 function fallbackItem(obstacle: string): WoopGeneratedItem {

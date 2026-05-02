@@ -37,6 +37,11 @@ export interface PlanItem {
   obstacle_text: string;
   if_then_text: string;
   sort_order: number;
+  /** "HH:MM" 24-hour user-local time, or null when no daily reminder
+   *  is set. The send-pulse-reminders cron (extended in v1.1) walks
+   *  active plan items and pushes when this matches user-local now. */
+  reminder_time: string | null;
+  last_reminder_sent_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -71,7 +76,11 @@ interface PlanState {
   createPlan: (input: {
     wish: string;
     outcome: string;
-    obstacles: Array<{ obstacle_text: string; if_then_text: string }>;
+    obstacles: Array<{
+      obstacle_text: string;
+      if_then_text: string;
+      reminder_time?: string | null;
+    }>;
     source_entry_id?: string | null;
   }) => Promise<Plan | null>;
   toggleTodayCompletion: (itemId: string) => Promise<void>;
@@ -79,7 +88,11 @@ interface PlanState {
   /** Replace the items for an existing plan (used by Optimize). */
   replaceItems: (
     planId: string,
-    items: Array<{ obstacle_text: string; if_then_text: string }>,
+    items: Array<{
+      obstacle_text: string;
+      if_then_text: string;
+      reminder_time?: string | null;
+    }>,
   ) => Promise<void>;
   reset: () => void;
 }
@@ -256,6 +269,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         obstacle_text: o.obstacle_text.trim(),
         if_then_text: o.if_then_text.trim(),
         sort_order: i,
+        reminder_time: o.reminder_time ?? null,
       }));
       const { data: items, error: itemsErr } = await withTimeout(
         supabase.from('plan_items').insert(itemRows).select(),
@@ -285,7 +299,10 @@ export const usePlanStore = create<PlanState>((set, get) => ({
           `Outcome: ${plan.outcome}`,
           ``,
           `If-then plan${itemRows.length > 1 ? 's' : ''}:`,
-          ...itemRows.map((r) => `• ${r.if_then_text}  (obstacle: "${r.obstacle_text}")`),
+          ...itemRows.map((r) => {
+            const reminder = r.reminder_time ? ` (reminder ${r.reminder_time})` : '';
+            return `• ${r.if_then_text}${reminder}  (obstacle: "${r.obstacle_text}")`;
+          }),
         ].join('\n'),
         metadata: {
           plan_id: plan.id,
@@ -417,6 +434,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         obstacle_text: o.obstacle_text.trim(),
         if_then_text: o.if_then_text.trim(),
         sort_order: i,
+        reminder_time: o.reminder_time ?? null,
       }));
       const { data: items, error: insErr } = await withTimeout(
         supabase.from('plan_items').insert(rows).select(),
