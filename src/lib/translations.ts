@@ -23,6 +23,7 @@ const translations: Record<string, Record<Locale, string>> = {
   'common.back': { en: 'Back', es: 'Atrás' },
   'common.cancel': { en: 'Cancel', es: 'Cancelar' },
   'common.delete': { en: 'Delete', es: 'Eliminar' },
+  'common.remove': { en: 'Remove', es: 'Quitar' },
   'common.add': { en: 'Add', es: 'Agregar' },
   'common.save': { en: 'Save', es: 'Guardar' },
   'common.saving': { en: 'Saving...', es: 'Guardando...' },
@@ -687,26 +688,103 @@ const translations: Record<string, Record<Locale, string>> = {
   'priorities.allDone': { en: 'All done — nice work!', es: '¡Todo listo, buen trabajo!' },
   'priorities.activityLog': { en: 'Activity Log', es: 'Registro de actividad' },
 
-  // ─── Plans ───
-  'plans.title': { en: 'Plans', es: 'Planes' },
-  'plans.today': { en: 'Today', es: 'Hoy' },
-  'plans.placeholder': { en: 'Add a plan...', es: 'Agrega un plan...' },
-  'plans.addPlans': { en: 'Add Plans', es: 'Agregar planes' },
-  'plans.processing': { en: 'Processing...', es: 'Procesando...' },
-  'plans.empty': { en: 'No plans for today yet.', es: 'Aún no hay planes para hoy.' },
-  'plans.noTime': { en: 'No time set', es: 'Sin hora' },
-  'plans.plans': { en: 'Plans', es: 'Planes' },
-  'plans.editPlan': { en: 'Edit Plan', es: 'Editar plan' },
-  'plans.time': { en: 'Time', es: 'Hora' },
-  'plans.titleLabel': { en: 'Title', es: 'Título' },
-  'plans.locationLabel': { en: 'Location', es: 'Ubicación' },
-  'plans.subtasks': { en: 'Subtasks', es: 'Subtareas' },
-  'plans.addSubtask': { en: 'Add subtask', es: 'Agregar subtarea' },
-  'plans.saveChanges': { en: 'Save Changes', es: 'Guardar cambios' },
-  'plans.noTimeSet': { en: 'No time', es: 'Sin hora' },
-  'plans.subtaskPlaceholder': { en: 'Subtask...', es: 'Subtarea...' },
-  'plans.monthView': { en: 'Monthly', es: 'Mensual' },
-  'plans.weekView': { en: 'Weekly', es: 'Semanal' },
+  // ─── WOOP Plans v1 ───
+  // Entry-point + active-plan card
+  'plans.makeAChange': { en: 'Make a change', es: 'Haz un cambio' },
+  'plans.deletePlan': { en: 'Delete plan', es: 'Eliminar plan' },
+  'plans.deleteConfirm': {
+    en: 'Delete this plan? Your check-in history stays in your Plans notebook.',
+    es: '¿Eliminar este plan? Tu historial seguirá en el cuaderno de Planes.',
+  },
+  'plans.deletedToast': { en: 'Plan deleted', es: 'Plan eliminado' },
+  'plans.optimize': { en: 'Optimize', es: 'Optimizar' },
+  'plans.optimizeLocked': {
+    en: '{remaining} more check-ins to unlock Optimize',
+    es: '{remaining} marcas más para desbloquear Optimizar',
+  },
+
+  // WOOP creation sheet — 4 steps
+  'plans.wishTitle': { en: 'What do you wish for?', es: '¿Qué deseas?' },
+  'plans.wishHint': {
+    en: 'One sentence. The thing you want to change about your life.',
+    es: 'Una frase. Lo que quieres cambiar en tu vida.',
+  },
+  'plans.wishPlaceholder': {
+    en: 'I wish I…',
+    es: 'Quiero…',
+  },
+  'plans.outcomeTitle': { en: 'What’s the best outcome?', es: '¿Cuál sería el mejor resultado?' },
+  'plans.outcomeHint': {
+    en: 'Picture it for a moment. How would your day or week look different?',
+    es: 'Imagínalo por un momento. ¿Cómo se vería tu día o semana?',
+  },
+  'plans.outcomePlaceholder': {
+    en: 'I’d feel… / I’d be able to…',
+    es: 'Me sentiría… / Podría…',
+  },
+  'plans.obstaclesTitle': { en: 'What gets in the way?', es: '¿Qué se interpone?' },
+  'plans.obstaclesHint': {
+    en: 'Up to 3 obstacles you keep running into. Be specific.',
+    es: 'Hasta 3 obstáculos que se repiten. Sé específico.',
+  },
+  'plans.obstaclePlaceholder1': {
+    en: 'When I sit down to work, I…',
+    es: 'Cuando me siento a trabajar, yo…',
+  },
+  'plans.obstaclePlaceholderMore': {
+    en: 'Another obstacle…',
+    es: 'Otro obstáculo…',
+  },
+  'plans.addObstacle': { en: 'Add another', es: 'Agregar otro' },
+  'plans.planTitle': { en: 'Your if-then plan', es: 'Tu plan si-entonces' },
+  'plans.planHint': {
+    en: 'When the obstacle shows up, this is what you’ll do. Edit any line that doesn’t fit.',
+    es: 'Cuando aparezca el obstáculo, esto es lo que harás. Edita cualquier línea.',
+  },
+  'plans.obstacleLabel': { en: 'Obstacle', es: 'Obstáculo' },
+  'plans.differentIdea': { en: 'Different idea', es: 'Otra idea' },
+  'plans.regenerating': { en: 'Regenerating…', es: 'Regenerando…' },
+  'plans.disclaimer': {
+    en: 'Plans, not therapy. This is a tool for habits and follow-through, not a replacement for professional support.',
+    es: 'Planes, no terapia. Es una herramienta para hábitos y constancia, no sustituye apoyo profesional.',
+  },
+  'plans.savePlan': { en: 'Save plan', es: 'Guardar plan' },
+  'plans.savedToast': { en: 'Plan saved — start checking off today', es: 'Plan guardado — empieza a marcar hoy' },
+  'plans.saveFailed': { en: 'Couldn’t save the plan. Try again.', es: 'No se pudo guardar. Inténtalo otra vez.' },
+  'plans.generating': { en: 'Generating your plan…', es: 'Generando tu plan…' },
+
+  // Optimize sheet
+  'plans.optimizeTitle': { en: 'Optimize your plan', es: 'Optimiza tu plan' },
+  'plans.optimizeSubtitle': {
+    en: 'Based on what you’ve actually been checking off, here’s where you are.',
+    es: 'Según lo que has marcado, aquí estás.',
+  },
+  'plans.working': { en: 'Working', es: 'Funciona' },
+  'plans.notWorking': { en: 'Not working yet', es: 'Aún no funciona' },
+  'plans.notEnoughData': {
+    en: 'Not enough check-ins yet to tell — keep going for a few more days.',
+    es: 'Aún no hay suficientes marcas — continúa unos días más.',
+  },
+  'plans.pickDirection': { en: 'Pick a direction:', es: 'Elige una dirección:' },
+  'plans.tighten': { en: 'Tighten', es: 'Ajustar' },
+  'plans.tightenHint': {
+    en: 'Drop what isn’t working. Keep what is.',
+    es: 'Suelta lo que no funciona. Conserva lo que sí.',
+  },
+  'plans.newAngle': { en: 'New angle', es: 'Nuevo enfoque' },
+  'plans.newAngleHint': {
+    en: 'Re-write the if-thens that aren’t landing.',
+    es: 'Reescribe los si-entonces que no funcionan.',
+  },
+  'plans.startOver': { en: 'Start over', es: 'Empezar de cero' },
+  'plans.startOverHint': {
+    en: 'Regenerate every if-then from scratch.',
+    es: 'Genera todos los si-entonces de nuevo.',
+  },
+  'plans.tightenedHeader': { en: 'Tightened plan', es: 'Plan ajustado' },
+  'plans.newAngleHeader': { en: 'Fresh angles', es: 'Nuevos enfoques' },
+  'plans.startedOverHeader': { en: 'Fresh plan', es: 'Plan nuevo' },
+  'plans.optimizedToast': { en: 'Plan updated', es: 'Plan actualizado' },
 
   // ─── Habits ───
   'habits.title': { en: 'Habit Gallery', es: 'Galería de hábitos' },

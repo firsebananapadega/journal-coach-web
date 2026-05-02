@@ -6,9 +6,10 @@ import { isOnline } from '../lib/networkStatus';
 
 // Notebooks are user-owned collections for journal entries.
 // Four "system" notebooks are seeded at signup: journal / gratitude /
-// prompts / pulse. Users add "project" notebooks themselves. The
-// capture classifier picks a notebook slug; the preview sheet lets
-// the user override before save.
+// prompts / pulse. A fifth — 'plans' — is materialized lazily the
+// first time a user saves a WOOP plan (see ensurePlansNotebook). Users
+// add "project" notebooks themselves. The capture classifier picks a
+// notebook slug; the preview sheet lets the user override before save.
 //
 // System notebooks are non-deletable (archiveNotebook refuses them)
 // because they back app-level surfaces: Journal is the default for
@@ -26,7 +27,7 @@ export interface Notebook {
   color: string;
   icon: string;
   kind: 'system' | 'project';
-  system_key: 'journal' | 'gratitude' | 'prompts' | 'pulse' | null;
+  system_key: 'journal' | 'gratitude' | 'prompts' | 'pulse' | 'plans' | null;
   is_default: boolean;
   sort_order: number;
   archived: boolean;
@@ -57,6 +58,11 @@ interface NotebookState {
    *  server writes happen in the background. */
   reorderNotebooks: (orderedIds: string[]) => Promise<void>;
   archiveNotebook: (id: string) => Promise<void>;
+  /** Lazily materialize the 'Plans' system notebook. Unlike the
+   *  signup-seeded systems (Journal/Gratitude/Pulse), Plans is only
+   *  created the first time a user saves a WOOP plan. Idempotent —
+   *  returns the existing row if one is already on disk or in state. */
+  ensurePlansNotebook: () => Promise<Notebook>;
   reset: () => void;
 
   // Helpers
@@ -65,6 +71,7 @@ interface NotebookState {
   journalId: () => string | null;
   pulseId: () => string | null;
   gratitudeId: () => string | null;
+  plansId: () => string | null;
 }
 
 function slugify(name: string): string {
@@ -315,5 +322,74 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   gratitudeId: () => {
     const g = get().notebooks.find((n) => n.system_key === 'gratitude');
     return g?.id ?? null;
+  },
+
+  plansId: () => {
+    const p = get().notebooks.find((n) => n.system_key === 'plans');
+    return p?.id ?? null;
+  },
+
+  ensurePlansNotebook: async () => {
+    // Fast path: already in state.
+    const cached = get().notebooks.find((n) => n.system_key === 'plans');
+    if (cached) return cached;
+
+    const { data: { session } } = await withTimeout(
+      supabase.auth.getSession(),
+      AUTH_MS,
+      'auth.getSession',
+    );
+    const user = session?.user;
+    if (!user) throw new Error('No authenticated user');
+
+    // Server-side dedup by the unique (user_id, system_key) constraint.
+    // If a parallel call materialized it first, on-conflict-do-nothing
+    // returns no row → re-select.
+    const sortAfter = (get().notebooks[get().notebooks.length - 1]?.sort_order ?? 10) + 1;
+    const row = {
+      user_id: user.id,
+      name: 'Plans',
+      slug: 'plans',
+      color: '#7CA585',
+      icon: 'check-square',
+      kind: 'system' as const,
+      system_key: 'plans' as const,
+      is_default: false,
+      sort_order: sortAfter,
+      archived: false,
+    };
+    const { data: inserted, error: insertErr } = await withTimeout(
+      supabase.from('notebooks').insert(row).select().single(),
+      WRITE_MS,
+      'ensurePlansNotebook',
+    );
+    if (inserted) {
+      const created = inserted as Notebook;
+      set({ notebooks: [...get().notebooks, created] });
+      const db = getDB();
+      if (db) await db.notebooks.put(created).catch(() => {});
+      return created;
+    }
+    // Insert failed (likely the unique constraint kicked in from a
+    // concurrent path). Re-select the row that won.
+    if (insertErr) {
+      const { data: existing } = await withTimeout(
+        supabase
+          .from('notebooks')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('system_key', 'plans')
+          .single(),
+        READ_MS,
+        'ensurePlansNotebook.reselect',
+      );
+      if (existing) {
+        const found = existing as Notebook;
+        set({ notebooks: [...get().notebooks.filter((n) => n.id !== found.id), found] });
+        return found;
+      }
+      throw insertErr;
+    }
+    throw new Error('Plans notebook not created');
   },
 }));
