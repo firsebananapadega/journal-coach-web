@@ -18,22 +18,34 @@ import { useUiStore } from '@/stores/uiStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import type { GuideId } from '@/lib/guideConfigs';
 import WelcomeStep from '@/components/onboarding/WelcomeStep';
-import GuideStep from '@/components/onboarding/GuideStep';
 import PrimaryUseStep from '@/components/onboarding/PrimaryUseStep';
 import InstallStep from '@/components/onboarding/InstallStep';
-import NameStep from '@/components/onboarding/NameStep';
 
-type StepKey = 'welcome' | 'primaryUse' | 'guide' | 'install' | 'name';
+// 3-screen onboarding (was 5). guide + name steps removed — guide
+// is picked on first /guided visit, name defaults to Google auth or
+// 'Friend'. The component files (GuideStep.tsx, NameStep.tsx) stay
+// in the codebase so a git revert to the `pre-copy-rewrite` tag
+// restores them cleanly.
+type StepKey = 'welcome' | 'primaryUse' | 'install';
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { completeOnboarding, updateProfile, loading, user } = useAuthStore();
+  const { completeOnboarding, updateProfile, user } = useAuthStore();
   const celebrate = useUiStore((s) => s.celebrate);
 
+  // Default name from Google auth, falling back to 'Friend'. The
+  // separate NameStep was removed (it asked for info we already had
+  // from Google or could default sanely) — name is settable later
+  // via Settings if the user cares.
   const googleName =
     user?.user_metadata?.full_name || user?.user_metadata?.name || '';
-  const [name, setName] = useState(googleName);
-  const [guide, setGuide] = useState<GuideId>('ben');
+  const [name] = useState(googleName);
+  // Default guide is Bodhi (the meditative mascot from the welcome
+  // screen). Guide selection moved to /guided's first-visit picker
+  // so users see what they're picking BEFORE they commit. Setter
+  // unused now — keeping the state slot so completeOnboarding's
+  // signature doesn't change.
+  const [guide] = useState<GuideId>('bodhi');
   const [primaryUse, setPrimaryUse] = useState<PrimaryUse | null>(null);
   const [stepKey, setStepKey] = useState<StepKey>('welcome');
   // Install step has a sub-view (overview vs carousel). Lifted here
@@ -42,14 +54,13 @@ export default function OnboardingPage() {
   const [installView, setInstallView] = useState<'overview' | 'carousel'>('overview');
   const [error, setError] = useState('');
 
-  // Recompute the active flow whenever the user's primary-use pick
-  // changes. Tasks-only flow drops the Guide step.
+  // 3-screen onboarding (was 5). GuideStep moved to /guided first
+  // visit so users pick their guide in context. NameStep dropped —
+  // we already have the Google name and 'Friend' is a fine default
+  // for users who skip it. Same flow regardless of bucket.
   const flow = useMemo<StepKey[]>(() => {
-    const isTasksOnly = primaryUse === 'tasks';
-    return isTasksOnly
-      ? ['welcome', 'primaryUse', 'install', 'name']
-      : ['welcome', 'primaryUse', 'guide', 'install', 'name'];
-  }, [primaryUse]);
+    return ['welcome', 'primaryUse', 'install'];
+  }, []);
 
   const stepIndex = flow.indexOf(stepKey);
   const totalSteps = flow.length;
@@ -70,16 +81,6 @@ export default function OnboardingPage() {
     }
     const prevStep = flow[Math.max(0, stepIndex - 1)];
     if (prevStep) setStepKey(prevStep);
-  };
-
-  const handleInstalled = async () => {
-    updateProfile({ pwa_installed: true }).catch(() => {});
-    next();
-  };
-
-  const handleInstallSkip = async () => {
-    updateProfile({ install_prompt_dismissed_at: new Date().toISOString() }).catch(() => {});
-    next();
   };
 
   const handleComplete = async () => {
@@ -129,6 +130,18 @@ export default function OnboardingPage() {
     }
   };
 
+  // Install is now the LAST step. Both handlers complete onboarding
+  // directly instead of advancing to the (removed) NameStep.
+  const handleInstalled = async () => {
+    updateProfile({ pwa_installed: true }).catch(() => {});
+    await handleComplete();
+  };
+
+  const handleInstallSkip = async () => {
+    updateProfile({ install_prompt_dismissed_at: new Date().toISOString() }).catch(() => {});
+    await handleComplete();
+  };
+
   return (
     <div className="relative min-h-screen bg-bg">
       {/* Slim progress indicator across the top — skipped on the
@@ -166,9 +179,6 @@ export default function OnboardingPage() {
               onContinue={next}
             />
           )}
-          {stepKey === 'guide' && (
-            <GuideStep value={guide} onChange={setGuide} onContinue={next} />
-          )}
           {stepKey === 'install' && (
             <InstallStep
               guide={guide}
@@ -176,16 +186,6 @@ export default function OnboardingPage() {
               onSkip={handleInstallSkip}
               view={installView}
               onViewChange={setInstallView}
-            />
-          )}
-          {stepKey === 'name' && (
-            <NameStep
-              guide={guide}
-              value={name}
-              onChange={setName}
-              onSubmit={handleComplete}
-              loading={loading}
-              error={error}
             />
           )}
         </motion.div>

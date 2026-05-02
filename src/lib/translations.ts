@@ -868,45 +868,45 @@ const translations: Record<string, Record<Locale, string>> = {
   // "understand themselves" before they know what we mean by Tasks
   // or Journal. The feature names live in the subtext as a hint.
   'onboarding.primaryUse.headline': {
-    en: 'What did you come here for?',
-    es: '¿Qué te trajo aquí?',
+    en: 'What do you want to do first?',
+    es: '¿Qué quieres hacer primero?',
   },
   'onboarding.primaryUse.helper': {
-    en: 'Pick one — or tap both. You can change this any time in Settings.',
-    es: 'Elige una — o toca ambas. Puedes cambiarlo en Ajustes en cualquier momento.',
+    en: 'You can change this anytime.',
+    es: 'Puedes cambiarlo cuando quieras.',
   },
   'onboarding.primaryUse.bothHint': {
-    en: 'You’ll see both walls with a switcher at the top to flip between them.',
-    es: 'Verás ambos muros con un selector arriba para alternar entre ellos.',
+    en: 'Both sides, with a switch at the top to flip between them.',
+    es: 'Ambos lados, con un selector arriba para alternar.',
   },
   'onboarding.primaryUse.tasks.title': {
-    en: 'Get organized',
-    es: 'Organizarme',
+    en: 'Capture tasks',
+    es: 'Capturar tareas',
   },
   'onboarding.primaryUse.tasks.subtext': {
     en: 'Tasks, lists, what to do today',
     es: 'Tareas, listas, qué hacer hoy',
   },
   'onboarding.primaryUse.journal.title': {
-    en: 'Understand myself',
-    es: 'Conocerme mejor',
+    en: 'Reflect daily',
+    es: 'Reflexionar diariamente',
   },
   'onboarding.primaryUse.journal.subtext': {
-    en: 'Reflect, notice patterns, grow',
-    es: 'Reflexionar, notar patrones, crecer',
+    en: 'Daily check-ins, free writing, patterns',
+    es: 'Revisiones diarias, escritura libre, patrones',
   },
-  'onboarding.primaryUse.continue': { en: 'Continue', es: 'Continuar' },
+  'onboarding.primaryUse.continue': { en: 'Start', es: 'Empezar' },
 
   // ─── Onboarding v3: welcome / install / tour ───
   'onboarding.welcome.headline': {
-    en: 'Plan your day. Reflect on it. One ritual.',
-    es: 'Planifica tu día. Reflexiona sobre él. Un solo ritual.',
+    en: 'Capture tasks. Reflect daily. See your patterns.',
+    es: 'Captura tareas. Reflexiona a diario. Mira tus patrones.',
   },
   'onboarding.welcome.body': {
-    en: 'A daily ritual for tasks and reflection — pick the side you came for, or use both. Nobody else reads it. That’s what makes it honest.',
-    es: 'Un ritual diario para tareas y reflexión — elige el lado por el que viniste, o usa ambos. Nadie más lo lee. Por eso puede ser honesto.',
+    en: 'Talk into your phone. We’ll structure it. Your first entry in under a minute.',
+    es: 'Habla a tu teléfono. Nosotros lo estructuramos. Tu primera entrada en menos de un minuto.',
   },
-  'onboarding.welcome.cta': { en: 'Continue', es: 'Continuar' },
+  'onboarding.welcome.cta': { en: 'Start', es: 'Empezar' },
   'onboarding.guide.title': { en: 'Choose your guide', es: 'Elige tu guía' },
   'onboarding.guide.subtitle': {
     en: 'Each has their own voice. You can switch anytime.',
@@ -917,10 +917,10 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'Let’s make this a home-screen habit, not a browser tab.',
     es: 'Hagamos esto un hábito en tu pantalla de inicio, no una pestaña del navegador.',
   },
-  'onboarding.install.iosTitle': { en: 'Add me to your home screen', es: 'Agrégame a tu pantalla de inicio' },
+  'onboarding.install.iosTitle': { en: 'Add to home screen — 3 taps.', es: 'Añade a la pantalla de inicio — 3 toques.' },
   'onboarding.install.iosBody': {
-    en: 'Tap the Share icon, then "Add to Home Screen." Open it from there and we’re set.',
-    es: 'Toca el ícono de Compartir y luego "Añadir a pantalla de inicio". Ábrelo desde ahí y listo.',
+    en: 'Feels like a real app. Reminders work better. Opens instantly.',
+    es: 'Se siente como una app real. Los recordatorios funcionan mejor. Abre al instante.',
   },
   'onboarding.install.iosStep1': {
     en: 'Tap the ••• menu at the bottom of Safari',
@@ -982,7 +982,7 @@ const translations: Record<string, Record<Locale, string>> = {
   'onboarding.install.androidStep1': { en: 'Open the Chrome menu', es: 'Abre el menú de Chrome' },
   'onboarding.install.androidStep2': { en: 'Tap "Install app"', es: 'Toca "Instalar app"' },
   'onboarding.install.added': { en: 'I added it', es: 'Ya lo agregué' },
-  'onboarding.install.skip': { en: 'Skip for now', es: 'Saltar por ahora' },
+  'onboarding.install.skip': { en: 'Skip', es: 'Saltar' },
   'onboarding.install.installed': { en: 'Already installed — nice.', es: 'Ya está instalado — qué bien.' },
   'onboarding.name.title': { en: 'And you are?', es: '¿Y tú eres?' },
   'onboarding.name.subtitle': {
@@ -996,58 +996,58 @@ const translations: Record<string, Record<Locale, string>> = {
 
   // ── Tour body copy (≤2 sentences each, generic voice) ─────────
   'tour.journalWelcome': {
-    en: 'Welcome to your journal side. Daily check-ins, free writing, and patterns over time.',
-    es: 'Bienvenido a tu lado de diario. Revisiones diarias, escritura libre, y patrones con el tiempo.',
+    en: 'This is where you reflect. Pulse twice a day, free writing anytime.',
+    es: 'Aquí reflexionas. Pulso dos veces al día, escritura libre cuando quieras.',
   },
   'tour.freeWriteButton': {
-    en: 'Tap here for free writing. Anything off-prompt goes here, and it gets structured automatically.',
-    es: 'Toca aquí para escribir libremente. Lo que no encaje en el Pulso vive aquí, y se estructura automáticamente.',
+    en: 'Tap to write anything. We’ll structure it for you.',
+    es: 'Toca para escribir lo que sea. Nosotros lo estructuramos.',
   },
   'tour.wallSwitchToTasks': {
-    en: 'This flips you to your tasks side. Tap to try.',
-    es: 'Esto te cambia al lado de tareas. Toca para probarlo.',
+    en: 'Tap to switch to tasks.',
+    es: 'Toca para cambiar a tareas.',
   },
   'tour.tasksWelcome': {
-    en: 'Welcome to your tasks side. Capture anything by tapping the mic below.',
-    es: 'Bienvenido al lado de tareas. Captura cualquier cosa tocando el micrófono abajo.',
+    en: 'This is where you capture. Mic below — talk and we sort it.',
+    es: 'Aquí capturas. Micrófono abajo — habla y lo organizamos.',
   },
   'tour.captureMic': {
-    en: 'Tap and talk — this captures anything. Try “milk and eggs from Whole Foods,” “finish the proposal Thursday,” or “remind me to call Mom Friday at 5.”',
-    es: 'Toca y habla — esto captura cualquier cosa. Prueba "leche y huevos de Whole Foods", "termina la propuesta el jueves" o "recuérdame llamar a mamá el viernes a las 5".',
+    en: 'Tap and talk. Try: “milk from Whole Foods”, “proposal Thursday”, “remind me Friday at 5.”',
+    es: 'Toca y habla. Prueba: "leche de Whole Foods", "propuesta el jueves", "recuérdame el viernes a las 5".',
   },
   'tour.wallSwitchToJournal': {
-    en: 'And tap here to switch back. You can flip between sides anytime.',
-    es: 'Y toca aquí para volver. Puedes cambiar de lado cuando quieras.',
+    en: 'Tap to switch back. Flip anytime.',
+    es: 'Toca para volver. Cambia cuando quieras.',
   },
   'tour.outro': {
-    en: "You're set. Replay this tour anytime from Settings.",
-    es: 'Listo. Repite este tour cuando quieras desde Ajustes.',
+    en: "You're set. Replay from Settings if you want.",
+    es: 'Listo. Repite desde Ajustes si quieres.',
   },
 
   // ── First-visit tab popups (1 sentence each, "Got it" dismiss) ─
   'tabPopup.notebooks': {
-    en: 'Your past entries live here — each one structured automatically the moment you save.',
-    es: 'Tus entradas pasadas viven aquí — cada una estructurada automáticamente al guardarla.',
+    en: 'Past entries live here. Each one auto-structured.',
+    es: 'Entradas pasadas viven aquí. Cada una se estructura sola.',
   },
   'tabPopup.patterns': {
-    en: 'Themes that show up across your entries — refreshed each week.',
-    es: 'Temas que aparecen en tus entradas — actualizados cada semana.',
+    en: 'Themes from your entries. Refreshed weekly.',
+    es: 'Temas de tus entradas. Se actualiza cada semana.',
   },
   'tabPopup.guided': {
-    en: 'Your guide. Tap and start writing — useful for anything that needs unpacking.',
-    es: 'Tu guía. Toca y empieza a escribir — útil para cualquier cosa que necesite desahogarse.',
+    en: 'Guided writing. Useful when something needs unpacking.',
+    es: 'Escritura guiada. Útil cuando algo necesita salir.',
   },
   'tabPopup.upcoming': {
     en: 'Tasks scheduled for later, sorted by date.',
-    es: 'Tareas programadas para más adelante, ordenadas por fecha.',
+    es: 'Tareas programadas, ordenadas por fecha.',
   },
   'tabPopup.lists': {
-    en: 'A way to group tasks into projects.',
-    es: 'Una forma de agrupar tareas en proyectos.',
+    en: 'Group tasks into projects.',
+    es: 'Agrupa tareas en proyectos.',
   },
   'tabPopup.groceries': {
-    en: 'Your shared grocery list. Works offline; syncs the moment you’re online.',
-    es: 'Tu lista de compras compartida. Funciona sin conexión; se sincroniza apenas vuelves en línea.',
+    en: 'Shared grocery list. Works offline.',
+    es: 'Lista de compras compartida. Funciona sin conexión.',
   },
   'tabPopup.gotIt': { en: 'Got it', es: 'Listo' },
 

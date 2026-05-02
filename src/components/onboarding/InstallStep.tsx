@@ -192,11 +192,10 @@ function OverviewView({
       <div className="max-w-md w-full mx-auto flex-1 flex flex-col min-h-0">
         <div className="flex-1 min-h-0 overflow-y-auto pb-2">
           <h1 className="text-[26px] sm:text-3xl font-bold text-text-primary text-center leading-tight">
-            Add me to your home screen
+            Add to home screen — 3 taps.
           </h1>
           <p className="text-[15px] text-text-secondary text-center mt-2 mb-7 leading-snug">
-            Just three easy steps — feels like a real app, opens
-            instantly, and your reminders work better.
+            Feels like a real app. Reminders work better. Opens instantly.
           </p>
 
           {/* Vertically stacked, centered steps. No card containers
@@ -225,14 +224,14 @@ function OverviewView({
             onClick={onShowCarousel}
             className="w-full py-3.5 bg-primary text-white text-base font-semibold rounded-2xl shadow-warm-md"
           >
-            I&rsquo;ll add it now
+            Show me how
           </motion.button>
           <button
             type="button"
             onClick={onSkip}
             className="w-full py-2.5 text-sm text-text-tertiary hover:text-text-secondary transition-colors"
           >
-            Skip for now
+            Skip
           </button>
         </div>
       </div>
