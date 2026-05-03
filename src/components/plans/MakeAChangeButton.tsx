@@ -1,12 +1,14 @@
 'use client';
 
-// Subtle pill button on /home (Pulse tab) — the entry point to the
-// WOOP flow. Renders only when there's no active plan; the
-// ActivePlanCard takes its place once a plan exists.
+// Quiet entry-point to the WOOP flow on /home. Renders only when
+// there's no active plan; ActivePlanCard takes its place once a plan
+// exists.
 //
-// Visually: outline-only primary pill with a sparkle glyph. Less
-// loud than the DailyPulseCard below it (which is the daily ritual)
-// but more visible than a plain text link.
+// Earlier shape was a full-width primary-tinted card that competed
+// visually with DailyPulseCard (the day's actual ritual). User feedback:
+// too loud. Switched to a centered inline pill — small, low-contrast at
+// rest, primary-tinted on hover so it still reads as a clearly
+// tappable affordance.
 
 import { motion } from 'framer-motion';
 import { prefersReducedMotion } from '@/lib/motionVariants';
@@ -18,14 +20,16 @@ interface Props {
 
 export default function MakeAChangeButton({ onTap }: Props) {
   return (
-    <motion.button
-      type="button"
-      onClick={onTap}
-      whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
-      className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-surface border border-primary/30 hover:border-primary/60 text-primary font-semibold text-sm transition-colors shadow-warm-sm"
-    >
-      <span aria-hidden>✦</span>
-      {t('plans.makeAChange')}
-    </motion.button>
+    <div className="flex justify-center">
+      <motion.button
+        type="button"
+        onClick={onTap}
+        whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
+        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-surface/60 border border-border text-text-secondary hover:text-primary hover:border-primary/40 text-xs font-medium transition-colors"
+      >
+        <span aria-hidden className="text-primary/70">✦</span>
+        {t('plans.makeAChange')}
+      </motion.button>
+    </div>
   );
 }
