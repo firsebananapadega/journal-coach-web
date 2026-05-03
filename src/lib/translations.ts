@@ -564,6 +564,8 @@ const translations: Record<string, Record<Locale, string>> = {
   'presence.attentionLabel': { en: 'Attention', es: 'Atención' },
   'presence.bodyLabel': { en: 'Body', es: 'Cuerpo' },
   'presence.wordLabel': { en: 'Word', es: 'Palabra' },
+  'presence.label': { en: 'Mid-day Pause', es: 'Pausa de mediodía' },
+  'presence.oneWordLabel': { en: 'One word', es: 'Una palabra' },
   'presence.empty': {
     en: 'A 30-second mid-day pause. Three quick prompts to come back to your body and your mind.',
     es: 'Una pausa de 30 segundos a media tarde. Tres preguntas breves para volver a tu cuerpo y tu mente.',
@@ -664,6 +666,10 @@ const translations: Record<string, Record<Locale, string>> = {
   'pulse.presenceDone': { en: 'Mid-day Pause', es: 'Pausa de mediodía' },
   'pulse.wentRightLabel': { en: 'Went right', es: 'Salió bien' },
   'pulse.doneBetterLabel': { en: 'Done better', es: 'Mejorar' },
+  'pulse.priorIntentionLabel': {
+    en: "Yesterday's intention",
+    es: 'Intención de ayer',
+  },
 
   // ─── Voice Entry ───
   'voice.title': { en: 'Voice Entry', es: 'Entrada de voz' },

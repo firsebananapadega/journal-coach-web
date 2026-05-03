@@ -32,8 +32,6 @@ import {
   type WeeklyReflectionData,
 } from '@/lib/weeklyReflection';
 import WeeklyReflectionCard from '@/components/WeeklyReflectionCard';
-import DailyPulseCard from '@/components/DailyPulseCard';
-import PresenceCapture from '@/components/PresenceCapture';
 import ActivePlanCard from '@/components/plans/ActivePlanCard';
 import { usePlanStore } from '@/stores/planStore';
 import Link from 'next/link';
@@ -197,12 +195,6 @@ function DroppableSlot({
 // drag-and-drop wiring stay intact behind this flag.
 const SHOW_BUBBLE_GRID = false;
 
-// Mid-day Presence pause renders on /home from this hour onward
-// (and through to the 4 AM pulse-day rollover handled inside the
-// component). Before this hour it's "too early for mid-day," so we
-// hide it to keep the morning pulse visually un-cluttered.
-const PRESENCE_VISIBLE_FROM_HOUR = 11;
-
 export default function HomePage() {
   const router = useRouter();
   const profile = useAuthStore((s) => s.profile);
@@ -271,12 +263,6 @@ export default function HomePage() {
   });
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [reflection, setReflection] = useState<WeeklyReflectionData | null>(null);
-  // Mid-day Presence is no longer one-and-done. Once today's first
-  // presence row exists, /home swaps the compose form for a small
-  // "+ Add another pause" button. Tapping it flips this state on,
-  // re-mounting PresenceCapture; on save the callback flips it back
-  // off so the button reappears for the next pause.
-  const [addingAnotherPause, setAddingAnotherPause] = useState(false);
   const activePlan = usePlanStore((s) => s.active);
   const fetchActivePlan = usePlanStore((s) => s.fetchActive);
   const isDragging = useRef(false);
@@ -300,23 +286,6 @@ export default function HomePage() {
 
   const todayCompletions = completions[today] || new Set<string>();
   const activeHabits = habits.filter((h) => h.is_active);
-
-  // Has the user already done today's mid-day Presence pause? Mirrors
-  // DailyPulseCard's pulse-day boundary (rolls at 04:00) so an 11 PM
-  // capture still counts as "today." When true, /home hides the
-  // PresenceCapture compose form — DailyPulseCard renders the entry
-  // as a compact done card in its chronological list instead.
-  const todaysPresenceDone = useMemo(() => {
-    return entries.some((e) => {
-      if (e.entry_type !== 'pulse') return false;
-      const m = (e.metadata ?? {}) as Record<string, unknown>;
-      if (m.pulseMode !== 'presence') return false;
-      const d = new Date(e.created_at);
-      // Pulse-day rollover at 04:00 — same as DailyPulseCard.
-      if (d.getHours() < 4) d.setDate(d.getDate() - 1);
-      return toLocalDateStr(d) === today;
-    });
-  }, [entries, today]);
 
   // Most-recent archive item — interleaves weekly letters, monthly
   // patterns, and quarterly narrative-arc letters by generated_at so
@@ -631,45 +600,12 @@ export default function HomePage() {
         && profile?.primary_use !== 'tasks'
         && activePlan && <ActivePlanCard />}
 
-      {/* Daily Pulse — morning/evening reflection prompts. The body
-          & mind check-in is now the final two steps of the same flow
-          (one question per screen) so users get a single contained
-          ritual instead of a separate always-visible card. */}
-      <DailyPulseCard entries={entries} />
-
-      {/* Mid-day Presence pause — folded into /home so the Pulse tab
-          becomes the single throughout-the-day check-in surface
-          (morning + mid-day + evening). Three rendering states:
-            (a) Time-gated to mid-day onward so nothing shows before
-                the surface is relevant.
-            (b) No presence yet today → show the compose form.
-            (c) At least one presence done → swap the form for a
-                subtle "+ Add another pause" button. Tapping it flips
-                addingAnotherPause on which re-mounts the form; the
-                form's onSaved callback flips it back off after save
-                so the button reappears for the NEXT pause. Lets the
-                user record as many mid-day check-ins as they want
-                without the form being permanently parked on screen. */}
-      {new Date().getHours() >= PRESENCE_VISIBLE_FROM_HOUR && (
-        !todaysPresenceDone ? (
-          <PresenceCapture />
-        ) : addingAnotherPause ? (
-          <PresenceCapture onSaved={() => setAddingAnotherPause(false)} />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAddingAnotherPause(true)}
-            className="w-full py-3 rounded-2xl border border-dashed border-border bg-surface/40 text-text-tertiary hover:text-text-secondary hover:border-text-tertiary/60 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
-            aria-label={t('presence.addAnother')}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span>{t('presence.addAnother')}</span>
-          </button>
-        )
-      )}
+      {/* Pulse + Presence relocated to /notebooks/pulse (PR 1 of the
+          wall restructure). The journal-wall Pulse tab now points at
+          that notebook directly, so /home no longer carries the
+          ritual. /home remains alive only as a legacy landing while
+          the journal wall lives; PR 2 will remove the wall entirely
+          and either retire /home or redirect it to /today. */}
 
       {/* Drag-and-drop bubble grid — trims trailing empty rows unless editing.
           DISABLED via SHOW_BUBBLE_GRID flag while exploring the consolidated

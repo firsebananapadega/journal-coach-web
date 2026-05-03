@@ -227,9 +227,11 @@ export function WallNav() {
         // Journal wall — 5 slots so the center Journal pill sits
         // actually centered. Slot 3 is the Guided Session (Ben asks
         // questions, you reply). Mid-day Presence pause folded into
-        // the Pulse tab (slot 0). Old slot-3 occupants kept commented
-        // for one-line revert.
-        { href: '/home', key: 'pulse', labelKey: 'tab.pulse' },
+        // the Pulse tab (slot 0). PR 1 of the wall restructure:
+        // Pulse now points at /notebooks/pulse (the Pulse hero
+        // moved into its own notebook). /home still exists as a
+        // legacy landing while the journal wall lives.
+        { href: '/notebooks/pulse', key: 'pulse', labelKey: 'tab.pulse' },
         { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks' },
         { href: '/journal', key: 'journal', labelKey: 'tab.journal', isCenter: true },
         // DISABLED: intentions tab (kept for revert).

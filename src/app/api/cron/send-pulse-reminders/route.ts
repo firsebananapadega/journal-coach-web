@@ -208,11 +208,12 @@ async function sendPulsePush(
     : mode === 'evening'
     ? 'Close the loop on your day.'
     : "Where's your attention right now?";
-  // All three pulse modes (morning / mid-day Presence / evening) now
-  // land on the Pulse tab — Presence functionality was folded into
-  // /home so the user has a single throughout-the-day check-in
-  // surface. The mode field stays in the payload for SW + analytics.
-  const url = '/home';
+  // All three pulse modes (morning / mid-day Presence / evening) land
+  // on the Pulse system notebook. PR 1 of the wall restructure moved
+  // the pulse hero into /notebooks/pulse (DailyPulseCard +
+  // PresenceCapture relocated from /home). The mode field stays in
+  // the payload for SW + analytics.
+  const url = '/notebooks/pulse';
   const payload = JSON.stringify({
     kind: 'pulse_reminder',
     title,

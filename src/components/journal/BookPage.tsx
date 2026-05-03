@@ -25,6 +25,7 @@ import PlansNotebookHero from '@/components/plans/PlansNotebookHero';
 import WoopSheet from '@/components/plans/WoopSheet';
 import { usePlanStore } from '@/stores/planStore';
 import GratitudeDailyCard from './GratitudeDailyCard';
+import PulseNotebookHero from './PulseNotebookHero';
 
 // Build the plain-text view of any entry (pulse + freeform + guided)
 // that the user will paste after swiping to copy. Prefers the polished
@@ -451,6 +452,15 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
             || activeNotebook.system_key === 'gratitude'
           ) && (
             <GratitudeDailyCard notebookId={activeNotebook.id} />
+          )}
+
+          {/* Pulse hero — DailyPulseCard + PresenceCapture moved
+              from /home into the Pulse notebook itself. Same
+              pattern as Plans / Gratitude: structured daily ritual
+              at the top, history feed below. PR 1 of the wall
+              restructure. */}
+          {activeNotebook?.system_key === 'pulse' && (
+            <PulseNotebookHero entries={entries} />
           )}
 
           {/* Day groups */}

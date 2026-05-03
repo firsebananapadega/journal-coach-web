@@ -265,6 +265,11 @@ export function tabForPath(pathname: string): TasksTab | JournalTab | null {
   // since the tab is DISABLED in nav now, return null so no slot
   // lights up. The page still renders.
   if (pathname.startsWith('/intentions/')) return null;
+  // The Pulse tab on the journal wall now points at the Pulse system
+  // notebook (PR 1 of the wall restructure). The URL falls under
+  // /notebooks but it's a Pulse-tab destination, not a Notebooks-tab
+  // destination — highlight Pulse.
+  if (pathname === '/notebooks/pulse') return 'pulse';
   // /notebooks/[slug] keeps the Notebooks tab highlighted.
   if (pathname.startsWith('/notebooks/')) return 'notebooks';
   const map: Record<string, TasksTab | JournalTab> = {
