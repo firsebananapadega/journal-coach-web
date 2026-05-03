@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
 import { isOnline } from '../lib/networkStatus';
 import { useNotebookStore } from './notebookStore';
+import { useAuthStore } from './authStore';
 
 // WOOP-grounded plans (Wish / Outcome / Obstacle / Plan).
 //
@@ -155,6 +156,14 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   fetchActive: async () => {
     if (!isOnline()) return;
+    // Don't fetch when the Settings toggle is off — keeps the active
+    // slot empty on /home and /today after disable. Belt-and-braces
+    // null the in-memory active so flipping plans_enabled false hides
+    // the card immediately on the next render.
+    if (useAuthStore.getState().profile?.plans_enabled !== true) {
+      set({ active: null, hasFetched: true });
+      return;
+    }
     try {
       set({ loading: true, error: null });
       const { data: { session } } = await supabase.auth.getSession();

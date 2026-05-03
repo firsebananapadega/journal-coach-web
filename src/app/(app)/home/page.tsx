@@ -34,9 +34,7 @@ import {
 import WeeklyReflectionCard from '@/components/WeeklyReflectionCard';
 import DailyPulseCard from '@/components/DailyPulseCard';
 import PresenceCapture from '@/components/PresenceCapture';
-import MakeAChangeButton from '@/components/plans/MakeAChangeButton';
 import ActivePlanCard from '@/components/plans/ActivePlanCard';
-import WoopSheet from '@/components/plans/WoopSheet';
 import { usePlanStore } from '@/stores/planStore';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -279,7 +277,6 @@ export default function HomePage() {
   // re-mounting PresenceCapture; on save the callback flips it back
   // off so the button reappears for the next pause.
   const [addingAnotherPause, setAddingAnotherPause] = useState(false);
-  const [woopOpen, setWoopOpen] = useState(false);
   const activePlan = usePlanStore((s) => s.active);
   const fetchActivePlan = usePlanStore((s) => s.fetchActive);
   const isDragging = useRef(false);
@@ -531,9 +528,9 @@ export default function HomePage() {
     loadData();
   }, [loadData]);
 
-  // Hydrate the active WOOP plan once on mount. The store guards
-  // against running offline; when it bails we just fall back to
-  // showing the "Make a change" CTA until reconnect.
+  // Hydrate the active WOOP plan once on mount so the active-plan
+  // card (when applicable) renders without a fetch flash. The store
+  // gates on plans_enabled internally — disabled users get a no-op.
   useEffect(() => {
     void fetchActivePlan();
   }, [fetchActivePlan]);
@@ -626,14 +623,13 @@ export default function HomePage() {
         );
       })()}
 
-      {/* WOOP plan affordance — ActivePlanCard when a plan exists,
-          MakeAChangeButton (entry to the 4-step WOOP sheet) otherwise.
-          Single-active-plan invariant lives in the store. */}
-      {activePlan ? (
-        <ActivePlanCard />
-      ) : (
-        <MakeAChangeButton onTap={() => setWoopOpen(true)} />
-      )}
+      {/* Active WOOP plan card. Only renders for journal/both users —
+          tasks-only users get the same card on /today (their daily
+          home). The "Make a plan" entry-point lives inside the Plans
+          notebook itself, not on /home. */}
+      {profile?.plans_enabled === true
+        && profile?.primary_use !== 'tasks'
+        && activePlan && <ActivePlanCard />}
 
       {/* Daily Pulse — morning/evening reflection prompts. The body
           & mind check-in is now the final two steps of the same flow
@@ -756,10 +752,6 @@ export default function HomePage() {
 
       {/* Habits moved to Tasks tab */}
 
-      {/* WOOP creation sheet — portaled, fixed-position. Mounted at
-          page level so the sheet animates over the wall layout instead
-          of inside the scroll container. */}
-      {woopOpen && <WoopSheet open onClose={() => setWoopOpen(false)} />}
     </div>
   );
 }

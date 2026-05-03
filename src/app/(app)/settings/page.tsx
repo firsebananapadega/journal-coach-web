@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import GuideMascot from '@/components/mascot/GuideMascot';
 import { staggerContainer, staggerItem, prefersReducedMotion } from '@/lib/motionVariants';
 import { useAuthStore, type LetterCadence, type PrimaryUse, type Profile } from '@/stores/authStore';
+import { useNotebookStore } from '@/stores/notebookStore';
 import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -655,6 +656,83 @@ export default function SettingsPage() {
         </div>
       </motion.div>
       )}
+
+      {/* Plans (WOOP) — opt-in feature toggle. Visible to ALL users
+          (including tasks-only) since plans are productivity-shaped,
+          not journaling. Toggle ON: ensurePlansNotebook materializes
+          the system notebook + plans_enabled flips. Toggle OFF: just
+          flips the flag — notebook + plan rows stay in DB so the
+          user's history isn't lost on a re-enable. Tasks-only users
+          have no Notebooks tab, so we surface a chevron link here
+          when toggled on so they can navigate straight to the
+          notebook page. */}
+      <motion.div {...sectionMotion} className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+          {t('settings.plans.title')}
+        </h2>
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-primary">
+                {t('settings.plans.toggleLabel')}
+              </p>
+              <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
+                {t('settings.plans.toggleHint')}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={profile?.plans_enabled === true}
+              onClick={async () => {
+                const next = profile?.plans_enabled !== true;
+                if (next) {
+                  // Materialize the Plans system notebook on first
+                  // enable. Idempotent — re-enables after a disable
+                  // re-select the existing row.
+                  try {
+                    await useNotebookStore.getState().ensurePlansNotebook();
+                  } catch {
+                    // Fall through; the profile flip below still
+                    // works, and the notebook list refresh on next
+                    // fetch will surface any pending row.
+                  }
+                }
+                await updateProfile({
+                  plans_enabled: next,
+                } as Partial<Profile>);
+                // Refresh notebook list so the Plans entry appears
+                // (or disappears) immediately on the index page.
+                await useNotebookStore.getState().fetchNotebooks();
+              }}
+              className={`shrink-0 w-11 h-6 rounded-full p-0.5 transition-colors ${
+                profile?.plans_enabled === true ? 'bg-primary' : 'bg-border'
+              }`}
+            >
+              <span
+                className={`block w-5 h-5 rounded-full bg-white shadow-warm-sm transition-transform ${
+                  profile?.plans_enabled === true ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {profile?.plans_enabled === true && (
+            <button
+              type="button"
+              onClick={() => router.push('/notebooks/plans')}
+              className="w-full flex items-center justify-between text-sm text-primary hover:text-primary-dark transition-colors pt-1 border-t border-border"
+            >
+              <span className="font-medium pt-3">{t('settings.plans.openNotebook')}</span>
+              <span className="pt-3" aria-hidden>
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </span>
+            </button>
+          )}
+        </div>
+      </motion.div>
 
       {/* Tools section — COMMENTED OUT (2026-05-02). Pulse Reflection
           moved to the Patterns page header. Habits + Templates hidden

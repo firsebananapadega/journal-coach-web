@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
 import { getDB } from '../lib/db';
 import { isOnline } from '../lib/networkStatus';
+import { useAuthStore } from './authStore';
 
 // Notebooks are user-owned collections for journal entries.
 // Four "system" notebooks are seeded at signup: journal / gratitude /
@@ -109,7 +110,11 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
               if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
               return (a.created_at ?? '').localeCompare(b.created_at ?? '');
             });
-            set({ notebooks: sorted as Notebook[] });
+            const plansEnabled = useAuthStore.getState().profile?.plans_enabled === true;
+            const visible = plansEnabled
+              ? sorted
+              : sorted.filter((n) => n.system_key !== 'plans');
+            set({ notebooks: visible as Notebook[] });
           }
         } catch {}
       }
@@ -141,7 +146,15 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
         'fetchNotebooks',
       );
       if (error) throw error;
-      const notebooks = (data as Notebook[]) ?? [];
+      const all = (data as Notebook[]) ?? [];
+      // Hide the Plans system notebook when the Settings toggle is
+      // off. The row stays in DB so flipping back ON restores it
+      // immediately with full history intact. Other system notebooks
+      // are unaffected.
+      const plansEnabled = useAuthStore.getState().profile?.plans_enabled === true;
+      const notebooks = plansEnabled
+        ? all
+        : all.filter((n) => n.system_key !== 'plans');
       set({ notebooks });
 
       if (db) {

@@ -1,14 +1,13 @@
 'use client';
 
-// Quiet entry-point to the WOOP flow on /home. Renders only when
-// there's no active plan; ActivePlanCard takes its place once a plan
+// Primary CTA inside the Plans notebook. Renders only when the user
+// has no active plan; ActivePlanCard takes its place once a plan
 // exists.
 //
-// Earlier shape was a full-width primary-tinted card that competed
-// visually with DailyPulseCard (the day's actual ritual). User feedback:
-// too loud. Switched to a centered inline pill — small, low-contrast at
-// rest, primary-tinted on hover so it still reads as a clearly
-// tappable affordance.
+// This is intentionally prominent — it's the page's primary action.
+// The earlier loud-on-/home version was wrong because it competed with
+// DailyPulseCard there; inside the Plans notebook surface it should
+// lead the eye.
 
 import { motion } from 'framer-motion';
 import { prefersReducedMotion } from '@/lib/motionVariants';
@@ -20,16 +19,14 @@ interface Props {
 
 export default function MakeAChangeButton({ onTap }: Props) {
   return (
-    <div className="flex justify-center">
-      <motion.button
-        type="button"
-        onClick={onTap}
-        whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
-        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-surface/60 border border-border text-text-secondary hover:text-primary hover:border-primary/40 text-xs font-medium transition-colors"
-      >
-        <span aria-hidden className="text-primary/70">✦</span>
-        {t('plans.makeAChange')}
-      </motion.button>
-    </div>
+    <motion.button
+      type="button"
+      onClick={onTap}
+      whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
+      className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary text-white font-semibold text-sm shadow-warm-md hover:bg-primary-dark transition-colors"
+    >
+      <span aria-hidden>✦</span>
+      {t('plans.makeAChange')}
+    </motion.button>
   );
 }

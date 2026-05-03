@@ -1209,6 +1209,28 @@ const translations: Record<string, Record<Locale, string>> = {
     es: 'Cuando menciones gratitud en una entrada, te sugeriremos guardarla en tu cuaderno de Gratitud (siempre confirmas primero).',
   },
 
+  // ── Settings: Plans (WOOP) ────────────────────────────────────
+  'settings.plans.title': { en: 'Plans', es: 'Planes' },
+  'settings.plans.toggleLabel': {
+    en: 'Enable plans',
+    es: 'Activar planes',
+  },
+  'settings.plans.toggleHint': {
+    en: 'Turn a wish into action with WOOP — wish, outcome, obstacle, plan. A small, science-backed nudge for changing one thing at a time.',
+    es: 'Convierte un deseo en acción con WOOP: deseo, resultado, obstáculo, plan. Un empujón pequeño y respaldado por la ciencia para cambiar una cosa a la vez.',
+  },
+  'settings.plans.openNotebook': {
+    en: 'Open Plans notebook',
+    es: 'Abrir cuaderno de Planes',
+  },
+
+  // ── Plans notebook hero ──────────────────────────────────────
+  'plans.notebookHero.title': { en: 'Plans', es: 'Planes' },
+  'plans.notebookHero.description': {
+    en: 'WOOP turns a wish into a plan in four steps: name your Wish, picture the Outcome, spot the Obstacle, write a small If-then. Mental contrasting + a concrete trigger is what separates intention from action.',
+    es: 'WOOP convierte un deseo en un plan en cuatro pasos: nombra tu Deseo, imagina el Resultado, identifica el Obstáculo y escribe un pequeño Si-entonces. El contraste mental + un detonador concreto es lo que separa la intención de la acción.',
+  },
+
   // ── Reschedule sheet ─────────────────────────────────────────
   'reschedule.title': { en: 'Reschedule task', es: 'Reprogramar tarea' },
   'reschedule.today': { en: 'Today', es: 'Hoy' },

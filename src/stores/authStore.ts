@@ -62,6 +62,13 @@ export interface Profile {
   gratitude_intro_seen: boolean;
   install_prompt_dismissed_at: string | null;
   pwa_installed: boolean;
+  /** Settings toggle for the WOOP Plans feature. False by default for
+   *  new users — flipping it ON in Settings is what materializes the
+   *  Plans system notebook (via ensurePlansNotebook) and reveals the
+   *  active-plan card on /home or /today. Toggling OFF hides
+   *  everything UI-side without deleting any plan rows. Existing users
+   *  with an active plan were backfilled to true at migration time. */
+  plans_enabled: boolean;
   /** Asked during onboarding — determines which wall (Journal / Tasks)
    *  loads on first app open. After that, wallState localStorage owns
    *  the default. */

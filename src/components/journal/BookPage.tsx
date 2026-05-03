@@ -21,6 +21,9 @@ import { prefersReducedMotion } from '@/lib/motionVariants';
 import EntryCard from './EntryCard';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import NotebookSettingsSheet from '@/components/notebooks/NotebookSettingsSheet';
+import PlansNotebookHero from '@/components/plans/PlansNotebookHero';
+import WoopSheet from '@/components/plans/WoopSheet';
+import { usePlanStore } from '@/stores/planStore';
 
 // Build the plain-text view of any entry (pulse + freeform + guided)
 // that the user will paste after swiping to copy. Prefers the polished
@@ -145,6 +148,11 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
   // it entirely, since pulse entries come from the morning/evening
   // card on /home, not typed here.
   const [composerOpen, setComposerOpen] = useState(false);
+  // WOOP sheet — mounted inline here (vs. on /home) so the Plans
+  // notebook page owns the entire planning surface. State is local
+  // because nothing outside this component needs to open it.
+  const [woopOpen, setWoopOpen] = useState(false);
+  const fetchActivePlan = usePlanStore((s) => s.fetchActive);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerStartRef = useRef<number>(Date.now());
   // Ref on the scrollable feed container — captures the user's scroll
@@ -211,6 +219,17 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
   useEffect(() => {
     if (!composer) composerStartRef.current = Date.now();
   }, [composer]);
+
+  // When the user lands on the Plans notebook, hydrate the active
+  // plan so the hero can decide between the "Make a plan" CTA and
+  // the ActivePlanCard. fetchActive is a no-op when plans_enabled
+  // is false (the user can't reach this surface in that state, but
+  // belt-and-braces is cheap).
+  useEffect(() => {
+    if (activeNotebook?.system_key === 'plans') {
+      void fetchActivePlan();
+    }
+  }, [activeNotebook?.system_key, fetchActivePlan]);
 
   // Composer is a full-screen overlay now — it fills the flex-1
   // middle region so we don't need to auto-grow the textarea's own
@@ -413,6 +432,14 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
           {/* (Composer is now a full-screen overlay mounted near the
               bottom of this component — see `composerOpen` block.) */}
 
+          {/* Plans notebook hero — only on the Plans system notebook.
+              Owns the title / description / "Make a plan" CTA / active
+              plan card. The Started:/Closed: journal entries below are
+              the ongoing history. */}
+          {activeNotebook?.system_key === 'plans' && (
+            <PlansNotebookHero onTapMake={() => setWoopOpen(true)} />
+          )}
+
           {/* Day groups */}
           <AnimatePresence mode="popLayout">
             {grouped.length === 0 && (
@@ -495,9 +522,12 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
 
       {/* Floating + button — bottom-right, above the WallNav's
           Patterns tab. Raised high enough that the WallNav + iOS
-          home indicator never crowd it. Hidden on Pulse and while
-          the composer overlay is up. */}
-      {activeNotebook?.system_key !== 'pulse' && !composerOpen && (
+          home indicator never crowd it. Hidden on Pulse + Plans (both
+          are non-freeform-write surfaces) and while the composer
+          overlay is up. */}
+      {activeNotebook?.system_key !== 'pulse'
+        && activeNotebook?.system_key !== 'plans'
+        && !composerOpen && (
         <motion.button
           type="button"
           onClick={() => setComposerOpen(true)}
@@ -659,6 +689,12 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
         notebook={activeNotebook}
         onClose={() => setSettingsOpen(false)}
       />
+
+      {/* WOOP creation sheet — only mountable from the Plans notebook,
+          and even then only when the user explicitly taps the CTA.
+          Conditional render keeps the heavy 4-step component out of
+          the tree on every other notebook view. */}
+      {woopOpen && <WoopSheet open onClose={() => setWoopOpen(false)} />}
     </div>
   );
 }

@@ -36,6 +36,9 @@ import type { ListRecord } from '@/stores/listStore';
 import { useListStore } from '@/stores/listStore';
 import OverdueSection from '@/components/today/OverdueSection';
 import { isOverdue } from '@/lib/overdueUtils';
+import { useAuthStore } from '@/stores/authStore';
+import { usePlanStore } from '@/stores/planStore';
+import ActivePlanCard from '@/components/plans/ActivePlanCard';
 
 function buildWeekDates(): Date[] {
   const today = new Date();
@@ -160,6 +163,24 @@ export default function PrioritiesPage() {
     fetchScheduled();
     fetchLists();
   }, [fetchScheduled, fetchLists]);
+
+  // Tasks-only users land here as their daily home — surface the
+  // active WOOP plan card if they have one. Journal/both users see the
+  // same card on /home; this mount is exclusive to primary_use='tasks'
+  // so the card doesn't double-render on /priorities for users who
+  // also have /home in rotation.
+  const profile = useAuthStore((s) => s.profile);
+  const activePlan = usePlanStore((s) => s.active);
+  const fetchActivePlan = usePlanStore((s) => s.fetchActive);
+  const showPlanCard =
+    profile?.plans_enabled === true
+    && profile?.primary_use === 'tasks'
+    && !!activePlan;
+  useEffect(() => {
+    if (profile?.plans_enabled === true && profile?.primary_use === 'tasks') {
+      void fetchActivePlan();
+    }
+  }, [profile?.plans_enabled, profile?.primary_use, fetchActivePlan]);
   const scheduledForSelectedDate = useMemo(
     () =>
       scheduledTasks
@@ -267,6 +288,8 @@ export default function PrioritiesPage() {
           {new Date().toLocaleDateString(getLanguage(), { weekday: 'long', month: 'long', day: 'numeric' })}
         </p>
       </div>
+
+      {showPlanCard && <ActivePlanCard />}
 
       {/* The scheduled-today section (below) now lives inline rather
           than behind a jump-to-upcoming link, so this banner is gone.
