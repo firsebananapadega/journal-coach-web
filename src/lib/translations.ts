@@ -1379,6 +1379,14 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'What are you grateful for today? A small specific moment beats a vague category.',
     es: '¿Por qué estás agradecido hoy? Un momento pequeño y específico vale más que una categoría vaga.',
   },
+  'gratitude.daily.placeholderSingle': {
+    en: "One thing you're grateful for today (small + specific)",
+    es: 'Una cosa por la que estás agradecido hoy (pequeña y específica)',
+  },
+  'gratitude.daily.soFar': {
+    en: "Today's so far",
+    es: 'Hasta ahora hoy',
+  },
   'gratitude.daily.placeholder1': {
     en: "Maria made me orange juice this morning",
     es: 'María me preparó jugo de naranja esta mañana',

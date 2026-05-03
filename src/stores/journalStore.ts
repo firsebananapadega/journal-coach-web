@@ -127,6 +127,14 @@ interface JournalState {
     notebookId: string;
     items: Array<{ what: string; why: string }>;
   }) => Promise<JournalEntry | null>;
+  /** Append-one variant. Used by the GratitudeDailyCard's
+   *  one-at-a-time UI: each save adds a single item to today's
+   *  metadata.gratitude_items array. Creates the entry if it's
+   *  the first save of the day. Same skipAutoDetect guarantee. */
+  appendTodayGratitude: (input: {
+    notebookId: string;
+    item: { what: string; why: string };
+  }) => Promise<JournalEntry | null>;
   reset: () => void;
 }
 
@@ -551,6 +559,67 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       // gratitude row (would loop on the gratitude language the user
       // just typed). Reuses the flag added in the recent gratitude
       // bug-fix.
+      { skipAutoDetect: true },
+    );
+  },
+
+  appendTodayGratitude: async ({ notebookId, item }) => {
+    const trimmed = { what: item.what.trim(), why: item.why.trim() };
+    if (!trimmed.what) return null;
+
+    const today = (() => {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    })();
+
+    const existing = get().entries.find(
+      (e) =>
+        e.entry_type === 'gratitude' &&
+        (e.metadata as { gratitude_date?: string } | null)?.gratitude_date === today,
+    );
+
+    const renderItems = (items: Array<{ what: string; why: string }>) =>
+      items
+        .map((it, i) =>
+          it.why ? `${i + 1}. ${it.what} — ${it.why}` : `${i + 1}. ${it.what}`,
+        )
+        .join('\n');
+
+    if (existing) {
+      const prevItems =
+        (existing.metadata as { gratitude_items?: Array<{ what: string; why: string }> } | null)
+          ?.gratitude_items ?? [];
+      const items = [...prevItems, trimmed];
+      const contentText = renderItems(items);
+      await get().updateEntry(existing.id, {
+        content_text: contentText,
+        word_count: contentText.split(/\s+/).filter(Boolean).length,
+        metadata: {
+          ...((existing.metadata as Record<string, unknown> | null) ?? {}),
+          gratitude_items: items,
+          gratitude_date: today,
+        },
+      });
+      return get().entries.find((e) => e.id === existing.id) ?? null;
+    }
+
+    // First save of the day — single-item entry.
+    const items = [trimmed];
+    const contentText = renderItems(items);
+    return await get().createEntry(
+      {
+        entry_type: 'gratitude',
+        notebook_id: notebookId,
+        content_text: contentText,
+        word_count: contentText.split(/\s+/).filter(Boolean).length,
+        metadata: {
+          gratitude_items: items,
+          gratitude_date: today,
+        },
+      },
       { skipAutoDetect: true },
     );
   },

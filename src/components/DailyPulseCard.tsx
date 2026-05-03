@@ -27,7 +27,17 @@ interface Props {
 // on /home. They all live in journal_entries with entry_type='pulse'
 // and a discriminating metadata.pulseMode, so this component can render
 // all three sorted chronologically as compact done cards.
-type PulseMode = 'morning' | 'evening' | 'presence';
+// Pulse helpers moved to src/lib/pulseTime.ts so PulseNotebookHero
+// (the orchestrator) and this card share the same source of truth
+// for the morning/evening boundary + done-state detection.
+import {
+  type PulseMode,
+  eveningStartFromReminder,
+  getCurrentMode,
+  pulseDayOf,
+  currentPulseDay,
+  pulseModeOf,
+} from '@/lib/pulseTime';
 
 // Pulse mode by clock minute-of-day. Boundaries:
 //   - 04:00 (240 min) → morning starts (subjective morning, so a 1AM
@@ -39,65 +49,6 @@ type PulseMode = 'morning' | 'evening' | 'presence';
 //                       evening mode when the reminder push fires —
 //                       tapping the notification lands on the right
 //                       prompt, never on a stale morning view.
-const DEFAULT_EVENING_START_MIN = 19 * 60 + 50; // 19:50
-
-/** Parse "HH:MM" → minutes-of-day. Returns null on malformed input. */
-function parseHHMM(s: string | undefined | null): number | null {
-  if (!s || typeof s !== 'string') return null;
-  const m = s.match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const hh = Number(m[1]);
-  const mm = Number(m[2]);
-  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-  return hh * 60 + mm;
-}
-
-/** Threshold (in minutes-of-day) where the morning pulse flips to evening.
- *  Reads the user's evening reminder time and subtracts a 5-min lead so
- *  the mode is already 'evening' when the reminder push fires. */
-function eveningStartFromReminder(reminderHHMM: string | undefined | null): number {
-  const reminderMin = parseHHMM(reminderHHMM);
-  if (reminderMin == null) return DEFAULT_EVENING_START_MIN;
-  // 5-minute lead. Clamp to a sane window: never earlier than 17:00
-  // (don't accidentally hide the morning pulse for someone with an
-  // unusually early reminder), never later than 23:55.
-  const lead = 5;
-  const t = reminderMin - lead;
-  return Math.max(17 * 60, Math.min(23 * 60 + 55, t));
-}
-
-function getCurrentMode(eveningStartMin: number, now: Date = new Date()): PulseMode {
-  const minOfDay = now.getHours() * 60 + now.getMinutes();
-  if (minOfDay >= 4 * 60 && minOfDay < eveningStartMin) return 'morning';
-  return 'evening';
-}
-
-// Subjective "pulse day" for a timestamp. A pulse day runs from 04:00
-// to 03:59 the next calendar day — so an evening pulse completed at
-// 00:30 Tuesday still belongs to MONDAY's pulse day, not Tuesday's.
-// Without this, the Monday-evening entry would show up as Tuesday's
-// evening-done card and block Tuesday's actual evening prompt. This
-// mirrors the 4am threshold in getCurrentMode().
-function pulseDayOf(iso: string | Date): string {
-  const d = typeof iso === 'string' ? new Date(iso) : new Date(iso);
-  if (d.getHours() < 4) {
-    const rolled = new Date(d);
-    rolled.setDate(rolled.getDate() - 1);
-    return toLocalDateStr(rolled);
-  }
-  return toLocalDateStr(d);
-}
-
-function currentPulseDay(): string {
-  return pulseDayOf(new Date());
-}
-
-function pulseModeOf(e: JournalEntry): PulseMode | null {
-  const m = (e.metadata as Record<string, unknown> | null)?.pulseMode;
-  return m === 'morning' || m === 'evening' || m === 'presence' ? m : null;
-}
-
 // Morning: 1 question. Evening: 2 questions. The morning translation
 // key is RESOLVED PER DAY via getMorningPromptKey(today) — see
 // src/lib/morningPrompts.ts. We keep a single-element array here so
@@ -951,35 +902,22 @@ export default function DailyPulseCard({ entries }: Props) {
     );
   }
 
-  // ── Fully complete: both (or just current-mode) pulses done ─────
+  // ── Done with the current mode → render nothing.
+  // PulseNotebookHero (the orchestrator) decides what comes next
+  // (mid-day Presence, then Evening, then nothing). Past pulses
+  // already render in the feed below as PulseEntryCard, so a
+  // collapsed "✓ done" header here would be a duplicate.
   if (currentModePulse) {
-    return (
-      <motion.div layout className="space-y-2">
-        {todayPulses.map((p) => (
-          <motion.div key={p.id} layout>
-            {renderCompletedPulse(p)}
-          </motion.div>
-        ))}
-      </motion.div>
-    );
+    return null;
   }
 
-  // ── Input state — show earlier pulses above if they exist ───────
+  // ── Input state — clean form, no historical headers above.
+  // (Previously stacked any earlier-today pulses on top; that was
+  // duplicating the feed below.)
   const isLastStep = step === totalSteps - 1;
 
   return (
     <div className="space-y-3">
-      {/* Any already-completed pulses from earlier today (e.g. morning
-          when user is composing the evening) stay visible ABOVE the
-          input so the user can review what they reflected on earlier. */}
-      {todayPulses.length > 0 && (
-        <div className="space-y-2">
-          {todayPulses.map((p) => (
-            <div key={p.id}>{renderCompletedPulse(p)}</div>
-          ))}
-        </div>
-      )}
-
       <motion.div
         layout
         className="glass-card rounded-2xl p-5 space-y-5 shadow-warm-md"
