@@ -75,7 +75,16 @@ interface JournalState {
    *  the suggestion sheet when non-null. Cleared by clearGratitudeSuggestion. */
   pendingGratitudeSuggestion: PendingGratitudeSuggestion | null;
   fetchEntries: () => Promise<void>;
-  createEntry: (entry: NewEntryInput) => Promise<JournalEntry>;
+  /** Insert a new journal entry. The optional `skipAutoDetect` flag
+   *  bypasses the background structuring + gratitude detection pass
+   *  on this insert — used by GratitudeSuggestionMount when it writes
+   *  excerpts into the Gratitude notebook, so the gratitude detector
+   *  doesn't recursively detect itself in the snippets and pop a
+   *  second suggestion sheet. */
+  createEntry: (
+    entry: NewEntryInput,
+    options?: { skipAutoDetect?: boolean },
+  ) => Promise<JournalEntry>;
   updateEntry: (id: string, updates: Partial<JournalEntry>) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
   // Optimistically remove from the visible list and schedule the
@@ -178,7 +187,7 @@ export const useJournalStore = create<JournalState>((set, get) => ({
     }
   },
 
-  createEntry: async (input: NewEntryInput) => {
+  createEntry: async (input: NewEntryInput, options?: { skipAutoDetect?: boolean }) => {
     try {
       set({ loading: true, error: null });
       const { data: { session } } = await withTimeout(
@@ -243,6 +252,7 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       // are rendered by PulseEntryCard (structured prompts already)
       // so we don't need the polish pass for them.
       const shouldStructure =
+        !options?.skipAutoDetect &&
         created.entry_type !== 'pulse' &&
         !!created.content_text &&
         created.content_text.trim().length > 5;
@@ -250,6 +260,12 @@ export const useJournalStore = create<JournalState>((set, get) => ({
         (async () => {
           try {
             const { getStructured } = await import('../lib/structureEntry');
+            // Resolve the user's language so the structuring prompt
+            // can preserve it. Without this Gemini would translate
+            // Spanish entries to English under the English-only
+            // prompt's pull. Bug 2 fix.
+            const { useAuthStore: authStoreModule } = await import('./authStore');
+            const lang = authStoreModule.getState().profile?.language ?? 'en-US';
             // guardAgainstUserEdits: if the user has already opened
             // entry-detail and saved a manual edit to content_structured
             // by the time this background call resolves, the SQL
@@ -261,7 +277,7 @@ export const useJournalStore = create<JournalState>((set, get) => ({
                 content_text: created.content_text,
                 content_structured: null,
               },
-              { guardAgainstUserEdits: true },
+              { guardAgainstUserEdits: true, language: lang },
             );
             // Reflect the cached result in the store ONLY if the
             // current in-memory row still has no structured value —
@@ -290,7 +306,8 @@ export const useJournalStore = create<JournalState>((set, get) => ({
               if (excerpts.length > 0) {
                 const { useAuthStore } = await import('./authStore');
                 const profile = useAuthStore.getState().profile;
-                const enabled = profile?.gratitude_auto_detect_enabled ?? true;
+                // Default OFF after 20260509_gratitude_default_off.
+                const enabled = profile?.gratitude_auto_detect_enabled === true;
                 // Don't show on pulse/guided/template-typed entries
                 // either — those are already structured surfaces.
                 const eligibleType =
@@ -467,6 +484,8 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       if (candidates.length === 0) return;
       const slice = candidates.slice(0, cap);
       const { getStructured } = await import('../lib/structureEntry');
+      const { useAuthStore: authStoreModule } = await import('./authStore');
+      const lang = authStoreModule.getState().profile?.language ?? 'en-US';
       for (const entry of slice) {
         try {
           const res = await getStructured(
@@ -478,7 +497,7 @@ export const useJournalStore = create<JournalState>((set, get) => ({
             // Same race protection as the create-time call: if the
             // user manually saved a structured edit while we were
             // working through the queue, don't overwrite it.
-            { guardAgainstUserEdits: true },
+            { guardAgainstUserEdits: true, language: lang },
           );
           // Reflect into the in-memory slice — but only if no edit
           // landed in the meantime.

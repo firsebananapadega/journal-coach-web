@@ -635,20 +635,36 @@ export default function SettingsPage() {
             <button
               type="button"
               role="switch"
-              aria-checked={profile?.gratitude_auto_detect_enabled !== false}
+              aria-checked={profile?.gratitude_auto_detect_enabled === true}
               onClick={async () => {
-                const next = profile?.gratitude_auto_detect_enabled === false;
+                const next = profile?.gratitude_auto_detect_enabled !== true;
+                // Promote / demote the Gratitude notebook to match the
+                // toggle state. After 20260509 the notebook is a normal
+                // project notebook by default; turning auto-detect on
+                // promotes it to a non-deletable system notebook
+                // (the feature relies on a stable destination), and
+                // turning off demotes it back so the user can manage
+                // it like any other notebook.
+                try {
+                  await useNotebookStore
+                    .getState()
+                    .ensureGratitudeNotebook(next ? 'system' : 'project');
+                } catch {
+                  // Fall through — the flag still flips, and a future
+                  // suggestion will defensively re-call this.
+                }
                 await updateProfile({
                   gratitude_auto_detect_enabled: next,
                 } as Partial<Profile>);
+                await useNotebookStore.getState().fetchNotebooks();
               }}
               className={`shrink-0 w-11 h-6 rounded-full p-0.5 transition-colors ${
-                profile?.gratitude_auto_detect_enabled !== false ? 'bg-primary' : 'bg-border'
+                profile?.gratitude_auto_detect_enabled === true ? 'bg-primary' : 'bg-border'
               }`}
             >
               <span
                 className={`block w-5 h-5 rounded-full bg-white shadow-warm-sm transition-transform ${
-                  profile?.gratitude_auto_detect_enabled !== false ? 'translate-x-5' : 'translate-x-0'
+                  profile?.gratitude_auto_detect_enabled === true ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>

@@ -60,10 +60,18 @@ interface NotebookState {
   reorderNotebooks: (orderedIds: string[]) => Promise<void>;
   archiveNotebook: (id: string) => Promise<void>;
   /** Lazily materialize the 'Plans' system notebook. Unlike the
-   *  signup-seeded systems (Journal/Gratitude/Pulse), Plans is only
-   *  created the first time a user saves a WOOP plan. Idempotent —
+   *  signup-seeded systems (Journal/Pulse), Plans is only created
+   *  when the user enables the Plans toggle in Settings. Idempotent —
    *  returns the existing row if one is already on disk or in state. */
   ensurePlansNotebook: () => Promise<Notebook>;
+  /** Promote / demote / create the Gratitude notebook. After
+   *  20260509_gratitude_default_off, Gratitude is no longer seeded as
+   *  a system notebook — it lives as a regular project notebook by
+   *  default. Toggling auto-detect ON in Settings calls this with
+   *  'system' to promote (or create); toggling OFF calls with
+   *  'project' to demote. Idempotent both directions: if the desired
+   *  shape is already present, no DB write happens. */
+  ensureGratitudeNotebook: (kind: 'system' | 'project') => Promise<Notebook>;
   reset: () => void;
 
   // Helpers
@@ -404,5 +412,122 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       throw insertErr;
     }
     throw new Error('Plans notebook not created');
+  },
+
+  ensureGratitudeNotebook: async (kind: 'system' | 'project') => {
+    // Three cases to handle:
+    //   1. A row already exists in state — promote / demote in place
+    //      if it doesn't match the requested kind. Idempotent when
+    //      it does.
+    //   2. No row in state but maybe one in DB (we may not have
+    //      fetched yet, or the user is on a different device).
+    //      Re-select before deciding to insert.
+    //   3. No row anywhere — insert one with the requested shape.
+    const desired =
+      kind === 'system'
+        ? { kind: 'system' as const, system_key: 'gratitude' as const }
+        : { kind: 'project' as const, system_key: null };
+
+    const { data: { session } } = await withTimeout(
+      supabase.auth.getSession(),
+      AUTH_MS,
+      'auth.getSession',
+    );
+    const user = session?.user;
+    if (!user) throw new Error('No authenticated user');
+
+    // Look up existing row — system_key='gratitude' first, then any
+    // project notebook with slug='gratitude' (the common shape after
+    // 20260509 demotion).
+    const cached =
+      get().notebooks.find((n) => n.system_key === 'gratitude') ??
+      get().notebooks.find((n) => n.slug === 'gratitude' && n.system_key == null);
+    if (cached) {
+      // Already the desired shape → no DB write.
+      if (cached.kind === desired.kind && cached.system_key === desired.system_key) {
+        return cached;
+      }
+      const { data: updated, error: updErr } = await withTimeout(
+        supabase
+          .from('notebooks')
+          .update({ ...desired, updated_at: new Date().toISOString() })
+          .eq('id', cached.id)
+          .select()
+          .single(),
+        WRITE_MS,
+        'ensureGratitudeNotebook.update',
+      );
+      if (updErr) throw updErr;
+      const next = updated as Notebook;
+      set({
+        notebooks: get().notebooks.map((n) => (n.id === next.id ? next : n)),
+      });
+      const db = getDB();
+      if (db) await db.notebooks.put(next).catch(() => {});
+      return next;
+    }
+
+    // Not in cache — peek at DB before inserting (avoids dupes when
+    // state is stale).
+    const { data: dbRows } = await withTimeout(
+      supabase
+        .from('notebooks')
+        .select('*')
+        .eq('user_id', user.id)
+        .or('system_key.eq.gratitude,slug.eq.gratitude')
+        .limit(1),
+      READ_MS,
+      'ensureGratitudeNotebook.peek',
+    );
+    const peek = (dbRows as Notebook[] | null)?.[0];
+    if (peek) {
+      // Promote / demote if needed; otherwise just hydrate state.
+      if (peek.kind !== desired.kind || peek.system_key !== desired.system_key) {
+        const { data: updated, error: updErr } = await withTimeout(
+          supabase
+            .from('notebooks')
+            .update({ ...desired, updated_at: new Date().toISOString() })
+            .eq('id', peek.id)
+            .select()
+            .single(),
+          WRITE_MS,
+          'ensureGratitudeNotebook.peek.update',
+        );
+        if (updErr) throw updErr;
+        const next = updated as Notebook;
+        set({ notebooks: [...get().notebooks.filter((n) => n.id !== next.id), next] });
+        const db = getDB();
+        if (db) await db.notebooks.put(next).catch(() => {});
+        return next;
+      }
+      set({ notebooks: [...get().notebooks.filter((n) => n.id !== peek.id), peek] });
+      return peek;
+    }
+
+    // Nothing exists — create fresh in the requested shape.
+    const sortAfter = (get().notebooks[get().notebooks.length - 1]?.sort_order ?? 10) + 1;
+    const row = {
+      user_id: user.id,
+      name: 'Gratitude',
+      slug: 'gratitude',
+      color: '#7CA585',
+      icon: 'heart',
+      kind: desired.kind,
+      system_key: desired.system_key,
+      is_default: false,
+      sort_order: sortAfter,
+      archived: false,
+    };
+    const { data: inserted, error: insertErr } = await withTimeout(
+      supabase.from('notebooks').insert(row).select().single(),
+      WRITE_MS,
+      'ensureGratitudeNotebook.insert',
+    );
+    if (insertErr) throw insertErr;
+    const created = inserted as Notebook;
+    set({ notebooks: [...get().notebooks, created] });
+    const db = getDB();
+    if (db) await db.notebooks.put(created).catch(() => {});
+    return created;
   },
 }));

@@ -37,12 +37,38 @@ const STRUCTURE_MODEL = 'gemini-2.5-flash';
 const TIMEOUT_MS = 25_000;
 const RETRY_DELAY_MS = 1_000;
 
-function buildPrompt(raw: string, dictionary: string[]): string {
+function buildPrompt(
+  raw: string,
+  dictionary: string[],
+  language: 'en-US' | 'es-MX',
+): string {
   const dictBlock =
     dictionary.length > 0
       ? `\n\nDICTIONARY (preserve these spellings exactly; correct the transcript to match when it's obviously the same word mis-transcribed):\n${dictionary.map((w) => `- ${w}`).join('\n')}`
       : '';
-  return `You are polishing a voice-dictated journal entry for readability. Output is Markdown (followed by a single gratitude-detection footer — see the end of this prompt). Polished output will be rendered with react-markdown + remark-gfm.
+  // Locale instruction is a HARD rule — Gemini has otherwise been
+  // observed to translate Spanish entries into English when the rest
+  // of the prompt is English-only. Both the polished Markdown AND the
+  // [GRATITUDE] excerpts must stay in the user's input language.
+  const isSpanish = language === 'es-MX';
+  const localeBlock = isSpanish
+    ? `\n\nLANGUAGE (HARD RULE): The user writes in Spanish (es-MX). The polished Markdown AND the [GRATITUDE] excerpts MUST be returned in Spanish, verbatim from the author's wording. Do NOT translate to English under any circumstance. Do NOT add English glosses.`
+    : `\n\nLANGUAGE (HARD RULE): The user writes in English (en-US). Keep the polished Markdown AND the [GRATITUDE] excerpts in English, in the author's voice.`;
+  // Locale-aware gratitude anchors so the detector has Spanish phrases
+  // to match against when the entry is in Spanish.
+  const gratitudeAnchors = isSpanish
+    ? `Sincere expressions to INCLUDE (Spanish, in the author's words):
+- "estoy agradecido…" / "estoy agradecida…"
+- "qué afortunado…" / "qué afortunada…"
+- "qué bonito que…"
+- "me alegra mucho que…"
+- "me da gusto…"
+- "me siento bendecido/a por…"`
+    : `Sincere expressions to INCLUDE:
+- "I'm thankful…" / "I'm grateful…" / "I'm so glad…" / "I'm happy that…"
+- "I'm really glad the trip came together"
+- "thankful about my wife today"`;
+  return `You are polishing a voice-dictated journal entry for readability. Output is Markdown (followed by a single gratitude-detection footer — see the end of this prompt). Polished output will be rendered with react-markdown + remark-gfm.${localeBlock}
 
 CONTENT RULES (non-negotiable):
 - Do NOT summarize, condense, or omit ANY content. Every idea in the raw must appear in the output.
@@ -82,10 +108,9 @@ OUTPUT FORMAT (CRITICAL — both parts required, in this order):
 2. THEN, on its own line at the very end, this footer exactly:
    [GRATITUDE]: <JSON array>
 
-The JSON array contains 0–2 sincere first-person gratitude expressions from the AUTHOR. Sincere means: the AUTHOR is genuinely thankful FOR something in their own life. INCLUDE expressions like:
-- "I'm thankful…" / "I'm grateful…" / "I'm so glad…" / "I'm happy that…"
-- "I'm really glad the trip came together"
-- "thankful about my wife today"
+The JSON array contains 0–2 sincere first-person gratitude expressions from the AUTHOR. Sincere means: the AUTHOR is genuinely thankful FOR something in their own life.
+
+${gratitudeAnchors}
 
 EXCLUDE:
 - Sarcasm ("oh great, more traffic", "yeah I'm so thankful for that")
@@ -221,6 +246,12 @@ export interface GetStructuredOptions {
    *  create-time background call sets this to true. Manual / Re-polish
    *  paths leave it false (they want their write to land). */
   guardAgainstUserEdits?: boolean;
+  /** User's preferred language. Threaded into the Gemini prompt so
+   *  the polished Markdown + the gratitude excerpts come back in that
+   *  language. Without this, the English-only prompt was causing
+   *  Gemini to translate Spanish entries to English. Defaults to
+   *  en-US when omitted. */
+  language?: 'en-US' | 'es-MX';
 }
 
 /**
@@ -266,7 +297,7 @@ export async function getStructured(
   }
 
   const dict = await loadVoiceDictionary();
-  const prompt = buildPrompt(raw, dict);
+  const prompt = buildPrompt(raw, dict, options.language ?? 'en-US');
 
   // Generation with retry. Up to 2 attempts on transient errors. On
   // truncation (Gemini hit maxOutputTokens) we also retry once — the

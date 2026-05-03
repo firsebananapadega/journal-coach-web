@@ -48,28 +48,48 @@ export default function GratitudeSuggestionMount() {
   };
 
   const handleSave = async (accepted: string[]) => {
-    if (!gratitudeId) {
-      // No system gratitude notebook — just dismiss. (Shouldn't
-      // happen — the seed migration creates it — but defensive.)
-      clear();
-      return;
+    // Resolve the destination notebook. After 20260509 the gratitude
+    // notebook is created on demand (no longer seeded), so it may be
+    // null at this point if the user just enabled auto-detect for the
+    // first time and hasn't opened the toggle path that promotes it.
+    // Defensive auto-restore: ask notebookStore to ensure a system
+    // gratitude notebook exists before writing.
+    let destId = gratitudeId;
+    if (!destId) {
+      try {
+        const nb = await useNotebookStore.getState().ensureGratitudeNotebook('system');
+        destId = nb.id;
+      } catch (err) {
+        console.warn('[GratitudeSuggestionMount] could not materialize gratitude notebook', err);
+        clear();
+        return;
+      }
     }
     // One Gratitude entry per accepted excerpt. Each carries a
     // backlink to the source via metadata.source_entry_id so a
     // future "open source" affordance can navigate without a
     // fragile text search.
+    //
+    // skipAutoDetect: the excerpt itself reads as gratitude language
+    // (that's how it got selected), so without this flag the
+    // structureEntry → gratitude detector would re-detect it and pop
+    // a second suggestion sheet over the new entry → user accepts →
+    // duplicate row in Gratitude. Bug 1 fix.
     for (const excerpt of accepted) {
       try {
-        await createEntry({
-          entry_type: 'freeform',
-          content_text: excerpt,
-          notebook_id: gratitudeId,
-          word_count: excerpt.split(/\s+/).filter(Boolean).length,
-          metadata: {
-            source_entry_id: pending.sourceEntryId,
-            kind: 'gratitude_extract',
+        await createEntry(
+          {
+            entry_type: 'freeform',
+            content_text: excerpt,
+            notebook_id: destId,
+            word_count: excerpt.split(/\s+/).filter(Boolean).length,
+            metadata: {
+              source_entry_id: pending.sourceEntryId,
+              kind: 'gratitude_extract',
+            },
           },
-        });
+          { skipAutoDetect: true },
+        );
       } catch (err) {
         console.warn('[GratitudeSuggestionMount] failed to save excerpt', err);
       }

@@ -136,11 +136,14 @@ export default function EntryDetailPage() {
     setStructuring(true);
     (async () => {
       try {
-        const res = await getStructured({
-          id: entry.id,
-          content_text: entry.content_text,
-          content_structured: entry.content_structured,
-        });
+        const res = await getStructured(
+          {
+            id: entry.id,
+            content_text: entry.content_text,
+            content_structured: entry.content_structured,
+          },
+          { language: getLanguage() },
+        );
         if (cancelled) return;
         setEntry((prev) =>
           prev ? { ...prev, content_structured: res.text, structured_generated_at: new Date().toISOString() } : prev,
@@ -545,7 +548,7 @@ export default function EntryDetailPage() {
                           content_text: entry.content_text,
                           content_structured: entry.content_structured,
                         },
-                        { force: true },
+                        { force: true, language: getLanguage() },
                       );
                       // Drop the new polish into the editor; user can
                       // tweak further before tapping Save.
