@@ -23,6 +23,22 @@ interface NavSlot {
 
 // SVG icons inline so we don't depend on the existing NavIcon's icon
 // set (which doesn't include mic or chat). Stroke-based, 24px.
+// Calendar-with-dot — Today's center-pill glyph. Same SVG the
+// TabIcon('today') case renders, lifted into its own component so
+// the center pill can render it at size 22 alongside PencilBookIcon
+// for the journal wall.
+function TodayIcon({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <circle cx="12" cy="15" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
 // Open-book glyph — used for the Notebooks tab pill (small line icon)
 // and, at larger sizes, anywhere a "reading / shelf of entries" affordance
 // is needed. Symmetrical spine with two pages; the short horizontal
@@ -195,13 +211,15 @@ export function WallNav() {
   // Wall Edge Tab (right edge), so all five slots are in-wall pages.
   const slots: NavSlot[] = activeWall === 'tasks'
     ? [
-        { href: '/today', key: 'today', labelKey: 'tab.today' },
+        // Today and Notebooks were originally in slots 0 and 2; swapped
+        // so the user's primary daily surface (Today) gets the raised
+        // center treatment and Notebooks slides into the side pill.
+        // The voice-capture entry point still lives per-tab via
+        // CaptureMicButton; it's never been in the center pill on this
+        // arrangement.
+        { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks' },
         { href: '/lists', key: 'lists', labelKey: 'tab.lists' },
-        // Tasks wall center now goes to /notebooks so the user can
-        // reach Plans / Gratitude / project notebooks from anywhere
-        // without flipping walls. The voice-capture entry point used
-        // to live here; it's now per-tab via CaptureMicButton.
-        { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks', isCenter: true },
+        { href: '/today', key: 'today', labelKey: 'tab.today', isCenter: true },
         { href: '/upcoming', key: 'upcoming', labelKey: 'tab.upcoming' },
         { href: '/groceries', key: 'groceries', labelKey: 'tab.groceries' },
       ]
@@ -233,12 +251,12 @@ export function WallNav() {
           // tap, not a generic chat bubble).
           if (slot.isCenter) {
             // Both walls render the center slot as a raised primary
-            // action. Tasks wall → BookIcon (the notebooks shelf, since
-            // the center now routes to /notebooks). Journal wall →
-            // PencilBookIcon (the writing surface at /journal).
-            // Voice-capture entry on the tasks wall lives per-tab via
-            // CaptureMicButton; no longer the center-nav role.
-            const CenterIcon = activeWall === 'journal' ? PencilBookIcon : BookIcon;
+            // action. Tasks wall → TodayIcon (the daily focus surface
+            // at /today). Journal wall → PencilBookIcon (the writing
+            // surface at /journal). Voice-capture entry on the tasks
+            // wall lives per-tab via CaptureMicButton; no longer the
+            // center-nav role.
+            const CenterIcon = activeWall === 'journal' ? PencilBookIcon : TodayIcon;
             return (
               <Link
                 key={slot.key}
