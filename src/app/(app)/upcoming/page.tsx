@@ -17,6 +17,7 @@ import { CalendarWeekList } from '@/components/CalendarWeekList';
 import { CalendarMonthGrid } from '@/components/CalendarMonthGrid';
 import { TaskCard } from '@/components/TaskCard';
 import { TaskEditSheet } from '@/components/TaskEditSheet';
+import CaptureMicButton from '@/components/CaptureMicButton';
 import { t } from '@/lib/translations';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { getLanguage } from '@/lib/language';
@@ -263,6 +264,10 @@ export default function UpcomingPage() {
         task={quadrantTask}
         onClose={() => setQuadrantTask(null)}
       />
+
+      {/* Voice-mic FAB — AI-routed capture. The existing "+ New"
+          inline-form button in the header stays for typed entry. */}
+      <CaptureMicButton />
     </div>
   );
 }

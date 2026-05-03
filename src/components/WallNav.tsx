@@ -23,16 +23,6 @@ interface NavSlot {
 
 // SVG icons inline so we don't depend on the existing NavIcon's icon
 // set (which doesn't include mic or chat). Stroke-based, 24px.
-function MicIcon({ size = 22 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-      <line x1="12" x2="12" y1="19" y2="22" />
-    </svg>
-  );
-}
-
 // Open-book glyph — used for the Notebooks tab pill (small line icon)
 // and, at larger sizes, anywhere a "reading / shelf of entries" affordance
 // is needed. Symmetrical spine with two pages; the short horizontal
@@ -207,7 +197,11 @@ export function WallNav() {
     ? [
         { href: '/today', key: 'today', labelKey: 'tab.today' },
         { href: '/lists', key: 'lists', labelKey: 'tab.lists' },
-        { href: '/voice', key: 'capture', labelKey: 'tab.capture', isCenter: true },
+        // Tasks wall center now goes to /notebooks so the user can
+        // reach Plans / Gratitude / project notebooks from anywhere
+        // without flipping walls. The voice-capture entry point used
+        // to live here; it's now per-tab via CaptureMicButton.
+        { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks', isCenter: true },
         { href: '/upcoming', key: 'upcoming', labelKey: 'tab.upcoming' },
         { href: '/groceries', key: 'groceries', labelKey: 'tab.groceries' },
       ]
@@ -239,10 +233,12 @@ export function WallNav() {
           // tap, not a generic chat bubble).
           if (slot.isCenter) {
             // Both walls render the center slot as a raised primary
-            // action. Tasks wall → mic. Journal wall → pencil-on-book
-            // (the writing surface at /journal). Notebooks (shelf) uses
-            // the plain book glyph on its own tab pill.
-            const CenterIcon = activeWall === 'journal' ? PencilBookIcon : MicIcon;
+            // action. Tasks wall → BookIcon (the notebooks shelf, since
+            // the center now routes to /notebooks). Journal wall →
+            // PencilBookIcon (the writing surface at /journal).
+            // Voice-capture entry on the tasks wall lives per-tab via
+            // CaptureMicButton; no longer the center-nav role.
+            const CenterIcon = activeWall === 'journal' ? PencilBookIcon : BookIcon;
             return (
               <Link
                 key={slot.key}

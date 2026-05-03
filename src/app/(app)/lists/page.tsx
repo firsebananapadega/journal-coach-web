@@ -29,6 +29,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useListStore, type ListRecord } from '@/stores/listStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { t } from '@/lib/translations';
+import CaptureMicButton from '@/components/CaptureMicButton';
 
 export default function ListsPage() {
   const lists = useListStore((s) => s.lists);
@@ -300,6 +301,11 @@ export default function ListsPage() {
           </p>
         )
       )}
+
+      {/* Voice-mic FAB — AI routes the transcript to the right list /
+          inbox / today. The existing "+ New" header button stays for
+          users who want to create a fresh list by typing. */}
+      <CaptureMicButton />
     </div>
   );
 }

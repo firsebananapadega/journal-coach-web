@@ -217,6 +217,12 @@ const translations: Record<string, Record<Locale, string>> = {
   'tab.journal': { en: 'Journal', es: 'Diario' },
   'tab.notebooks': { en: 'Notebooks', es: 'Cuadernos' },
 
+  // ─── Voice-mic FAB / inline capture button ───
+  'capture.mic.aria': {
+    en: 'Voice capture',
+    es: 'Captura por voz',
+  },
+
   // ─── Notebooks tab ───
   'notebooks.title': { en: 'Notebooks', es: 'Cuadernos' },
   'notebooks.subtitle': {

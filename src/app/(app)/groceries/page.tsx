@@ -21,6 +21,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import GroceryShareSheet from '@/components/GroceryShareSheet';
 import { AddGrocerySheet } from '@/components/AddGrocerySheet';
+import CaptureMicButton from '@/components/CaptureMicButton';
 
 export default function GroceriesPage() {
   return (
@@ -369,6 +370,11 @@ function GroceriesInner() {
 
       <GroceryShareSheet open={shareOpen} onClose={() => setShareOpen(false)} />
       <AddGrocerySheet open={addItemOpen} onClose={() => setAddItemOpen(false)} />
+
+      {/* Voice-mic FAB — AI auto-routes grocery items into the active
+          list. The existing "+" header button (typed AddGrocerySheet)
+          stays for users who'd rather type. */}
+      <CaptureMicButton />
     </div>
   );
 }

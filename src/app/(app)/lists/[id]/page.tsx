@@ -32,6 +32,7 @@ import { TaskCard } from '@/components/TaskCard';
 import { TaskEditSheet } from '@/components/TaskEditSheet';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import InboxTriageStrip from '@/components/InboxTriageStrip';
+import CaptureMicButton from '@/components/CaptureMicButton';
 import { useUiStore } from '@/stores/uiStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { prefersReducedMotion } from '@/lib/motionVariants';
@@ -315,8 +316,11 @@ export default function ListDetailPage({ params }: PageProps) {
         />
       )}
 
-      {/* Add task */}
-      <div className="flex gap-2">
+      {/* Add task — typed input + "+" button + voice mic. The mic
+          opens /voice for AI-routed capture; transcripts that classify
+          as tasks land in this list automatically because /voice
+          remembers the active list context. */}
+      <div className="flex items-center gap-2">
         <input
           value={newText}
           onChange={(e) => setNewText(e.target.value)}
@@ -327,10 +331,11 @@ export default function ListDetailPage({ params }: PageProps) {
         <button
           onClick={handleAdd}
           disabled={adding || !newText.trim()}
-          className="px-4 py-3 bg-primary text-white rounded-xl text-sm font-semibold disabled:opacity-40"
+          className="shrink-0 px-4 py-3 bg-primary text-white rounded-xl text-sm font-semibold disabled:opacity-40"
         >
           {adding ? '…' : '+'}
         </button>
+        <CaptureMicButton variant="inline" />
       </div>
 
       {/* List | Matrix toggle */}

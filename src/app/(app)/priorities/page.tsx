@@ -39,6 +39,7 @@ import { isOverdue } from '@/lib/overdueUtils';
 import { useAuthStore } from '@/stores/authStore';
 import { usePlanStore } from '@/stores/planStore';
 import ActivePlanCard from '@/components/plans/ActivePlanCard';
+import CaptureMicButton from '@/components/CaptureMicButton';
 
 function buildWeekDates(): Date[] {
   const today = new Date();
@@ -579,6 +580,11 @@ export default function PrioritiesPage() {
         onClose={() => setAddTaskOpen(false)}
         defaultDueDate={selectedDate}
       />
+
+      {/* Voice-mic FAB — opens /voice for AI-routed capture. The
+          existing typed "+" in the header still opens AddTaskSheet
+          for users who'd rather type. */}
+      <CaptureMicButton />
     </div>
   );
 }
