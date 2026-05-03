@@ -24,6 +24,7 @@ import NotebookSettingsSheet from '@/components/notebooks/NotebookSettingsSheet'
 import PlansNotebookHero from '@/components/plans/PlansNotebookHero';
 import WoopSheet from '@/components/plans/WoopSheet';
 import { usePlanStore } from '@/stores/planStore';
+import GratitudeDailyCard from './GratitudeDailyCard';
 
 // Build the plain-text view of any entry (pulse + freeform + guided)
 // that the user will paste after swiping to copy. Prefers the polished
@@ -440,6 +441,18 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
             <PlansNotebookHero onTapMake={() => setWoopOpen(true)} />
           )}
 
+          {/* Gratitude daily-ritual card — slug-detected so it works
+              for both project (default) AND system (auto-detect on)
+              kinds. The structured 3-slot card replaces freeform
+              entry on this notebook; the composer FAB is hidden
+              below for the same reason. */}
+          {activeNotebook && (
+            activeNotebook.slug === 'gratitude'
+            || activeNotebook.system_key === 'gratitude'
+          ) && (
+            <GratitudeDailyCard notebookId={activeNotebook.id} />
+          )}
+
           {/* Day groups */}
           <AnimatePresence mode="popLayout">
             {grouped.length === 0 && (
@@ -522,11 +535,13 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
 
       {/* Floating + button — bottom-right, above the WallNav's
           Patterns tab. Raised high enough that the WallNav + iOS
-          home indicator never crowd it. Hidden on Pulse + Plans (both
-          are non-freeform-write surfaces) and while the composer
-          overlay is up. */}
+          home indicator never crowd it. Hidden on Pulse + Plans +
+          Gratitude (all non-freeform-write surfaces) and while the
+          composer overlay is up. */}
       {activeNotebook?.system_key !== 'pulse'
         && activeNotebook?.system_key !== 'plans'
+        && activeNotebook?.slug !== 'gratitude'
+        && activeNotebook?.system_key !== 'gratitude'
         && !composerOpen && (
         <motion.button
           type="button"

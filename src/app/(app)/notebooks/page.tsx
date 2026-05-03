@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
   DndContext,
@@ -57,6 +58,36 @@ export default function NotebooksIndexPage() {
   const hasFetchedEntries = useJournalStore((s) => s.hasFetched);
 
   const showToast = useUiStore((s) => s.showToast);
+  const router = useRouter();
+
+  // Discoverability tile for the daily-gratitude ritual: only show
+  // when the user has no slug='gratitude' notebook yet (first-run
+  // state for new users — existing users keep the demoted project
+  // notebook from 20260509). Tap creates a project notebook and
+  // navigates so the GratitudeDailyCard surfaces immediately.
+  const hasGratitude = useMemo(
+    () => notebooks.some((n) => n.slug === 'gratitude'),
+    [notebooks],
+  );
+  const [creatingGratitude, setCreatingGratitude] = useState(false);
+  const startGratitudePractice = useCallback(async () => {
+    if (creatingGratitude) return;
+    setCreatingGratitude(true);
+    try {
+      await createNotebook({
+        name: 'Gratitude',
+        slug: 'gratitude',
+        icon: 'heart',
+        color: '#7CA585',
+      });
+      router.push('/notebooks/gratitude');
+    } catch (err) {
+      console.warn('[notebooks] startGratitudePractice failed', err);
+      showToast(t('common.error'), 'error');
+    } finally {
+      setCreatingGratitude(false);
+    }
+  }, [creatingGratitude, createNotebook, router, showToast]);
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -184,6 +215,35 @@ export default function NotebooksIndexPage() {
             )
           )}
         </div>
+
+        {/* Start-the-practice tile — opt-in entry point for the daily
+            gratitude ritual. Hidden once the notebook exists (the
+            ritual lives inside it from then on). Hidden in reorder
+            mode so it can't get caught up in drag math. */}
+        {!reordering && !hasGratitude && hasFetchedNotebooks && (
+          <button
+            type="button"
+            onClick={startGratitudePractice}
+            disabled={creatingGratitude}
+            className="w-full text-left flex items-center gap-3 p-3.5 rounded-2xl border border-dashed border-primary/40 bg-primary/5 hover:border-primary/70 hover:bg-primary/10 transition-colors disabled:opacity-60"
+          >
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-primary/15 text-primary"
+              aria-hidden
+            >
+              <span className="text-xl">✦</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-text-primary">
+                {t('gratitude.daily.startPractice')}
+              </p>
+              <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
+                {t('gratitude.daily.startPracticeHint')}
+              </p>
+            </div>
+            <span className="text-text-tertiary text-sm shrink-0">›</span>
+          </button>
+        )}
 
         {reordering ? (
           <DndContext

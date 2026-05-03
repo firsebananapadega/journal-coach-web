@@ -21,7 +21,16 @@ const AUTH_MS = 8000;
 export interface JournalEntry {
   id: string;
   user_id: string;
-  entry_type: 'voice' | 'template' | 'guided' | 'freeform' | 'pulse' | 'check_in' | 'practice';
+  entry_type:
+    | 'voice'
+    | 'template'
+    | 'guided'
+    | 'freeform'
+    | 'pulse'
+    | 'check_in'
+    | 'practice'
+    | 'plan'
+    | 'gratitude';
   title: string | null;
   content_text: string | null;
   template_id: string | null;
@@ -108,6 +117,16 @@ interface JournalState {
   /** Dismisses the pending gratitude suggestion. Called by the sheet
    *  on Skip and on successful Save. */
   clearGratitudeSuggestion: () => void;
+  /** Upsert today's structured gratitude entry. Looks up by
+   *  metadata.gratitude_date matching the user's local YYYY-MM-DD,
+   *  updates that row if present, otherwise inserts. Always passes
+   *  skipAutoDetect:true so the structuring/detection pass never
+   *  runs on a gratitude row (would loop on the gratitude language
+   *  the user just typed). Returns the resulting entry on success. */
+  upsertTodayGratitude: (input: {
+    notebookId: string;
+    items: Array<{ what: string; why: string }>;
+  }) => Promise<JournalEntry | null>;
   reset: () => void;
 }
 
@@ -462,6 +481,79 @@ export const useJournalStore = create<JournalState>((set, get) => ({
     })),
 
   clearGratitudeSuggestion: () => set({ pendingGratitudeSuggestion: null }),
+
+  upsertTodayGratitude: async ({ notebookId, items }) => {
+    // User's local YYYY-MM-DD — keying off the entry's created_at::date
+    // would lie at the day boundary because Supabase stores timestamptz
+    // and the user could be many timezones away from UTC.
+    const today = (() => {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    })();
+
+    // Drop empty 'what' entries; keep partials when at least one is
+    // present (Hick's Law — don't force all 3 every day).
+    const trimmed = items
+      .map((it) => ({ what: it.what.trim(), why: it.why.trim() }))
+      .filter((it) => it.what.length > 0);
+    if (trimmed.length === 0) return null;
+
+    // Plain-text rendering for content_text (search, fallback render,
+    // future export). Numbered, em-dash separator for the optional why.
+    const contentText = trimmed
+      .map((it, i) =>
+        it.why ? `${i + 1}. ${it.what} — ${it.why}` : `${i + 1}. ${it.what}`,
+      )
+      .join('\n');
+
+    const wordCount = contentText.split(/\s+/).filter(Boolean).length;
+
+    // Look for today's existing row in-memory. The store is the
+    // source of truth (fetchEntries already loaded the user's
+    // recent set), so this is a synchronous find — no extra round
+    // trip.
+    const existing = get().entries.find(
+      (e) =>
+        e.entry_type === 'gratitude' &&
+        (e.metadata as { gratitude_date?: string } | null)?.gratitude_date === today,
+    );
+
+    if (existing) {
+      const mergedMeta = {
+        ...((existing.metadata as Record<string, unknown> | null) ?? {}),
+        gratitude_items: trimmed,
+        gratitude_date: today,
+      };
+      await get().updateEntry(existing.id, {
+        content_text: contentText,
+        word_count: wordCount,
+        metadata: mergedMeta,
+      });
+      // Re-read after update to return the canonical row.
+      return get().entries.find((e) => e.id === existing.id) ?? null;
+    }
+
+    return await get().createEntry(
+      {
+        entry_type: 'gratitude',
+        notebook_id: notebookId,
+        content_text: contentText,
+        word_count: wordCount,
+        metadata: {
+          gratitude_items: trimmed,
+          gratitude_date: today,
+        },
+      },
+      // Belt-and-braces — the structuring pass should never run on a
+      // gratitude row (would loop on the gratitude language the user
+      // just typed). Reuses the flag added in the recent gratitude
+      // bug-fix.
+      { skipAutoDetect: true },
+    );
+  },
 
   backfillStructured: async (cap = 5) => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;

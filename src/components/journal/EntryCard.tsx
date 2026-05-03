@@ -40,6 +40,46 @@ export default function EntryCard({ entry }: Props) {
     return <PulseEntryCard entry={entry} />;
   }
 
+  // Gratitude entries — structured 1./2./3. list rendered from
+  // metadata.gratitude_items so the daily-card shape carries through
+  // the feed. Falls back to raw content_text when metadata is missing
+  // (legacy / hand-edited rows).
+  if (entry.entry_type === 'gratitude') {
+    const items = (entry.metadata as { gratitude_items?: Array<{ what: string; why?: string }> } | null)
+      ?.gratitude_items;
+    if (items && items.length > 0) {
+      return (
+        <motion.article
+          initial={prefersReducedMotion ? undefined : { opacity: 0, y: 4 }}
+          animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+          transition={{ duration: 0.24, ease: 'easeOut' }}
+          className="relative bg-surface-elevated border border-border rounded-2xl p-4 shadow-warm-sm"
+        >
+          <header className="flex items-center justify-between mb-2">
+            <span className="text-[10px] uppercase tracking-widest text-text-tertiary flex items-center gap-1.5">
+              <span aria-hidden>✦</span>
+              {t('gratitude.daily.entryBadge')}
+            </span>
+            <span className="text-[10px] uppercase tracking-widest text-text-tertiary">
+              {formatTime(entry.created_at)}
+            </span>
+          </header>
+          <ol className="space-y-2 list-none">
+            {items.map((it, i) => (
+              <li key={i} className="text-sm leading-relaxed">
+                <span className="text-text-tertiary mr-1.5 tabular-nums">{i + 1}.</span>
+                <span className="text-text-primary font-medium">{it.what}</span>
+                {it.why && (
+                  <span className="text-text-secondary"> — {it.why}</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </motion.article>
+      );
+    }
+  }
+
   const structured = (entry.content_structured ?? '').trim();
   const raw = (entry.content_text ?? '').trim();
   const displayed = structured || raw;

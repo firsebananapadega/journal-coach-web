@@ -1204,6 +1204,61 @@ const translations: Record<string, Record<Locale, string>> = {
     es: 'Guardado en Gratitud',
   },
 
+  // ── Daily gratitude card (Three Good Things) ─────────────────
+  'gratitude.daily.title': {
+    en: 'Three good things',
+    es: 'Tres cosas buenas',
+  },
+  'gratitude.daily.prompt': {
+    en: 'What are you grateful for today? A small specific moment beats a vague category.',
+    es: '¿Por qué estás agradecido hoy? Un momento pequeño y específico vale más que una categoría vaga.',
+  },
+  'gratitude.daily.placeholder1': {
+    en: "Maria made me orange juice this morning",
+    es: 'María me preparó jugo de naranja esta mañana',
+  },
+  'gratitude.daily.placeholder2': {
+    en: 'a small thing today, not "my family"',
+    es: 'algo pequeño de hoy, no "mi familia"',
+  },
+  'gratitude.daily.placeholder3': {
+    en: 'one more if it comes to you',
+    es: 'una más si se te ocurre',
+  },
+  'gratitude.daily.whyPlaceholder': {
+    en: 'why this mattered (optional)',
+    es: 'por qué importó (opcional)',
+  },
+  'gratitude.daily.save': {
+    en: "Save today's three",
+    es: 'Guardar las tres de hoy',
+  },
+  'gratitude.daily.savedToast': {
+    en: 'Saved your gratitude',
+    es: 'Guardamos tu gratitud',
+  },
+  'gratitude.daily.saveFailed': {
+    en: "Couldn't save. Try again?",
+    es: 'No se pudo guardar. ¿Reintentar?',
+  },
+  'gratitude.daily.done': {
+    en: "Today's three",
+    es: 'Tus tres de hoy',
+  },
+  'gratitude.daily.edit': { en: 'Edit', es: 'Editar' },
+  'gratitude.daily.entryBadge': {
+    en: 'Three good things',
+    es: 'Tres cosas buenas',
+  },
+  'gratitude.daily.startPractice': {
+    en: 'Start a daily gratitude practice',
+    es: 'Empieza una práctica diaria de gratitud',
+  },
+  'gratitude.daily.startPracticeHint': {
+    en: 'Three small things, every day. No streaks, no pressure.',
+    es: 'Tres cosas pequeñas, cada día. Sin rachas, sin presión.',
+  },
+
   // ── Settings: gratitude auto-detect ──────────────────────────
   'settings.gratitude.title': { en: 'Gratitude', es: 'Gratitud' },
   'settings.gratitude.toggleLabel': {
