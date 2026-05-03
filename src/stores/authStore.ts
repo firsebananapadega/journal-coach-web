@@ -83,9 +83,32 @@ export interface Profile {
    *  reminder pushes) that needs to localize. Set during onboarding;
    *  changeable in Settings. */
   language: 'en-US' | 'es-MX';
+  /** Onboarding v2 — multi-select intent chips from Screen 2.
+   *  Drives feature-flag auto-flips (plans / guided / gratitude
+   *  notebook) at signup time so the user lands on a personalized
+   *  home screen. Empty array means user skipped or is pre-v2. */
+  brought_you_here: string[];
+  /** Onboarding v2 — single-select chip from Screen 3.
+   *  Pre-fills the matching pulse-reminder time when the user
+   *  grants notifications on Screen 5. 'anytime' = no auto-fill. */
+  preferred_reflection_time: 'morning' | 'midday' | 'evening' | 'anytime';
   created_at: string;
   updated_at: string;
 }
+
+/** Intent chip keys for `brought_you_here`. Source of truth — both
+ *  the BroughtYouHereStep UI and the auto-flip logic in
+ *  completeOnboarding read these. */
+export type IntentChip =
+  | 'reflection_habit'
+  | 'goals'
+  | 'gratitude'
+  | 'feelings'
+  | 'plans'
+  | 'exploring';
+
+/** Reflection-time chip keys for `preferred_reflection_time`. */
+export type ReflectionTime = 'morning' | 'midday' | 'evening' | 'anytime';
 
 interface AuthState {
   session: Session | null;
@@ -109,6 +132,14 @@ interface AuthState {
     intentions: string[],
     preferredGuide?: string,
     primaryUse?: PrimaryUse,
+    /** v2 personalization fields. Optional so legacy callers
+     *  (sign-up flow) keep working; the new onboarding page passes
+     *  them. Auto-flips inside completeOnboarding key off these. */
+    onboardingV2?: {
+      broughtYouHere?: IntentChip[];
+      reflectionTime?: ReflectionTime;
+      pushGranted?: boolean;
+    },
   ) => Promise<void>;
   setPreferredGuide: (guideId: string) => Promise<void>;
 }
@@ -410,6 +441,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     intentions: string[],
     preferredGuide?: string,
     primaryUse?: PrimaryUse,
+    onboardingV2?: {
+      broughtYouHere?: IntentChip[];
+      reflectionTime?: ReflectionTime;
+      pushGranted?: boolean;
+    },
   ) => {
     try {
       const user = get().user;
@@ -424,6 +460,53 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const stored = window.localStorage.getItem('app_language');
         if (stored === 'es-MX' || stored === 'en-US') chosenLanguage = stored;
       }
+
+      // ── Onboarding v2 — feature-flag auto-flips ────────────────
+      // Map intent chips → opt-in feature flags so the user lands
+      // on a personalized home screen instead of a blank slate.
+      // Each flag also has its own Settings toggle so users can
+      // change their mind later; this is just the default state at
+      // signup time.
+      const v2Picks = onboardingV2?.broughtYouHere ?? [];
+      const reflectionTime: ReflectionTime =
+        onboardingV2?.reflectionTime ?? 'anytime';
+      const wantsPlans =
+        v2Picks.includes('plans') || v2Picks.includes('goals');
+      const wantsGuided = v2Picks.includes('feelings');
+
+      // ── Notification reminder pre-fill ─────────────────────────
+      // Only if the user actually granted permission on Screen 5.
+      // Otherwise we leave notification_preferences alone (existing
+      // defaults stay applied). The map: the user's reflection-time
+      // pick determines which mode gets pre-flipped.
+      const existingPrefs =
+        (get().profile?.notification_preferences as
+          | {
+              morning_reminder?: boolean;
+              evening_reminder?: boolean;
+              presence_reminder?: boolean;
+              reminder_times?: { morning?: string; evening?: string; presence?: string };
+            }
+          | null
+          | undefined) ?? {};
+      let nextPrefs = existingPrefs;
+      if (onboardingV2?.pushGranted && reflectionTime !== 'anytime') {
+        const times = { ...(existingPrefs.reminder_times ?? {}) };
+        const next = { ...existingPrefs };
+        if (reflectionTime === 'morning') {
+          next.morning_reminder = true;
+          times.morning = times.morning ?? '08:00';
+        } else if (reflectionTime === 'midday') {
+          next.presence_reminder = true;
+          times.presence = times.presence ?? '13:00';
+        } else if (reflectionTime === 'evening') {
+          next.evening_reminder = true;
+          times.evening = times.evening ?? '21:30';
+        }
+        next.reminder_times = times;
+        nextPrefs = next;
+      }
+
       const { data, error } = await withTimeout(
         supabase
           .from('profiles')
@@ -435,6 +518,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             primary_use: primaryUse ?? 'both',
             language: chosenLanguage,
             onboarding_completed: true,
+            // v2 personalization
+            brought_you_here: v2Picks,
+            preferred_reflection_time: reflectionTime,
+            // Auto-flipped feature flags (gated on intent-chip picks)
+            plans_enabled: wantsPlans,
+            guided_enabled: wantsGuided,
+            // Reminder pre-fill (only when push was granted)
+            notification_preferences: nextPrefs,
             updated_at: new Date().toISOString(),
           })
           .eq('id', user.id)
@@ -445,6 +536,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       );
       if (error) throw error;
       set({ profile: data as Profile });
+
+      // Side-effects that aren't profile-column writes — fire after
+      // the row update so the profile is the source of truth at the
+      // moment the user lands on /today. notebookStore primitives
+      // are idempotent; skipping them is harmless.
+      if (v2Picks.includes('gratitude')) {
+        try {
+          const { useNotebookStore } = await import('./notebookStore');
+          await useNotebookStore.getState().ensureGratitudeNotebook('system');
+        } catch {
+          /* non-blocking — user can still tap Gratitude later */
+        }
+      }
+      if (wantsPlans) {
+        try {
+          const { useNotebookStore } = await import('./notebookStore');
+          await useNotebookStore.getState().ensurePlansNotebook();
+        } catch {
+          /* non-blocking */
+        }
+      }
     } catch (error: unknown) {
       set({ error: error instanceof Error ? error.message : 'Failed to complete onboarding' });
       throw error;
