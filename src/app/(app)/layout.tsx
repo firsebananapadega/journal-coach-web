@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Link from 'next/link';
@@ -8,20 +8,13 @@ import { t } from '@/lib/translations';
 import LoadingScreen from '@/components/LoadingScreen';
 import UIOverlayRoot from '@/components/ui/UIOverlayRoot';
 import { useTheme } from '@/lib/theme';
-import { WallShell } from '@/components/WallShell';
 import { WallNav } from '@/components/WallNav';
-import { wallForPath } from '@/lib/wallState';
 import GuideTour from '@/components/tour/GuideTour';
 import TabFirstVisitPopup from '@/components/onboarding/TabFirstVisitPopup';
 import GratitudeSuggestionMount from '@/components/journal/GratitudeSuggestionMount';
 import OfflineIndicator from '@/components/OfflineIndicator';
 import { drainOutbox } from '@/lib/syncQueue';
 import { useUiStore } from '@/stores/uiStore';
-
-// Wall-home destinations used when redirecting a user who has
-// scoped to a single wall but landed on the other side.
-const TASKS_HOME = '/today';
-const JOURNAL_HOME = '/home';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -36,68 +29,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // mic / resumed thread). The guided page sets this flag itself.
   const guidedImmersive = useUiStore((s) => s.guidedImmersive);
 
-  // ── Wall guard ──────────────────────────────────────────────────
-  //
-  // Computed during render (synchronously) so the wrong-wall page
-  // NEVER paints. Two layers:
-  //
-  //   (a) primary_use scope (always-on): tasks-only or journal-only
-  //       users who land on the other wall via deep-link / restored
-  //       URL get bounced immediately.
-  //
-  //   (b) cold-start / resume wallState restore: when a wall page is
-  //       mounted on cold start OR when the PWA is brought back from
-  //       background, check wallState.v1.activeWall and redirect if
-  //       the incoming URL is on a different wall.
-  //
-  // Why a useRef + visibility/pageshow listeners instead of the prior
-  // sessionStorage flag: iOS keeps PWAs alive in background longer
-  // than the user expects. Tap the icon to "reopen" and what actually
-  // happens is a resume — the JS context is preserved, sessionStorage
-  // is preserved, and the cached cold-start flag from the previous
-  // session blocked the guard from re-running. Resulting in a flash
-  // of /home (with the weekly-letter banner) before the redirect.
-  //
-  // The new approach:
-  //   - useRef tracks "guard pending". Refs survive renders but reset
-  //     on a true JS-context reload (full PWA kill+open).
-  //   - pageshow with persisted=true (bfcache restore) AND
-  //     visibilitychange→visible (any background→foreground) reset
-  //     the ref to true and force a re-render. The guard fires again,
-  //     and if URL is on the wrong wall it redirects.
-  //   - The mark-consumed effect flips the ref to false AFTER each
-  //     wall-aware render, so in-session navigation between walls
-  //     (taps on the WallEdgeTab) is unaffected.
-  //
-  // Both branches always return the wall HOME (/today or /home), not
-  // the last-visited sub-tab — per user request.
-  const wallCheckPending = useRef(true);
-  // Bumping this nonce forces a re-render after pageshow / visibility
-  // events flip the ref above. Refs alone don't schedule a render.
-  const [resumeNonce, setResumeNonce] = useState(0);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const reCheck = () => {
-      wallCheckPending.current = true;
-      setResumeNonce((n) => n + 1);
-    };
-    const onPageShow = (e: PageTransitionEvent) => {
-      // Only bfcache restore — initial pageshow is already covered
-      // by the mount path. Without this filter we'd fire an extra
-      // (harmless) render on every fresh load.
-      if (e.persisted) reCheck();
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') reCheck();
-    };
-    window.addEventListener('pageshow', onPageShow);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      window.removeEventListener('pageshow', onPageShow);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, []);
+  // PR 2 retired the dual-wall guard machinery (wantedWallRedirect,
+  // pageshow/visibilitychange resume listeners, primary_use scope
+  // bouncing). With one wall there's nothing to bounce between.
+  // Auth + onboarding + offline drain still live here.
 
   // Offline outbox drain triggers — fire on every reasonable
   // "we might be online again" signal. drainOutbox is idempotent and
@@ -114,60 +49,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const wantedWallRedirect = (() => {
-    if (!initialized || !profile) return null;
-
-    const currentWall = wallForPath(pathname);
-    if (currentWall === null) return null;
-
-    // (a) primary_use scope — ALWAYS fires (not gated on wallCheckPending).
-    //
-    // The previous version of this code gated branch (a) on the
-    // cold-start ref, which meant a Settings change to primary_use
-    // (after cold-start was consumed) didn't trigger a redirect.
-    // Result: user toggles "tasks only" while on /home, the
-    // WallEdgeTab disappears, but they stay stuck on /home until
-    // they manually navigate. Branch (a) is a permanent invariant
-    // (scope-only users never belong on the other wall) — gating it
-    // on a cold-start flag was a bug.
-    if (profile.primary_use === 'tasks' && currentWall === 'journal') return TASKS_HOME;
-    if (profile.primary_use === 'journal' && currentWall === 'tasks') return JOURNAL_HOME;
-
-    // Notification deep-link flag — when the SW navigates here from a
-    // tapped notification, it appends ?n=1 to the target URL. Skip the
-    // wallState restore so the user actually lands on the URL the
-    // notification pointed at, instead of being yanked to whichever
-    // wall they had open last. Branch (a) above still applies because
-    // primary_use is a permanent scope, not session state. The strip
-    // effect below removes the param after consumption.
-    //
-    // Reading window.location instead of useSearchParams: the latter
-    // would force every (app) page to require a Suspense boundary or
-    // opt out of static prerendering. Window-based reads are
-    // client-only (the layout is 'use client') and skip cleanly on
-    // the server prerender path.
-    if (
-      typeof window !== 'undefined' &&
-      new URLSearchParams(window.location.search).get('n') === '1'
-    ) {
-      return null;
-    }
-
-    // (b) wallState restore — only applies on cold-start / resume.
-    if (!wallCheckPending.current) return null;
-    if (typeof window === 'undefined') return null;
-    try {
-      const raw = window.localStorage.getItem('wallState.v1');
-      if (!raw) return null;
-      const p = JSON.parse(raw) as { activeWall?: string };
-      if (p.activeWall === 'tasks' && currentWall === 'journal') return TASKS_HOME;
-      if (p.activeWall === 'journal' && currentWall === 'tasks') return JOURNAL_HOME;
-    } catch {
-      /* parse failure — leave them on whatever URL they landed on */
-    }
-    return null;
-  })();
-
   useEffect(() => {
     if (!initialized) return;
     if (!session) {
@@ -175,40 +56,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
     // Force users through onboarding if they haven't completed it —
-    // covers the case where a user lands on /home or any (app) route
-    // directly (e.g. via a deep link) while onboarding_completed is
-    // still false. RootPage has a mirror check for '/'.
+    // covers the case where a user lands on any (app) route directly
+    // while onboarding_completed is still false. RootPage has a
+    // mirror check for '/'.
     if (profile && !profile.onboarding_completed) {
       router.replace('/auth/onboarding');
       return;
     }
+  }, [initialized, session, profile, router]);
 
-    // Wall guard — fire whatever redirect the synchronous render
-    // calculation above asked for (covers both primary_use scope AND
-    // cold-start wallState restore).
-    if (wantedWallRedirect) {
-      router.replace(wantedWallRedirect);
-    }
-  }, [initialized, session, profile, pathname, router, wantedWallRedirect]);
-
-  // Mark the wall check consumed AFTER the render that may have
-  // computed a non-null redirect target. The ref flip happens on
-  // commit — refs don't trigger re-renders, so there's no extra
-  // paint between the redirect's router.replace firing and the new
-  // pathname's render. Subsequent in-session navigations between
-  // walls flow through this effect (pathname dep changes) but the
-  // guard returns null because the ref is already false. The ref
-  // flips back to true only when pageshow/visibilitychange listeners
-  // fire (PWA resume) — handled in the effect above.
-  useEffect(() => {
-    if (!initialized || !profile) return;
-    wallCheckPending.current = false;
-  }, [initialized, profile, pathname, resumeNonce]);
-
-  // Strip the SW-injected ?n=1 flag once we've consumed it for the
-  // wall-restore skip above. Keeping it in the URL would leak it into
-  // shared links, the address bar, and back-button history. The ref
-  // guard prevents repeating on subsequent re-renders.
+  // Strip the SW-injected ?n=1 flag — used to flag notification
+  // deep-links so the (now-deleted) wall guard could skip redirects.
+  // The flag is stale post-PR-2 but we still strip it from the URL
+  // so it doesn't leak into shared links / history.
   const stripNotifFlagRef = useRef(false);
   useEffect(() => {
     if (stripNotifFlagRef.current) return;
@@ -220,21 +80,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   }, [pathname, router]);
-
-  // Companion to the inline `wall-pending` script in src/app/layout.tsx.
-  // The inline script puts the class on at pagehide so iOS's bfcache
-  // snapshot ships with the body hidden by CSS. On resume the inline
-  // script removes the class synchronously when the URL is on the
-  // correct wall — but when it's NOT, React owns the redirect and the
-  // class has to stay until we land on the right wall. This effect
-  // performs the removal once the wall guard has resolved and we're
-  // about to render real content.
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    if (initialized && !wantedWallRedirect) {
-      document.documentElement.classList.remove('wall-pending');
-    }
-  }, [initialized, wantedWallRedirect, pathname]);
 
   // Guide-matched theme — applies [data-guide-theme="{id}"] to the
   // document root only when (a) toggle is on AND (b) user has a guide
@@ -291,7 +136,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [profile]);
 
-  if (!initialized || !session || wantedWallRedirect) {
+  if (!initialized || !session) {
     return <LoadingScreen />;
   }
 
@@ -331,11 +176,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Same pattern for /lists/[id] — the list-detail page renders its
   // own gear that opens list-scoped settings (rename, icon, delete).
   const isInsideList = /^\/lists\/[^/]+/.test(pathname);
-
-  // Pages without a wall (e.g. /settings) skip the flip animation so
-  // they don't visually flip in/out when the user taps the gear from
-  // a wall page. Render them inline.
-  const isOnWall = wallForPath(pathname) !== null;
 
   // For hideNav (full-screen) routes, the outer must match the
   // VISIBLE viewport so iOS doesn't pan the document when an input
@@ -392,7 +232,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           h-full propagates to a definite height and overflow-y-auto
           kicks in for long content. */}
       <main className={`flex-1 min-h-0 ${hideNav ? '' : 'pb-36'}`}>
-        {hideNav || !isOnWall ? children : <WallShell>{children}</WallShell>}
+        {children}
       </main>
 
       {!hideNav && <WallNav />}

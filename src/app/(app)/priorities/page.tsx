@@ -40,6 +40,9 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePlanStore } from '@/stores/planStore';
 import ActivePlanCard from '@/components/plans/ActivePlanCard';
 import CaptureMicButton from '@/components/CaptureMicButton';
+import Link from 'next/link';
+import { useLettersStore, type ArchiveItem } from '@/stores/lettersStore';
+import { getGuideOrDefault } from '@/lib/guideConfigs';
 
 function buildWeekDates(): Date[] {
   const today = new Date();
@@ -165,23 +168,41 @@ export default function PrioritiesPage() {
     fetchLists();
   }, [fetchScheduled, fetchLists]);
 
-  // Tasks-only users land here as their daily home — surface the
-  // active WOOP plan card if they have one. Journal/both users see the
-  // same card on /home; this mount is exclusive to primary_use='tasks'
-  // so the card doesn't double-render on /priorities for users who
-  // also have /home in rotation.
+  // /today is the single landing page after PR 2's wall collapse.
+  // Surface the active WOOP plan card here for any user with a plan
+  // (gated only by plans_enabled now — primary_use is retired).
   const profile = useAuthStore((s) => s.profile);
   const activePlan = usePlanStore((s) => s.active);
   const fetchActivePlan = usePlanStore((s) => s.fetchActive);
-  const showPlanCard =
-    profile?.plans_enabled === true
-    && profile?.primary_use === 'tasks'
-    && !!activePlan;
+  const showPlanCard = profile?.plans_enabled === true && !!activePlan;
   useEffect(() => {
-    if (profile?.plans_enabled === true && profile?.primary_use === 'tasks') {
+    if (profile?.plans_enabled === true) {
       void fetchActivePlan();
     }
-  }, [profile?.plans_enabled, profile?.primary_use, fetchActivePlan]);
+  }, [profile?.plans_enabled, fetchActivePlan]);
+
+  // Unread-letter card — relocated from the (retired) /home in PR 2.
+  // Surfaces the freshest weekly / monthly / quarterly letter the user
+  // hasn't opened yet. Tapping marks it seen + routes to /letters/[id].
+  const letters = useLettersStore((s) => s.letters);
+  const patterns = useLettersStore((s) => s.patterns);
+  const quarterlies = useLettersStore((s) => s.quarterlies);
+  const lettersHasFetched = useLettersStore((s) => s.hasFetched);
+  const fetchLetters = useLettersStore((s) => s.fetchLetters);
+  const markLetterSeen = useLettersStore((s) => s.markSeen);
+  useEffect(() => {
+    void fetchLetters();
+  }, [fetchLetters]);
+  const unreadItem: ArchiveItem | null = useMemo(() => {
+    const merged: ArchiveItem[] = [
+      ...letters.map((l) => ({ kind: 'weekly' as const, ...l })),
+      ...patterns.map((p) => ({ kind: 'monthly' as const, ...p })),
+      ...quarterlies.map((q) => ({ kind: 'quarterly' as const, ...q })),
+    ];
+    const sorted = merged.sort((a, b) => (a.generated_at < b.generated_at ? 1 : -1));
+    return sorted.find((i) => !i.seen_at) ?? null;
+  }, [letters, patterns, quarterlies]);
+  const guide = getGuideOrDefault(profile?.preferred_guide);
   const scheduledForSelectedDate = useMemo(
     () =>
       scheduledTasks
@@ -289,6 +310,56 @@ export default function PrioritiesPage() {
           {new Date().toLocaleDateString(getLanguage(), { weekday: 'long', month: 'long', day: 'numeric' })}
         </p>
       </div>
+
+      {/* Unread letter spotlight — relocated from /home in PR 2. The
+          freshest weekly / monthly / quarterly letter the user hasn't
+          opened yet. Quarterly cards get the strongest tint because
+          they only land ~4×/year. Gated on lettersHasFetched so the
+          card doesn't pop in/out during the fetch window. */}
+      {lettersHasFetched && unreadItem && (() => {
+        const isMonthly = unreadItem.kind === 'monthly';
+        const isQuarterly = unreadItem.kind === 'quarterly';
+        const gradientClass = isQuarterly
+          ? 'bg-gradient-to-br from-primary/30 via-primary/15 to-transparent border-primary/55 hover:border-primary/80'
+          : isMonthly
+          ? 'bg-gradient-to-br from-primary/20 via-primary/10 to-transparent border-primary/40 hover:border-primary/70'
+          : 'bg-gradient-to-br from-primary/15 via-primary/10 to-transparent border-primary/30 hover:border-primary/60';
+        const headerGlyph = isQuarterly ? '✺' : isMonthly ? '✦' : '\u{1F48C}';
+        const kindBadge = isQuarterly
+          ? 'New quarterly letter'
+          : isMonthly
+          ? 'New monthly pattern'
+          : 'New letter';
+        const titleLine = isQuarterly
+          ? `${guide.name}: a season in review`
+          : isMonthly
+          ? `${guide.name}: a month of patterns`
+          : `${guide.name} wrote you a letter`;
+        const previewText =
+          unreadItem.kind === 'monthly' ? unreadItem.narrative : unreadItem.letter_text;
+        return (
+          <Link
+            href={`/letters/${unreadItem.id}`}
+            onClick={() => markLetterSeen(unreadItem.id, unreadItem.kind)}
+            className={`block relative rounded-2xl border p-4 transition-colors ${gradientClass}`}
+          >
+            <span
+              aria-hidden
+              className="absolute top-3 right-3 inline-block w-2.5 h-2.5 rounded-full bg-primary"
+            />
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xl" aria-hidden>{headerGlyph}</span>
+              <span className="text-[11px] uppercase tracking-widest text-primary font-bold">
+                {kindBadge}
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-text-primary">{titleLine}</p>
+            <p className="text-xs text-text-secondary mt-1 line-clamp-2">
+              {previewText.slice(0, 160)}…
+            </p>
+          </Link>
+        );
+      })()}
 
       {showPlanCard && <ActivePlanCard />}
 

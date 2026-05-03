@@ -1291,6 +1291,36 @@ const translations: Record<string, Record<Locale, string>> = {
     es: 'Abrir cuaderno de Planes',
   },
 
+  // ── Settings: Patterns link (replaces journal-wall Patterns tab) ─
+  'settings.patterns.title': { en: 'Reflections archive', es: 'Archivo de reflexiones' },
+  'settings.patterns.linkLabel': {
+    en: 'Patterns & letters',
+    es: 'Patrones y cartas',
+  },
+  'settings.patterns.linkHint': {
+    en: 'Weekly letters, monthly patterns, and quarterly reviews from your guide.',
+    es: 'Cartas semanales, patrones mensuales y revisiones trimestrales de tu guía.',
+  },
+
+  // ── Settings: Guided sessions toggle ────────────────────────
+  'settings.guided.title': { en: 'Guided sessions', es: 'Sesiones guiadas' },
+  'settings.guided.toggleLabel': {
+    en: 'Enable guided sessions',
+    es: 'Activar sesiones guiadas',
+  },
+  'settings.guided.toggleHint': {
+    en: 'Conversational reflection with your guide (Naikan, NVC, AAR). On-demand — no daily reminders.',
+    es: 'Reflexión conversacional con tu guía (Naikan, CNV, AAR). A pedido — sin recordatorios diarios.',
+  },
+  'settings.guided.openSession': {
+    en: 'Open Guided sessions',
+    es: 'Abrir sesiones guiadas',
+  },
+  'guided.entry.cta': {
+    en: 'Start a guided session',
+    es: 'Comenzar sesión guiada',
+  },
+
   // ── Plans notebook hero ──────────────────────────────────────
   'plans.notebookHero.title': { en: 'Plans', es: 'Planes' },
   'plans.notebookHero.description': {

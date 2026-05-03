@@ -54,12 +54,14 @@ export default function OnboardingPage() {
   const [installView, setInstallView] = useState<'overview' | 'carousel'>('overview');
   const [error, setError] = useState('');
 
-  // 3-screen onboarding (was 5). GuideStep moved to /guided first
-  // visit so users pick their guide in context. NameStep dropped —
-  // we already have the Google name and 'Friend' is a fine default
-  // for users who skip it. Same flow regardless of bucket.
+  // PR 2 retired the journal wall, which makes the primary_use
+  // selector vestigial. Onboarding skips that step entirely; the
+  // submit handler still defaults the field to 'both' so backend
+  // reads (e.g. tour bucket logic) keep working. Onboarding
+  // redesign ("what brought you here?") is queued as a separate
+  // follow-up task.
   const flow = useMemo<StepKey[]>(() => {
-    return ['welcome', 'primaryUse', 'install'];
+    return ['welcome', 'install'];
   }, []);
 
   const stepIndex = flow.indexOf(stepKey);

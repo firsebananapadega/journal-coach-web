@@ -26,7 +26,6 @@ import { useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { useWallState } from '@/lib/wallState';
 import { type GuideId } from '@/lib/guideConfigs';
 import { t } from '@/lib/translations';
 import { useTourStore } from '@/lib/tourStore';
@@ -39,7 +38,6 @@ export default function GuideTour() {
   const pathname = usePathname();
   const profile = useAuthStore((s) => s.profile);
   const updateProfile = useAuthStore((s) => s.updateProfile);
-  const activeWall = useWallState((s) => s.activeWall);
 
   const active = useTourStore((s) => s.active);
   const stepIdx = useTourStore((s) => s.stepIdx);
@@ -147,17 +145,10 @@ export default function GuideTour() {
   }, [active, step, setAnchorRect]);
 
   // ── Wall-changed auto-advance ────────────────────────────────
-  // The wallSwitchToTasks step opts into this — when the user taps
-  // the highlighted wall edge tab themselves (instead of Next), the
-  // wall flips, this fires, and we advance.
-  const prevWallRef = useRef(activeWall);
-  useEffect(() => {
-    if (!active) return;
-    if (step?.autoAdvance === 'wall-changed' && activeWall !== prevWallRef.current) {
-      advance();
-    }
-    prevWallRef.current = activeWall;
-  }, [activeWall, active, step, advance]);
+  // PR 2 retired the wall-flip mechanism; the 'wall-changed'
+  // auto-advance trigger no longer fires (single wall now). Tour
+  // steps that previously used this auto-advance fall back to the
+  // user tapping Next to continue.
 
   // ── Anchor wiggle ────────────────────────────────────────────
   useEffect(() => {

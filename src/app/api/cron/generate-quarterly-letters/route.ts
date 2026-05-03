@@ -147,10 +147,8 @@ async function processUser(
 ): Promise<{ userId: string; status: string; error?: string }> {
   const userId = profile.id;
 
-  // primary_use 'tasks' = user opted out of journaling side. Skip.
-  if (profile.primary_use === 'tasks') {
-    return { userId, status: 'gate-tasks-only' };
-  }
+  // PR 2 retired the primary_use scope — quarterly letters are
+  // available to all users.
 
   // Eligibility — research-backed gates so we don't fire a 90-day
   // narrative-arc letter at someone who's been around 4 days. See

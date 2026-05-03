@@ -170,11 +170,9 @@ async function processUser(
     return { userId, status: 'cadence-off' };
   }
 
-  // primary_use 'tasks' = user opted out of the journaling side
-  // entirely (Settings toggle or onboarding). No letters for them.
-  if (profile.primary_use === 'tasks') {
-    return { userId, status: 'gate-tasks-only' };
-  }
+  // PR 2 retired the primary_use scope. Letter eligibility now
+  // depends only on cadence + entry-age + account-age, not on a
+  // tasks/journal pre-filter.
 
   // Eligibility — see src/lib/server/eligibility.ts.
   const ageCheck = checkAccountAge(profile.created_at, ELIGIBILITY.weekly.accountAgeDays);

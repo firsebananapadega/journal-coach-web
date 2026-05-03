@@ -26,6 +26,8 @@ import WoopSheet from '@/components/plans/WoopSheet';
 import { usePlanStore } from '@/stores/planStore';
 import GratitudeDailyCard from './GratitudeDailyCard';
 import PulseNotebookHero from './PulseNotebookHero';
+import GuidedEntryPoint from './GuidedEntryPoint';
+import { useAuthStore } from '@/stores/authStore';
 
 // Build the plain-text view of any entry (pulse + freeform + guided)
 // that the user will paste after swiping to copy. Prefers the polished
@@ -155,6 +157,9 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
   // because nothing outside this component needs to open it.
   const [woopOpen, setWoopOpen] = useState(false);
   const fetchActivePlan = usePlanStore((s) => s.fetchActive);
+  // Guided sessions entry-point gate — only mounted on the Journal
+  // notebook when the user has opted in via Settings.
+  const guidedEnabled = useAuthStore((s) => s.profile?.guided_enabled === true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerStartRef = useRef<number>(Date.now());
   // Ref on the scrollable feed container — captures the user's scroll
@@ -461,6 +466,14 @@ export default function BookPage({ lockedSlug, backHref }: Props) {
               restructure. */}
           {activeNotebook?.system_key === 'pulse' && (
             <PulseNotebookHero entries={entries} />
+          )}
+
+          {/* Guided sessions entry point — only on the Journal
+              notebook AND only when the user has opted in via the
+              Settings toggle. PR 2 folded /guided's nav-tab into
+              this shape. */}
+          {activeNotebook?.system_key === 'journal' && guidedEnabled && (
+            <GuidedEntryPoint />
           )}
 
           {/* Day groups */}

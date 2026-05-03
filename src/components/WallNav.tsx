@@ -25,8 +25,7 @@ interface NavSlot {
 // set (which doesn't include mic or chat). Stroke-based, 24px.
 // Calendar-with-dot — Today's center-pill glyph. Same SVG the
 // TabIcon('today') case renders, lifted into its own component so
-// the center pill can render it at size 22 alongside PencilBookIcon
-// for the journal wall.
+// the center pill can render it at size 22.
 function TodayIcon({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -52,25 +51,6 @@ function BookIcon({ size = 22 }: { size?: number }) {
       <line x1="7" y1="10" x2="9.5" y2="10" opacity="0.7" />
       <line x1="14.5" y1="7" x2="17" y2="7" opacity="0.7" />
       <line x1="14.5" y1="10" x2="17" y2="10" opacity="0.7" />
-    </svg>
-  );
-}
-
-// Pencil-on-book glyph for the Journal center pill — reading icons
-// read "Notebooks" (shelf / reference) while writing icons read
-// "Journal" (the act of capturing). A closed journal with a pencil
-// resting diagonally across it says "open this to write" at a glance.
-function PencilBookIcon({ size = 22 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      {/* Closed journal — soft-rounded rectangle with a spine strap */}
-      <path d="M5 4.5A2.5 2.5 0 0 1 7.5 2h9A2.5 2.5 0 0 1 19 4.5v15A2.5 2.5 0 0 1 16.5 22h-9A2.5 2.5 0 0 1 5 19.5v-15Z" />
-      <line x1="8" y1="6.5" x2="14" y2="6.5" opacity="0.55" />
-      <line x1="8" y1="10" x2="13" y2="10" opacity="0.55" />
-      {/* Pencil — tip lower-left, eraser upper-right, resting across the journal */}
-      <path d="M15.5 12.5l4-4 2 2-4 4" />
-      <path d="M15.5 12.5l-1.6 3.8 3.8-1.6" />
-      <line x1="18" y1="10" x2="20" y2="12" opacity="0.55" />
     </svg>
   );
 }
@@ -200,47 +180,21 @@ function TabIcon({ name, size = 20 }: { name: string; size?: number }) {
 
 export function WallNav() {
   const pathname = usePathname();
-  const activeWall = useWallState((s) => s.activeWall);
   const setTab = useWallState((s) => s.setTab);
-  const setJournalTab = useWallState((s) => s.setJournalTab);
 
   const currentTab = tabForPath(pathname);
 
-  // Build the slot layout for the active wall. Index 2 is always the
-  // raised center action button. The wall-flip mechanism lives on the
-  // Wall Edge Tab (right edge), so all five slots are in-wall pages.
-  const slots: NavSlot[] = activeWall === 'tasks'
-    ? [
-        // Today and Notebooks were originally in slots 0 and 2; swapped
-        // so the user's primary daily surface (Today) gets the raised
-        // center treatment and Notebooks slides into the side pill.
-        // The voice-capture entry point still lives per-tab via
-        // CaptureMicButton; it's never been in the center pill on this
-        // arrangement.
-        { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks' },
-        { href: '/lists', key: 'lists', labelKey: 'tab.lists' },
-        { href: '/today', key: 'today', labelKey: 'tab.today', isCenter: true },
-        { href: '/upcoming', key: 'upcoming', labelKey: 'tab.upcoming' },
-        { href: '/groceries', key: 'groceries', labelKey: 'tab.groceries' },
-      ]
-    : [
-        // Journal wall — 5 slots so the center Journal pill sits
-        // actually centered. Slot 3 is the Guided Session (Ben asks
-        // questions, you reply). Mid-day Presence pause folded into
-        // the Pulse tab (slot 0). PR 1 of the wall restructure:
-        // Pulse now points at /notebooks/pulse (the Pulse hero
-        // moved into its own notebook). /home still exists as a
-        // legacy landing while the journal wall lives.
-        { href: '/notebooks/pulse', key: 'pulse', labelKey: 'tab.pulse' },
-        { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks' },
-        { href: '/journal', key: 'journal', labelKey: 'tab.journal', isCenter: true },
-        // DISABLED: intentions tab (kept for revert).
-        // { href: '/intentions', key: 'intentions', labelKey: 'tab.intentions' },
-        // DISABLED: standalone presence tab (functionality moved into Pulse).
-        // { href: '/presence', key: 'presence', labelKey: 'tab.presence' },
-        { href: '/guided', key: 'guided', labelKey: 'tab.guided' },
-        { href: '/patterns', key: 'patterns', labelKey: 'tab.patterns' },
-      ];
+  // PR 2 retired the dual-wall machinery. The single nav now hosts
+  // five tabs with Today as the raised center pill. Pulse / Plans /
+  // Gratitude / Journal / Patterns + Letters / Guided all live
+  // inside notebooks or Settings now.
+  const slots: NavSlot[] = [
+    { href: '/notebooks', key: 'notebooks', labelKey: 'tab.notebooks' },
+    { href: '/lists', key: 'lists', labelKey: 'tab.lists' },
+    { href: '/today', key: 'today', labelKey: 'tab.today', isCenter: true },
+    { href: '/upcoming', key: 'upcoming', labelKey: 'tab.upcoming' },
+    { href: '/groceries', key: 'groceries', labelKey: 'tab.groceries' },
+  ];
 
   return (
     <nav className="fixed bottom-0 inset-x-0 glass-card z-50">
@@ -252,13 +206,9 @@ export function WallNav() {
           // (so the user sees who they're about to talk to before they
           // tap, not a generic chat bubble).
           if (slot.isCenter) {
-            // Both walls render the center slot as a raised primary
-            // action. Tasks wall → TodayIcon (the daily focus surface
-            // at /today). Journal wall → PencilBookIcon (the writing
-            // surface at /journal). Voice-capture entry on the tasks
-            // wall lives per-tab via CaptureMicButton; no longer the
-            // center-nav role.
-            const CenterIcon = activeWall === 'journal' ? PencilBookIcon : TodayIcon;
+            // Single wall after PR 2 — center pill is always Today.
+            // Voice-capture lives per-tab via CaptureMicButton.
+            const CenterIcon = TodayIcon;
             return (
               <Link
                 key={slot.key}
@@ -280,8 +230,10 @@ export function WallNav() {
             );
           }
 
-          // Normal tab pill. On click, also persist the new last-tab
-          // for this wall so the edge-tab flip returns here.
+          // Normal tab pill. On click, persist last-tab for cold-start
+          // restoration. PR 2 narrowed the persisted set — only the
+          // current five tabs are valid; setTab is a no-op for any
+          // other key.
           const isActive = currentTab === slot.key;
           return (
             <Link
@@ -290,21 +242,13 @@ export function WallNav() {
               data-tour={`tab-${slot.key}`}
               onClick={() => {
                 if (
-                  activeWall === 'tasks' &&
-                  (slot.key === 'today' ||
-                    slot.key === 'lists' ||
-                    slot.key === 'upcoming' ||
-                    slot.key === 'groceries')
+                  slot.key === 'today' ||
+                  slot.key === 'lists' ||
+                  slot.key === 'notebooks' ||
+                  slot.key === 'upcoming' ||
+                  slot.key === 'groceries'
                 ) {
-                  setTab('tasks', slot.key);
-                } else if (
-                  activeWall === 'journal' &&
-                  (slot.key === 'pulse' ||
-                    slot.key === 'notebooks' ||
-                    slot.key === 'guided' ||
-                    slot.key === 'patterns')
-                ) {
-                  setJournalTab(slot.key);
+                  setTab(slot.key);
                 }
               }}
               className="relative flex-1 flex flex-col items-center gap-1 py-1"

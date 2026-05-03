@@ -249,17 +249,3 @@ textarea:focus-visible {
   transform-origin: center bottom;
 }
 
-/* iOS PWA bfcache wrong-wall flash mitigation. The inline script in
-   src/app/layout.tsx adds `wall-pending` to <html> on pagehide so the
-   bfcache snapshot taken by iOS hides the previous-wall content the
-   moment the cached frame is repainted on resume. The class is removed
-   either synchronously by the inline script (when the URL is on the
-   correct wall) or by AppLayout's effect after React redirects.
-   Visibility cascades, but a descendant can override — that's how
-   .loading-screen-root stays visible inside the hidden body tree. */
-html.wall-pending body > * {
-  visibility: hidden;
-}
-html.wall-pending .loading-screen-root {
-  visibility: visible;
-}

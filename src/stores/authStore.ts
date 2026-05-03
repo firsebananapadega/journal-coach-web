@@ -69,6 +69,11 @@ export interface Profile {
    *  everything UI-side without deleting any plan rows. Existing users
    *  with an active plan were backfilled to true at migration time. */
   plans_enabled: boolean;
+  /** Settings toggle for the Guided sessions feature (Naikan / NVC /
+   *  AAR conversations on /guided). Default OFF — opt-in. When ON,
+   *  /guided is reachable AND a "Start a guided session" button
+   *  surfaces inside /notebooks/journal. */
+  guided_enabled: boolean;
   /** Asked during onboarding — determines which wall (Journal / Tasks)
    *  loads on first app open. After that, wallState localStorage owns
    *  the default. */

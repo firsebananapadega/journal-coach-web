@@ -415,6 +415,19 @@ export default function GuidedSessionPage() {
   const fetchEntryById = useJournalStore((s) => s.fetchEntryById);
   const { entries } = useJournalStore();
 
+  // PR 2 — Guided sessions are an opt-in feature now. If the toggle
+  // is off, redirect to /today (the single landing). The route still
+  // exists so the in-app entry point button works the moment the
+  // user flips guided_enabled in Settings.
+  useEffect(() => {
+    if (profile && profile.guided_enabled !== true) {
+      router.replace('/today');
+    }
+  }, [profile, router]);
+  if (profile && profile.guided_enabled !== true) {
+    return null;
+  }
+
   const getGuideGreeting = useCallback(() => {
     const tod = getTimeOfDay();
     const localizedGreetings = getLocalizedGreetings(guide.id, getLocale());

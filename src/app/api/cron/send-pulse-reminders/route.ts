@@ -332,13 +332,10 @@ export async function POST(req: Request) {
     const eveningTime = prefs.reminder_times?.evening || DEFAULT_EVENING_TIME;
     const presenceTime = prefs.reminder_times?.presence || DEFAULT_PRESENCE_TIME;
 
-    // Tasks-only users opted out of journaling entirely. No pulse
-    // reminders for them even if the toggles are stale-on from
-    // before they switched.
-    if (p.primary_use === 'tasks') {
-      results.push({ userId: p.id, status: 'gate-tasks-only' });
-      continue;
-    }
+    // PR 2 retired the primary_use scope — pulse reminders fire for
+    // any user whose individual mode toggles are on. The opt-in for
+    // pulse-as-a-feature is each toggle in Settings, not a global
+    // tasks/journal switch.
 
     let fired = false;
 

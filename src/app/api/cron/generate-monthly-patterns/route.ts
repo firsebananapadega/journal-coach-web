@@ -144,10 +144,8 @@ async function processUser(
 ): Promise<{ userId: string; status: string; error?: string }> {
   const userId = profile.id;
 
-  // primary_use 'tasks' = user opted out of journaling side. Skip.
-  if (profile.primary_use === 'tasks') {
-    return { userId, status: 'gate-tasks-only' };
-  }
+  // PR 2 retired the primary_use scope — monthly patterns are
+  // available to all users.
 
   // Eligibility — see src/lib/server/eligibility.ts.
   const ageCheck = checkAccountAge(profile.created_at, ELIGIBILITY.monthly.accountAgeDays);

@@ -11,7 +11,6 @@ import { useHabitStore } from '@/stores/habitStore';
 import { useJournalStore } from '@/stores/journalStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useTheme } from '@/lib/theme';
-import { useWallState } from '@/lib/wallState';
 import { GuideSelector } from '@/components/GuideSelector';
 import { getGuideOrDefault, ALL_GUIDES } from '@/lib/guideConfigs';
 import { getLanguage, getLocale, setLanguage, LANGUAGES, type AppLanguage } from '@/lib/language';
@@ -133,100 +132,15 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Use this app for — three-way segmented control. Mirrors the
-          onboarding choice (Tasks / Both / Journal) and lets the user
-          retune any time. Affects: wall switcher visibility, layout
-          wall-scope guard, letter cron eligibility. */}
-      <motion.div {...sectionMotion} className="space-y-2">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
-          Use this app for
-        </h2>
-        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-3">
-          {(() => {
-            const current: PrimaryUse =
-              profile?.primary_use === 'tasks' ||
-              profile?.primary_use === 'journal' ||
-              profile?.primary_use === 'both'
-                ? profile.primary_use
-                : 'both';
-            const options: Array<{ value: PrimaryUse; label: string }> = [
-              { value: 'tasks', label: 'Tasks' },
-              { value: 'both', label: 'Both' },
-              { value: 'journal', label: 'Journal' },
-            ];
-            return (
-              <>
-                <div className="flex items-center bg-surface-elevated rounded-xl p-1">
-                  {options.map((opt) => {
-                    const active = current === opt.value;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={async () => {
-                          if (active) return;
-                          try {
-                            await updateProfile({ primary_use: opt.value });
-                            // Stay on /settings — the user wants to
-                            // see the toast confirmation and continue
-                            // configuring without being yanked away.
-                            // We DO update the wall store so the
-                            // bottom WallNav re-renders with the new
-                            // wall's tabs (Today/Lists/Upcoming/etc.
-                            // for tasks, Pulse/Notebooks/etc. for
-                            // journal). When the user later navigates
-                            // out of Settings, AppLayout's wall guard
-                            // takes them to the right wall's home.
-                            if (opt.value === 'tasks') {
-                              useWallState.getState().setWall('tasks');
-                            } else if (opt.value === 'journal') {
-                              useWallState.getState().setWall('journal');
-                            }
-                            showToast(
-                              opt.value === 'both'
-                                ? 'Both walls enabled'
-                                : opt.value === 'tasks'
-                                ? 'Tasks-only mode'
-                                : 'Journal-only mode',
-                              'success',
-                            );
-                          } catch (err) {
-                            showToast(
-                              err instanceof Error ? err.message : t('common.error'),
-                              'error',
-                            );
-                          }
-                        }}
-                        className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                          active
-                            ? 'bg-primary text-white shadow-warm-sm'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                        aria-pressed={active}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-text-tertiary leading-snug">
-                  {current === 'both'
-                    ? 'Both walls are visible. Tap the pill at the top of any page to switch between them.'
-                    : current === 'tasks'
-                    ? 'Tasks-only mode. The journal wall and weekly letters are hidden.'
-                    : 'Journal-only mode. The tasks wall is hidden.'}
-                </p>
-              </>
-            );
-          })()}
-        </div>
-      </motion.div>
+      {/* PR 2 retired the "Use this app for" segmented control. After
+          the wall collapse, every user sees the full feature set —
+          each feature has its own opt-in toggle (Plans / Gratitude /
+          Guided / Pulse reminders / Letter cadence) so users still
+          control what's surfaced. */}
 
-      {/* Your Guide — hidden in tasks-only mode since guides are
-          journaling-flavored. Switching to Both/Journal in the toggle
-          above brings this section back. */}
-      {profile?.primary_use !== 'tasks' && (
-        <motion.div {...sectionMotion} className="space-y-2">
+      {/* Your Guide — was previously hidden for tasks-only users.
+          PR 2 drops the gate. */}
+      <motion.div {...sectionMotion} className="space-y-2">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{t('settings.yourGuide')}</h2>
           <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm">
             <GuideSelector
@@ -249,11 +163,9 @@ export default function SettingsPage() {
             />
           </div>
         </motion.div>
-      )}
 
-      {/* Reflections — letter cadence. Hidden in tasks-only mode
-          since the weekly letter is a journal-side feature. */}
-      {profile?.primary_use !== 'tasks' && (
+      {/* Reflections — letter cadence. Was journal-side; PR 2 makes
+          available to all users. */}
       <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Reflections</h2>
         <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-3">
@@ -303,7 +215,31 @@ export default function SettingsPage() {
           </div>
         </div>
       </motion.div>
-      )}
+
+      {/* Patterns + Letters — combined surface link. /patterns
+          already renders weekly + monthly + quarterly together via
+          lettersStore.ArchiveItem. PR 2 makes Settings the entry
+          point (was previously a journal-wall tab). */}
+      <motion.div {...sectionMotion} className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+          {t('settings.patterns.title')}
+        </h2>
+        <button
+          type="button"
+          onClick={() => router.push('/patterns')}
+          className="w-full bg-surface rounded-2xl border border-border p-4 shadow-warm-sm flex items-center justify-between gap-3 hover:border-primary transition-colors text-left"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-text-primary">
+              {t('settings.patterns.linkLabel')}
+            </p>
+            <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
+              {t('settings.patterns.linkHint')}
+            </p>
+          </div>
+          <span className="text-text-tertiary text-xl shrink-0" aria-hidden>›</span>
+        </button>
+      </motion.div>
 
       {/* Templates — nav link. COMMENTED OUT per user request
           (2026-05-02). Restore by removing the {false &&} wrapper. */}
@@ -333,9 +269,9 @@ export default function SettingsPage() {
       {/* Pulse reminders — fire push notifications at the user's
           chosen morning + evening times. The cron at
           /api/cron/send-pulse-reminders evaluates these per-user in
-          the user's timezone every 5 min. Hidden in tasks-only mode
-          since pulses are journaling-side. */}
-      {profile?.primary_use !== 'tasks' && (() => {
+          the user's timezone every 5 min. Visible to all users; users
+          opt in via the per-mode toggles below. */}
+      {(() => {
         const prefs = profile?.notification_preferences ?? {
           morning_reminder: false,
           evening_reminder: false,
@@ -589,12 +525,10 @@ export default function SettingsPage() {
               tour_completed: false,
               tour_seen_tabs: [],
             } as Partial<Profile>);
-            // Navigate to the bucket-appropriate starting route. The
-            // tour orchestrator's first step has the same route, so
-            // this just gets us out of /settings — the orchestrator
-            // takes over once /home or /today mounts.
-            const dest = profile?.primary_use === 'tasks' ? '/today' : '/home';
-            router.push(dest);
+            // Navigate to /today — the single landing page after
+            // PR 2's wall collapse. The tour orchestrator picks up
+            // from there.
+            router.push('/today');
           }}
           className="w-full bg-surface rounded-2xl border border-border p-4 shadow-warm-sm flex items-center justify-between gap-3 hover:border-primary transition-colors text-left"
         >
@@ -612,12 +546,8 @@ export default function SettingsPage() {
 
       {/* Gratitude — auto-detect toggle. When on, the structureEntry
           pass also returns gratitude excerpts and the journal pages
-          show a "Save to Gratitude?" suggestion sheet. Default on;
-          flip off to suppress entirely. The sheet always confirms
-          before writing — never auto.
-          HIDDEN for tasks-only users since gratitude is journaling-
-          side. Mirrors the same pattern used by other journal sections. */}
-      {profile?.primary_use !== 'tasks' && (
+          show a "Save to Gratitude?" suggestion sheet. PR 2 makes
+          this visible to all users (no longer journal-only). */}
       <motion.div {...sectionMotion} className="space-y-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           {t('settings.gratitude.title')}
@@ -671,7 +601,6 @@ export default function SettingsPage() {
           </div>
         </div>
       </motion.div>
-      )}
 
       {/* Plans (WOOP) — opt-in feature toggle. Visible to ALL users
           (including tasks-only) since plans are productivity-shaped,
@@ -740,6 +669,65 @@ export default function SettingsPage() {
               className="w-full flex items-center justify-between text-sm text-primary hover:text-primary-dark transition-colors pt-1 border-t border-border"
             >
               <span className="font-medium pt-3">{t('settings.plans.openNotebook')}</span>
+              <span className="pt-3" aria-hidden>
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </span>
+            </button>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Guided sessions — opt-in feature toggle. When ON, /guided
+          becomes reachable and a "Start a guided session" button
+          surfaces inside the Journal system notebook. Default OFF
+          (matches Plans / Gratitude opt-in pattern). PR 2 of the
+          wall restructure folds the previous /guided journal-wall
+          tab into this Settings + Journal-notebook entry shape. */}
+      <motion.div {...sectionMotion} className="space-y-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+          {t('settings.guided.title')}
+        </h2>
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-primary">
+                {t('settings.guided.toggleLabel')}
+              </p>
+              <p className="text-xs text-text-tertiary mt-0.5 leading-snug">
+                {t('settings.guided.toggleHint')}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={profile?.guided_enabled === true}
+              onClick={async () => {
+                const next = profile?.guided_enabled !== true;
+                await updateProfile({
+                  guided_enabled: next,
+                } as Partial<Profile>);
+              }}
+              className={`shrink-0 w-11 h-6 rounded-full p-0.5 transition-colors ${
+                profile?.guided_enabled === true ? 'bg-primary' : 'bg-border'
+              }`}
+            >
+              <span
+                className={`block w-5 h-5 rounded-full bg-white shadow-warm-sm transition-transform ${
+                  profile?.guided_enabled === true ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {profile?.guided_enabled === true && (
+            <button
+              type="button"
+              onClick={() => router.push('/guided')}
+              className="w-full flex items-center justify-between text-sm text-primary hover:text-primary-dark transition-colors pt-1 border-t border-border"
+            >
+              <span className="font-medium pt-3">{t('settings.guided.openSession')}</span>
               <span className="pt-3" aria-hidden>
                 <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="9 18 15 12 9 6" />
