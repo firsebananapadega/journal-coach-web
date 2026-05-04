@@ -19,6 +19,12 @@ export default defineConfig({
       testMatch: /smoke\.spec\.ts/,
       use: { browserName: 'chromium' },
     },
+    // Security audit — unauthenticated probes
+    {
+      name: 'security',
+      testMatch: /security-audit\.spec\.ts/,
+      use: { browserName: 'chromium' },
+    },
     // Pulse tests — authenticated, mobile viewport
     {
       name: 'pulse',
