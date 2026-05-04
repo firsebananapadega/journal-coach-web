@@ -13,8 +13,6 @@
 // nav FAB) or the BookPage composer flow — those keep their own
 // shapes.
 
-import { motion } from 'framer-motion';
-import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
 
 interface Props {
@@ -77,18 +75,23 @@ export default function TapToSpeakButton({
     ? 'bg-error/10 text-error border-error/40'
     : 'bg-surface text-text-secondary border-border hover:text-primary hover:border-primary/40';
 
+  // Plain <button> rather than motion.button on purpose: framer-motion's
+  // `whileTap` attaches its own pointerdown/pointerup listeners and on
+  // iOS Safari that can consume the user gesture before recognition
+  // .start() runs, leaving the mic-permission prompt to never appear.
+  // CSS `active:scale-[0.98]` gives the same visual feedback without
+  // touching the gesture pipeline.
   return (
-    <motion.button
+    <button
       type="button"
       onPointerDown={onPointerDown}
       onClick={onClick}
-      whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
       aria-label={
         isListening
           ? (listeningLabel ?? t('tapToSpeak.listening'))
           : (label ?? t('tapToSpeak.idle'))
       }
-      className={`w-full rounded-xl border flex items-center justify-center font-medium transition-colors ${idleClasses} ${listeningClasses} ${className}`}
+      className={`w-full rounded-xl border flex items-center justify-center font-medium transition-colors active:scale-[0.98] ${idleClasses} ${listeningClasses} ${className}`}
     >
       {isListening ? <StopGlyph size={compact ? 12 : 14} /> : <MicGlyph size={compact ? 14 : 16} />}
       <span>
@@ -96,6 +99,6 @@ export default function TapToSpeakButton({
           ? (listeningLabel ?? t('tapToSpeak.listening'))
           : (label ?? t('tapToSpeak.idle'))}
       </span>
-    </motion.button>
+    </button>
   );
 }

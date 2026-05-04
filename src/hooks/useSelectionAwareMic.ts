@@ -46,6 +46,12 @@ interface UseSelectionAwareMicOptions {
   // individual surface can force a different locale without changing
   // the app-wide setting.
   language?: string;
+  // Surface engine errors so the consumer can show a toast / fall
+  // back. Without this the hook silently flips isListening back to
+  // false on permission-denied / start-timeout / unsupported, which
+  // makes the mic button feel dead. Optional — most existing call
+  // sites still work without it.
+  onError?: (kind: 'permission-denied' | 'start-timeout' | 'unsupported' | 'unknown', detail?: string) => void;
 }
 
 export function useSelectionAwareMic({
@@ -54,6 +60,7 @@ export function useSelectionAwareMic({
   onChange,
   autoRestart = false,
   language,
+  onError,
 }: UseSelectionAwareMicOptions) {
   const [isListening, setIsListening] = useState(false);
 
@@ -78,6 +85,10 @@ export function useSelectionAwareMic({
   const programmaticSelectionUntilRef = useRef(0);
   const manualStopRef = useRef(false);
   const autoRestartUsedRef = useRef(false);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   // Keep ref mirrors in sync so the speech-recognition callbacks (which
   // capture values at mic-start time) can read the LATEST state.
@@ -268,10 +279,24 @@ export function useSelectionAwareMic({
         setIsListening(false);
         playCaptureStop();
       },
-      onError: () => {
+      onError: (err) => {
         stopRef.current = null;
         setIsListening(false);
         playCaptureStop();
+        // Classify so the consumer can show useful copy. The
+        // permission-denied string comes from speechRecognition.ts;
+        // 'start-timeout' is the watchdog signal.
+        let kind: 'permission-denied' | 'start-timeout' | 'unsupported' | 'unknown' = 'unknown';
+        if (typeof err === 'string') {
+          if (err.toLowerCase().includes('not-allowed') || err.toLowerCase().includes('denied')) {
+            kind = 'permission-denied';
+          } else if (err === 'start-timeout') {
+            kind = 'start-timeout';
+          } else if (err.toLowerCase().includes('not supported')) {
+            kind = 'unsupported';
+          }
+        }
+        onErrorRef.current?.(kind, typeof err === 'string' ? err : undefined);
       },
     });
   }, [autoRestart, language]);
@@ -311,6 +336,7 @@ export function useSelectionAwareMic({
       stopRef.current = cleanup;
     } else {
       console.warn('[mic] startListening returned null — recognition unavailable');
+      onErrorRef.current?.('unsupported');
     }
   }, [beginRecognition, captureSelection, isListening]);
 

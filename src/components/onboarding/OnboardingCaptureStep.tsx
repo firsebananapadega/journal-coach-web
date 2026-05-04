@@ -60,6 +60,18 @@ export default function OnboardingCaptureStep({ onComplete, onBack }: Props) {
     value: text,
     onChange: (next) => setText(next.slice(0, 2000)),
     autoRestart: true,
+    onError: (kind) => {
+      // Surface mic failures so the user knows the tap landed but the
+      // browser blocked the recognizer. Without this the button just
+      // looks dead.
+      const msg =
+        kind === 'permission-denied'
+          ? t('onboarding.capture.micDenied')
+          : kind === 'unsupported'
+          ? t('onboarding.capture.micUnsupported')
+          : t('onboarding.capture.micFailed');
+      showToast(msg, 'error');
+    },
   });
 
   const canClassify = text.trim().length >= MIN_CHARS_TO_CLASSIFY && !classifying;
@@ -264,7 +276,6 @@ export default function OnboardingCaptureStep({ onComplete, onBack }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value.slice(0, 2000))}
           placeholder={t('onboarding.capture.placeholder')}
-          autoFocus
           rows={6}
           className="w-full px-4 py-3.5 bg-surface border border-border rounded-2xl text-[16px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
         />

@@ -1119,6 +1119,18 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'AI was busy — used a simpler parser. You can edit anything on Today.',
     es: 'La IA estaba ocupada — usamos un análisis simple. Puedes editar todo en Hoy.',
   },
+  'onboarding.capture.micDenied': {
+    en: 'Mic access blocked. You can still type instead.',
+    es: 'Acceso al micrófono bloqueado. Puedes escribir en su lugar.',
+  },
+  'onboarding.capture.micUnsupported': {
+    en: 'Voice input isn’t supported here. You can still type.',
+    es: 'La entrada por voz no es compatible aquí. Puedes escribir.',
+  },
+  'onboarding.capture.micFailed': {
+    en: 'Couldn’t start the mic. Try again or just type.',
+    es: 'No pudimos iniciar el micrófono. Prueba otra vez o escribe.',
+  },
 
   // ─── Onboarding v5: permission primer (morning briefing) ───
   'onboarding.primer.headline': {
