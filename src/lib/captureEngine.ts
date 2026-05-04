@@ -82,9 +82,20 @@ export interface CaptureResult {
   // Present-tense pantry-state assertions. Distinct from `completions`
   // (past-tense purchases). Powers the "I have eggs and butter" flow:
   // matches against the existing list to check off, surfaces the rest
-  // for the preview sheet's pantry-sync section. Each string is a
-  // bare noun phrase; the apply layer handles fuzzy matching.
-  have_items: string[];
+  // for the preview sheet's pantry-sync section.
+  //
+  // Each entry has a bare noun phrase plus optional quantity signals:
+  //   qty_hint  — coarse band: 'low' | 'sufficient' | 'plenty' | null.
+  //               Drives bucket routing in the preview ('low' →
+  //               keep-on-list rather than check-off).
+  //   qty_count — specific integer when the user volunteered one
+  //               ("three onions left" → 3). Display-only — preview
+  //               renders "(3 left)" inline. Doesn't affect routing.
+  have_items: Array<{
+    name: string;
+    qty_hint?: 'low' | 'sufficient' | 'plenty' | null;
+    qty_count?: number | null;
+  }>;
   // Sprint 2: which notebook the `journal` content (if any) belongs
   // in. Gemini's best guess; user overrides in the preview sheet.
   notebook_slug: string | null;
@@ -228,15 +239,37 @@ CATEGORIES:
 9C. **have_items** — User asserting PRESENT-TENSE state about what they currently have at home (typically reading off the fridge / pantry). DIFFERENT from completions:
    - "I bought X" → past-tense purchase action → completions with type "bought".
    - "I have X" / "I still have X" → present-tense state assertion → have_items.
-   Emit a flat string array of bare noun phrases. The app uses this to check off matching grocery items, surface previously-checked items the user did NOT mention, and add unmatched items to an Uncategorized bucket.
-   Phrases that emit have_items (English):
-   - "I have eggs and butter" → have_items: ["eggs","butter"]
-   - "I still have rice and pasta" → have_items: ["rice","pasta"]
-   - "in the fridge I've got milk, OJ, yogurt" → have_items: ["milk","OJ","yogurt"]
-   - "we have plenty of olive oil and bread" → have_items: ["olive oil","bread"]
-   Phrases in Spanish:
-   - "Tengo huevos y mantequilla" → have_items: ["huevos","mantequilla"]
-   - "Todavía tengo arroz y pasta" → have_items: ["arroz","pasta"]
+
+   Each entry is an object: {"name": "<noun>", "qty_hint": "low" | "sufficient" | "plenty" | null, "qty_count": <integer|null>}
+
+   Quantity rules:
+   - qty_count: integer ≥ 1 ONLY when the user said a specific number ("three onions" → 3). Drop fractions ("half a gallon"), ranges ("two or three"), and non-numeric quantifiers ("a few" → null).
+   - qty_hint:
+     - "low" — user signaled running low: "only one X left", "running low on X", "almost out of X", "a couple X left", "queda poco X".
+     - "plenty" — user signaled abundance: "plenty of X", "lots of X", "X is full", "X is good", "mucho X", "X lleno".
+     - "sufficient" — explicit "enough" framing without abundance language.
+     - null — no quantity language.
+   - Auto-rule: qty_count === 1 AND no other quantity language → set qty_hint = "low" (one of anything you'd inventory is realistically low).
+   - For qty_count >= 2, leave qty_hint = null unless the user explicitly used low/plenty language — we don't guess whether 3 onions is enough.
+
+   English examples:
+   - "I have eggs and butter" → [{"name":"eggs","qty_hint":null,"qty_count":null},{"name":"butter","qty_hint":null,"qty_count":null}]
+   - "I have one grapefruit" → [{"name":"grapefruit","qty_hint":"low","qty_count":1}]
+   - "three onions left" → [{"name":"onions","qty_hint":null,"qty_count":3}]
+   - "two avocados" (within an "I have" context) → [{"name":"avocados","qty_hint":null,"qty_count":2}]
+   - "running low on celery" → [{"name":"celery","qty_hint":"low","qty_count":null}]
+   - "plenty of milk" → [{"name":"milk","qty_hint":"plenty","qty_count":null}]
+   - "I still have rice and pasta" → [{"name":"rice","qty_hint":null,"qty_count":null},{"name":"pasta","qty_hint":null,"qty_count":null}]
+   - "in the fridge I've got milk, OJ, yogurt" → [{"name":"milk",…},{"name":"OJ",…},{"name":"yogurt",…}]
+   - "about half a gallon of milk" → [{"name":"milk","qty_hint":null,"qty_count":null}] (non-integer dropped)
+
+   Spanish examples:
+   - "Tengo huevos y mantequilla" → [{"name":"huevos",…},{"name":"mantequilla",…}]
+   - "Tengo solo un aguacate" → [{"name":"aguacate","qty_hint":"low","qty_count":1}]
+   - "Tengo tres cebollas" → [{"name":"cebollas","qty_hint":null,"qty_count":3}]
+   - "Queda poco arroz" → [{"name":"arroz","qty_hint":"low","qty_count":null}]
+   - "Todavía tengo arroz y pasta" → [{"name":"arroz",…},{"name":"pasta",…}]
+
    GUARDRAILS — emit nothing in have_items for any of these:
    - Vague / collective phrases: "I have everything", "I have all my groceries", "I have lots of stuff" → have_items: []
    - Negation: "I don't have eggs" → groceries[] (need to buy), NOT have_items.
@@ -290,7 +323,7 @@ RULES:
    Also emit "notebook_confidence" as a number 0.0–1.0. Default to "journal" with confidence 0.5 when unsure. Omit ("journal" default) when "journal" itself is null.
 
 Respond with ONLY valid JSON:
-{"priorities": [{"text": "task", "when": "today", "category": "other", "subgroup": null, "list_hint": null, "due_date": null, "time": null, "remind_at_iso": null, "reminder_phrase": null}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null, "completions": [], "have_items": [], "notebook_slug": "journal", "notebook_confidence": 0.8}`;
+{"priorities": [{"text": "task", "when": "today", "category": "other", "subgroup": null, "list_hint": null, "due_date": null, "time": null, "remind_at_iso": null, "reminder_phrase": null}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null, "completions": [], "have_items": [{"name": "item", "qty_hint": null, "qty_count": null}], "notebook_slug": "journal", "notebook_confidence": 0.8}`;
 
 export function resolveWhen(when: string, referenceDate?: string): string {
   const ref = referenceDate ? new Date(referenceDate + 'T12:00:00') : new Date();
@@ -327,6 +360,8 @@ export function resolveWhen(when: string, referenceDate?: string): string {
   return toLocalDateStr(ref);
 }
 
+export type CaptureOrigin = 'groceries' | 'tasks' | 'auto';
+
 export async function classifyCapture(
   speechText: string,
   opts?: {
@@ -344,6 +379,12 @@ export async function classifyCapture(
     // + user project notebooks). When omitted, routing falls back to
     // the default "journal" slug.
     notebookChoices?: NotebookChoice[];
+    // Soft routing hint: which tab the user was on when they tapped
+    // the mic. Breaks ties for ambiguous nouns (e.g. "oranges and
+    // milk" on /groceries → groceries; on /today → groceries still,
+    // but the model knows the bias). Never overrides explicit
+    // signals like "I bought" / "I have to".
+    origin?: CaptureOrigin;
   },
 ): Promise<CaptureResult> {
   const onTrace = opts?.onTrace;
@@ -377,12 +418,19 @@ export async function classifyCapture(
     typeof Intl !== 'undefined'
       ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
       : 'UTC';
+  const originHint =
+    opts?.origin === 'groceries'
+      ? '\n\nUSER CONTEXT: The user was on the Groceries tab when they spoke. When intent is genuinely ambiguous between a task and a grocery, prefer the grocery routing. (Don\'t override unambiguous signals like "I have to call X" or "remind me" — only break ties this way.)'
+      : opts?.origin === 'tasks'
+      ? '\n\nUSER CONTEXT: The user was on a Tasks tab (Today / Lists / Upcoming) when they spoke. When intent is genuinely ambiguous between a task and a grocery, prefer the task routing. (Don\'t override unambiguous signals like "I bought" or "from <store>" — only break ties this way.)'
+      : '';
   const prompt =
     ROUTER_PROMPT
       .replace('{TODAY}', todayStr)
       .replace('{USER_TZ}', userTz)
       .replace('{NOTEBOOK_CHOICES}', notebookBlock) +
     langHint +
+    originHint +
     groceriesHint +
     prioritiesHint +
     `\n\nUser said:\n"${speechText}"\n\nRespond with JSON only.`;
@@ -461,20 +509,47 @@ export async function classifyCapture(
       .filter((c): c is CompletionIntent => c !== null);
   }
 
-  // Normalize have_items — flat string array, trim + dedupe (case-
-  // insensitive) + cap. Drops empties so the apply layer doesn't have
-  // to defend against them.
-  const have_items: string[] = [];
+  // Normalize have_items. Accepts both shapes for back-compat:
+  //   - string[]                                   (legacy / regex fallback)
+  //   - Array<{name, qty_hint?, qty_count?}>       (new structured)
+  // Output is always the structured shape. Trim + case-insensitive
+  // dedupe + cap at 50.
+  const have_items: Array<{
+    name: string;
+    qty_hint: 'low' | 'sufficient' | 'plenty' | null;
+    qty_count: number | null;
+  }> = [];
+  const isQtyHint = (v: unknown): v is 'low' | 'sufficient' | 'plenty' =>
+    v === 'low' || v === 'sufficient' || v === 'plenty';
   if (Array.isArray(parsed.have_items)) {
     const seen = new Set<string>();
     for (const raw of parsed.have_items as unknown[]) {
-      if (typeof raw !== 'string') continue;
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      const key = trimmed.toLowerCase();
+      let name: string;
+      let qty_hint: 'low' | 'sufficient' | 'plenty' | null = null;
+      let qty_count: number | null = null;
+      if (typeof raw === 'string') {
+        name = raw.trim();
+      } else if (raw && typeof raw === 'object') {
+        const obj = raw as Record<string, unknown>;
+        if (typeof obj.name !== 'string') continue;
+        name = obj.name.trim();
+        if (isQtyHint(obj.qty_hint)) qty_hint = obj.qty_hint;
+        if (typeof obj.qty_count === 'number' && Number.isInteger(obj.qty_count) && obj.qty_count >= 1) {
+          qty_count = obj.qty_count;
+        }
+      } else {
+        continue;
+      }
+      if (!name) continue;
+      const key = name.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      have_items.push(trimmed);
+      // Auto-derive: a count of exactly 1 with no other quantity
+      // language is universally "running low." Higher counts leave
+      // qty_hint alone — 3 onions might be plenty or low depending
+      // on item; we don't second-guess.
+      if (qty_count === 1 && qty_hint === null) qty_hint = 'low';
+      have_items.push({ name, qty_hint, qty_count });
       if (have_items.length >= 50) break;
     }
   }
@@ -670,6 +745,13 @@ const FILLER_VERBS = /\b(?:buy|by|get|got|grab|grabbed|pick(?:\s+up)?|picked\s+u
 const GROCERY_CUES = /\b(?:buy|bought|by|grab|grabbed|pick(?:\s+up)?|picked\s+up|groceries|grocery|shopping\s+list)\b/i;
 const STORE_CUES = /\b(?:from|at)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9'&\s]{1,40}?)(?=[,:]|\s+(?:buy|by|get|got|grab|grabbed|pick|picked|need|needs|needed|want|wanted|I)\b|$)/i;
 
+// Present-tense "I have X" / "we have X" / Spanish "tengo X" — the
+// have-flow surface. Negative lookahead on "have to" so "I have to
+// call mom" still falls through to TASK_CUES. Order matters in the
+// fallback router: HAVE_CUES is checked BEFORE TASK_CUES because
+// "I have to" overlaps with naive "I have" matching.
+const HAVE_CUES = /\b(?:i\s+(?:still\s+)?have|we\s+(?:still\s+)?have|tengo|tenemos|todavía\s+(?:tengo|tenemos))\b(?!\s+to\b)/i;
+
 // "need to / have to / gotta / call / email / finish / submit /
 // schedule / meeting with / pay" — task verbs. Matching any of these
 // anywhere in the transcript pushes the fallback toward priorities.
@@ -772,11 +854,46 @@ function extractReminderFromText(text: string): { iso: string; phrase: string } 
   }
 }
 
+/** Parse a "have-flow" line into bare have_items entries. The
+ *  fallback can't extract specific quantities (no NLP); every item
+ *  emerges with qty_hint=null + qty_count=null. Reuses the grocery
+ *  splitter's tokenizer for comma/and-separated nouns. */
+export function parseHaveFallback(
+  text: string,
+): Array<{ name: string; qty_hint: null; qty_count: null }> {
+  const raw = text.trim();
+  if (!raw) return [];
+  // Strip the leading "I have" / "we still have" / "tengo" framing
+  // and any filler so we're left with just the noun list.
+  const stripped = raw
+    .replace(HAVE_CUES, ' ')
+    .replace(FILLER_VERBS, ' ')
+    .replace(/\b(?:i|we|please|also|too|some|a|an|the|left|in|the|fridge|pantry)\b/gi, ' ')
+    .replace(/[.!?;:]/g, ' ')
+    .trim();
+  const items = stripped
+    .split(/\s*,\s*|\s+and\s+|\s+then\s+|\s+y\s+/i)
+    .map((s) =>
+      s.trim().replace(/^[-–—\s]+|[-–—\s]+$/g, '').replace(LEADING_CONJUNCTION, ''),
+    )
+    .filter((s) => s.length > 0 && /[a-z0-9]/i.test(s));
+  return items.map((name) => ({ name, qty_hint: null, qty_count: null }));
+}
+
 // Main entry point. Returns a CaptureResult that represents our best
 // structural guess given only regex heuristics. Callers SHOULD prefer
 // the Gemini-classified result when available; this exists for the
 // failure path only.
-export function parseIntentFallback(text: string): CaptureResult {
+//
+// `origin` is a soft routing tiebreaker: when the line has no clear
+// HAVE/TASK/GROCERY signal but the user was on /groceries when they
+// spoke, prefer grocery routing (otherwise we'd default to a single
+// priority and dump grocery dictation into Tasks — the bug the user
+// hit).
+export function parseIntentFallback(
+  text: string,
+  origin: CaptureOrigin = 'auto',
+): CaptureResult {
   const empty: CaptureResult = {
     priorities: [],
     plans: [],
@@ -832,6 +949,19 @@ export function parseIntentFallback(text: string): CaptureResult {
     };
   }
 
+  // HAVE_CUES wins FIRST — "I have eggs and milk" should land in
+  // have_items, not as priorities (the bug the user hit when Gemini
+  // was rate-limited). Negative-lookahead on "have to" inside
+  // HAVE_CUES means imperative tasks ("I have to call mom") still
+  // fall through to the TASK_CUES branch below.
+  const hasHaveCue = HAVE_CUES.test(raw);
+  if (hasHaveCue) {
+    const items = parseHaveFallback(raw);
+    if (items.length > 0) {
+      return { ...empty, have_items: items };
+    }
+  }
+
   const hasGroceryCue = GROCERY_CUES.test(raw) || STORE_CUES.test(raw);
   const hasTaskCue = TASK_CUES.test(raw);
   const listHintMatch = raw.match(LIST_HINT_CUES);
@@ -881,6 +1011,18 @@ export function parseIntentFallback(text: string): CaptureResult {
 
   if (hasGroceryCue) {
     return { ...empty, groceries: parseGroceryFallback(raw) };
+  }
+
+  // Origin tiebreaker: no HAVE/TASK/GROCERY cue matched, but the
+  // user was on /groceries when they spoke. Treat the line as
+  // groceries (unchecked) rather than dumping into Tasks. Avoids
+  // the failure mode where a Gemini outage routes "celery, mangoes,
+  // carrots" to Tasks just because none of the verbs matched.
+  if (origin === 'groceries') {
+    const items = parseGroceryFallback(raw);
+    if (items.length > 0) {
+      return { ...empty, groceries: items };
+    }
   }
 
   // No strong signal. Drop the transcript as a SINGLE Inbox-bound

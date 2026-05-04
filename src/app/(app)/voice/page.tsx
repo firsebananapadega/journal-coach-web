@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 import { useOnline } from '@/lib/networkStatus';
@@ -10,7 +10,7 @@ import { prefersReducedMotion } from '@/lib/motionVariants';
 import { useJournalStore } from '@/stores/journalStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
-import { classifyCapture, hasContent, parseIntentFallback, type CaptureResult } from '@/lib/captureEngine';
+import { classifyCapture, hasContent, parseIntentFallback, type CaptureResult, type CaptureOrigin } from '@/lib/captureEngine';
 import { commitCapture } from '@/lib/captureCommit';
 import { usePriorityStore, type PriorityItem } from '@/stores/priorityStore';
 import { useGroceryStore } from '@/stores/groceryStore';
@@ -61,6 +61,16 @@ import { usePushPromptStore } from '@/stores/pushPromptStore';
 
 export default function VoiceEntryPage() {
   const router = useRouter();
+  // Soft routing hint forwarded by CaptureMicButton (?origin=…).
+  // Validated against the union; unrecognized values fall back to
+  // 'auto'. Threaded into both the Gemini prompt and the regex
+  // fallback so an outage doesn't drop grocery dictation into Tasks.
+  const searchParams = useSearchParams();
+  const captureOrigin: CaptureOrigin = (() => {
+    const raw = searchParams?.get('origin');
+    if (raw === 'groceries' || raw === 'tasks') return raw;
+    return 'auto';
+  })();
   // Journal store imports were used for the raw-transcript echo on
   // every capture. That echo is gone (capture is tasks-wall only —
   // see `saveRawTranscript` below) so the store isn't referenced
@@ -320,7 +330,7 @@ export default function VoiceEntryPage() {
     // tasks with project mentions. This fallback is conservative in
     // the other direction: it prefers priorities when in doubt.
     const buildFallback = (): CaptureResult =>
-      parseIntentFallback(transcriptRef.current);
+      parseIntentFallback(transcriptRef.current, captureOrigin);
 
     // Reset per-run fallback/error signals so a prior failed run
     // doesn't leave a stale banner in the preview.
@@ -340,6 +350,7 @@ export default function VoiceEntryPage() {
           onTrace: trace,
           existingGroceries: groceryNames,
           existingPriorities: priorityTexts,
+          origin: captureOrigin,
         }),
         30000,
         'classifyCapture',
@@ -495,10 +506,10 @@ export default function VoiceEntryPage() {
     }
 
     // Pantry sync — the "I have …" voice flow. The preview sheet
-    // computed three buckets and let the user opt rows out per-row;
-    // we just apply the resolved arrays. All three actions are
-    // idempotent (markItemDone/Undone no-op when already in target
-    // state) so duplicate fires are safe.
+    // computed buckets and let the user opt rows out per-row; we
+    // just apply the resolved arrays. All actions are idempotent
+    // (markItemDone/Undone no-op when already in target state) so
+    // duplicate fires are safe.
     if (haveSync) {
       const grocery = useGroceryStore.getState();
       for (const id of haveSync.checkIds) {
@@ -515,18 +526,47 @@ export default function VoiceEntryPage() {
           console.warn('haveSync markItemUndone failed', id, e);
         }
       }
+      // Running-low: items the user said they have, but only a
+      // small/last quantity. If the matched item was checked, flip
+      // it back to unchecked so it lands on the shopping list.
+      for (const id of haveSync.lowStockUncheckIds) {
+        try {
+          await grocery.markItemUndone(id);
+        } catch (e) {
+          console.warn('haveSync lowStock markItemUndone failed', id, e);
+        }
+      }
       if (haveSync.addToUncategorized.length > 0) {
         try {
           // ensureUncategorizedGroup is implicit inside
           // addCompletedItems (it find-or-creates by store name).
           // Routing to UNCATEGORIZED_STORE keeps the sentinel
-          // single-sourced.
+          // single-sourced. These add as CHECKED (= "have it").
           await grocery.addCompletedItems(
             UNCATEGORIZED_STORE,
             haveSync.addToUncategorized,
           );
         } catch (e) {
           console.warn('haveSync add to Uncategorized failed', e);
+        }
+      }
+      if (haveSync.lowStockAddNames.length > 0) {
+        // Running-low names with no match on the existing list go
+        // into Uncategorized as UNCHECKED (= "still need to buy"
+        // — distinct from addToUncategorized's checked semantics).
+        try {
+          const groupId = await grocery.ensureUncategorizedGroup();
+          if (groupId) {
+            for (const name of haveSync.lowStockAddNames) {
+              try {
+                await grocery.addItem(groupId, name);
+              } catch (e) {
+                console.warn('haveSync lowStock addItem failed', name, e);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('haveSync ensureUncategorizedGroup failed', e);
         }
       }
     }

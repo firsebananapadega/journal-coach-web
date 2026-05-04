@@ -457,6 +457,14 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'Nothing to sync — your list already matches.',
     es: 'Nada que sincronizar — tu lista ya coincide.',
   },
+  'preview.haveSync.willKeepLow': {
+    en: 'Running low — keeping on list',
+    es: 'Quedan pocos — los dejamos en la lista',
+  },
+  'preview.haveSync.lowHint': {
+    en: "You said you're running low on these — they'll stay on your shopping list.",
+    es: 'Dijiste que se están acabando — los mantenemos en tu lista.',
+  },
 
   // ─── Share sheet (grocery sharing)
   'share.title': { en: 'Share grocery list', es: 'Compartir lista de compras' },

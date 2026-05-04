@@ -51,7 +51,15 @@ export interface GroceryGroup {
 export interface HaveSyncResolution {
   checkIds: string[];
   uncheckIds: string[];
+  // Names to add to Uncategorized as CHECKED (in-pantry add).
   addToUncategorized: string[];
+  // NEW (running-low path): item IDs to flip from checked → unchecked
+  // because the user signaled they're running out.
+  lowStockUncheckIds: string[];
+  // NEW (running-low path): names to add to Uncategorized as UNCHECKED
+  // (= "still need to buy" — distinct from addToUncategorized which is
+  // "I have it, just no store assigned yet").
+  lowStockAddNames: string[];
 }
 import type { ListRecord } from '@/stores/listStore';
 import { useNotebookStore } from '@/stores/notebookStore';
@@ -622,47 +630,123 @@ interface HaveCheckMatch {
   itemId: string;
   itemName: string;
   store: string;
+  qty_count: number | null;
 }
 interface HaveUncheckMatch {
   itemId: string;
   itemName: string;
   store: string;
 }
+interface HaveLowStockMatch {
+  // What to render in the row.
+  displayName: string;
+  qty_count: number | null;
+  store: string | null;
+  // The two action arrays the apply layer needs:
+  //   matched + currently checked → uncheckId
+  //   no match → addAsUnchecked = phrase
+  // Exactly one is set per row.
+  uncheckItemId?: string;
+  addAsUnchecked?: string;
+}
+interface HaveAddMatch {
+  phrase: string;
+  qty_count: number | null;
+}
 const HAVE_UNCHECK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
+/** Format an integer count for inline display next to an item name.
+ *  Locale-aware via t(); EN: "3 left" / ES: "3 restantes" with a
+ *  singular form for count === 1. The translation key is single-form,
+ *  so we branch in JS for the singular vs. plural inflection. */
+function formatQtyLeft(count: number): string {
+  // Inlined to avoid a third t() call site for plural inflection.
+  // Spanish "restante" (sing) vs "restantes" (pl) is the only case.
+  // English uses "left" for both.
+  if (typeof window === 'undefined') return `${count} left`;
+  // Best-effort locale detection — checks <html lang>. Stays in sync
+  // with the rest of the app's t() infrastructure.
+  const lang = (document?.documentElement?.lang ?? 'en').toLowerCase();
+  if (lang.startsWith('es')) {
+    return count === 1 ? `${count} restante` : `${count} restantes`;
+  }
+  return `${count} left`;
+}
+
+interface HaveItemInput {
+  name: string;
+  qty_hint?: 'low' | 'sufficient' | 'plenty' | null;
+  qty_count?: number | null;
+}
+
 function computeHaveBuckets(
-  haveItems: string[],
+  haveItems: HaveItemInput[],
   groceries: GroceryGroup[],
-): { check: HaveCheckMatch[]; uncheck: HaveUncheckMatch[]; add: string[] } {
+): {
+  check: HaveCheckMatch[];
+  uncheck: HaveUncheckMatch[];
+  add: HaveAddMatch[];
+  lowStock: HaveLowStockMatch[];
+} {
   const allPairs = groceries.flatMap((g) =>
     g.items.map((it) => ({ group: g, item: it })),
   );
   const matchedItemIds = new Set<string>();
   const check: HaveCheckMatch[] = [];
-  const add: string[] = [];
+  const add: HaveAddMatch[] = [];
+  const lowStock: HaveLowStockMatch[] = [];
 
-  for (const phrase of haveItems) {
+  for (const entry of haveItems) {
+    const phrase = entry.name;
+    const isLow = entry.qty_hint === 'low';
+    const qty = entry.qty_count ?? null;
+
     const m = bestMatch(phrase, allPairs.map((p) => p.item));
     if (m) {
       const pair = allPairs.find((p) => p.item.id === m.item.id);
       if (pair) {
         matchedItemIds.add(pair.item.id);
-        // Idempotency: skip the check bucket if the item is already
-        // checked. The apply layer is also idempotent (markItemDone
-        // no-ops on already-completed) but skipping here keeps the
-        // preview honest — we only show real pending changes.
-        if (!pair.item.completed) {
+        if (isLow) {
+          // User said they're running low on this. If currently
+          // checked, flip back to unchecked (signals "out of stock").
+          // If unchecked, no action needed — already on shopping list.
+          // Either way, surface in the lowStock bucket so the user
+          // sees the deliberate "kept on list" decision.
+          lowStock.push({
+            displayName: pair.item.name,
+            qty_count: qty,
+            store: pair.group.store,
+            uncheckItemId: pair.item.completed ? pair.item.id : undefined,
+          });
+        } else if (!pair.item.completed) {
+          // Standard check-off path. Already-checked items are
+          // skipped to keep the preview honest (apply is idempotent
+          // either way).
           check.push({
             phrase,
             itemId: pair.item.id,
             itemName: pair.item.name,
             store: pair.group.store,
+            qty_count: qty,
           });
         }
         continue;
       }
     }
-    add.push(phrase);
+    // No match against the existing list.
+    if (isLow) {
+      // Add to Uncategorized as UNCHECKED so it lands on the
+      // shopping list (user wants to buy more).
+      lowStock.push({
+        displayName: phrase,
+        qty_count: qty,
+        store: null,
+        addAsUnchecked: phrase,
+      });
+    } else {
+      // Add to Uncategorized as CHECKED (existing behavior).
+      add.push({ phrase, qty_count: qty });
+    }
   }
 
   // Uncheck candidates: currently-checked items the user did NOT
@@ -691,7 +775,7 @@ function computeHaveBuckets(
     });
   }
 
-  return { check, uncheck, add };
+  return { check, uncheck, add, lowStock };
 }
 
 function computeMatches(
@@ -760,8 +844,9 @@ export function CapturePreviewSheet({
   const [haveBuckets, setHaveBuckets] = useState<{
     check: HaveCheckMatch[];
     uncheck: HaveUncheckMatch[];
-    add: string[];
-  }>({ check: [], uncheck: [], add: [] });
+    add: HaveAddMatch[];
+    lowStock: HaveLowStockMatch[];
+  }>({ check: [], uncheck: [], add: [], lowStock: [] });
 
   // Ensure notebooks are loaded so the NotebookPicker can render its
   // options.
@@ -784,7 +869,7 @@ export function CapturePreviewSheet({
       setHaveBuckets(
         result.have_items && result.have_items.length > 0
           ? computeHaveBuckets(result.have_items, existingGroceries)
-          : { check: [], uncheck: [], add: [] },
+          : { check: [], uncheck: [], add: [], lowStock: [] },
       );
     }
   }, [open, result, existingPriorities, existingGroceries, lists]);
@@ -811,7 +896,8 @@ export function CapturePreviewSheet({
       unmatchedBoughtFallback +
       haveBuckets.check.length +
       haveBuckets.uncheck.length +
-      haveBuckets.add.length
+      haveBuckets.add.length +
+      haveBuckets.lowStock.length
     );
   }, [edited, matches, haveBuckets]);
 
@@ -917,6 +1003,11 @@ export function CapturePreviewSheet({
       ...cur,
       add: cur.add.filter((_, i) => i !== idx),
     }));
+  const removeHaveLowStock = (idx: number) =>
+    setHaveBuckets((cur) => ({
+      ...cur,
+      lowStock: cur.lowStock.filter((_, i) => i !== idx),
+    }));
 
   // ── grouped tasks for rendering ──
   const tasksByCategory: Record<PriorityCategory, Array<{ task: PriorityTask; i: number }>> = {
@@ -933,16 +1024,24 @@ export function CapturePreviewSheet({
 
   const handleSave = async () => {
     if (busy) return;
-    const haveSync: HaveSyncResolution | undefined =
+    const hasAnything =
       haveBuckets.check.length > 0 ||
       haveBuckets.uncheck.length > 0 ||
-      haveBuckets.add.length > 0
-        ? {
-            checkIds: haveBuckets.check.map((c) => c.itemId),
-            uncheckIds: haveBuckets.uncheck.map((u) => u.itemId),
-            addToUncategorized: haveBuckets.add,
-          }
-        : undefined;
+      haveBuckets.add.length > 0 ||
+      haveBuckets.lowStock.length > 0;
+    const haveSync: HaveSyncResolution | undefined = hasAnything
+      ? {
+          checkIds: haveBuckets.check.map((c) => c.itemId),
+          uncheckIds: haveBuckets.uncheck.map((u) => u.itemId),
+          addToUncategorized: haveBuckets.add.map((a) => a.phrase),
+          lowStockUncheckIds: haveBuckets.lowStock
+            .filter((l) => l.uncheckItemId != null)
+            .map((l) => l.uncheckItemId as string),
+          lowStockAddNames: haveBuckets.lowStock
+            .filter((l) => l.addAsUnchecked != null)
+            .map((l) => l.addAsUnchecked as string),
+        }
+      : undefined;
     await onConfirm(edited, matches, destinations, haveSync);
   };
 
@@ -1093,17 +1192,21 @@ export function CapturePreviewSheet({
           {/* Pantry sync — the "I have …" voice flow. Only renders
               when at least one bucket has rows. Per-row × removes the
               row from its bucket; on Confirm the resolved buckets get
-              passed back to the commit handler. */}
+              passed back to the commit handler. Quantity counts (when
+              the user volunteered specific numbers like "three onions
+              left") render inline as "(N left)". */}
           {(haveBuckets.check.length > 0 ||
             haveBuckets.uncheck.length > 0 ||
-            haveBuckets.add.length > 0) && (
+            haveBuckets.add.length > 0 ||
+            haveBuckets.lowStock.length > 0) && (
             <section className="space-y-3">
               <SectionHeader
                 label={t('preview.haveSync.title')}
                 count={
                   haveBuckets.check.length +
                   haveBuckets.uncheck.length +
-                  haveBuckets.add.length
+                  haveBuckets.add.length +
+                  haveBuckets.lowStock.length
                 }
               />
 
@@ -1119,13 +1222,57 @@ export function CapturePreviewSheet({
                     >
                       <span className="text-sm text-success">✓</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[14px] text-text-primary">{c.itemName}</p>
+                        <p className="text-[14px] text-text-primary">
+                          {c.itemName}
+                          {c.qty_count != null && (
+                            <span className="text-text-tertiary ml-1">({formatQtyLeft(c.qty_count)})</span>
+                          )}
+                        </p>
                         <p className="text-[11px] text-text-tertiary mt-0.5">
                           {c.store}
                         </p>
                       </div>
                       <button
                         onClick={() => removeHaveCheck(idx)}
+                        className="text-text-tertiary hover:text-error px-1 text-sm"
+                        aria-label="Skip this row"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {haveBuckets.lowStock.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-semibold">
+                    {t('preview.haveSync.willKeepLow')}
+                  </p>
+                  <p className="text-[11px] text-text-tertiary leading-snug">
+                    {t('preview.haveSync.lowHint')}
+                  </p>
+                  {haveBuckets.lowStock.map((l, idx) => (
+                    <div
+                      key={`low-${idx}`}
+                      className="flex items-start gap-2 py-1.5 px-2 rounded-lg bg-amber-500/5"
+                    >
+                      <span className="text-sm text-amber-600 dark:text-amber-400">⏵</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] text-text-primary">
+                          {l.displayName}
+                          {l.qty_count != null && (
+                            <span className="text-text-tertiary ml-1">({formatQtyLeft(l.qty_count)})</span>
+                          )}
+                        </p>
+                        {l.store && (
+                          <p className="text-[11px] text-text-tertiary mt-0.5">
+                            {l.store}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => removeHaveLowStock(idx)}
                         className="text-text-tertiary hover:text-error px-1 text-sm"
                         aria-label="Skip this row"
                       >
@@ -1173,14 +1320,17 @@ export function CapturePreviewSheet({
                   <p className="text-[11px] uppercase tracking-wider text-primary font-semibold">
                     {t('preview.haveSync.willAdd')}
                   </p>
-                  {haveBuckets.add.map((phrase, idx) => (
+                  {haveBuckets.add.map((entry, idx) => (
                     <div
-                      key={`${phrase}-${idx}`}
+                      key={`${entry.phrase}-${idx}`}
                       className="flex items-start gap-2 py-1.5 px-2 rounded-lg bg-primary/5"
                     >
                       <span className="text-sm text-primary">+</span>
                       <p className="flex-1 text-[14px] text-text-primary min-w-0">
-                        {phrase}
+                        {entry.phrase}
+                        {entry.qty_count != null && (
+                          <span className="text-text-tertiary ml-1">({formatQtyLeft(entry.qty_count)})</span>
+                        )}
                       </p>
                       <button
                         onClick={() => removeHaveAdd(idx)}

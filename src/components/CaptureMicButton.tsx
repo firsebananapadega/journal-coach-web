@@ -15,14 +15,34 @@
 //               it can sit next to the existing "+" on the typed-add
 //               row inside /lists/[id].
 //
-// Both navigate to /voice. The /voice page already AI-routes the
-// transcript regardless of where the user came from, so no per-tab
-// context is needed at the call site.
+// Both navigate to /voice. The page reads ?origin=… as a soft
+// routing tiebreaker — useful when Gemini is rate-limited (the
+// regex fallback uses origin to keep grocery dictation out of
+// Tasks) and as a bias hint to Gemini for genuinely ambiguous
+// nouns. Mapping: /groceries → 'groceries'; /today + /lists* +
+// /upcoming + /priorities → 'tasks'; everything else has no
+// origin (auto).
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
+
+function originForPathname(pathname: string | null): 'groceries' | 'tasks' | null {
+  if (!pathname) return null;
+  if (pathname === '/groceries' || pathname.startsWith('/groceries/')) return 'groceries';
+  if (
+    pathname === '/today' ||
+    pathname === '/upcoming' ||
+    pathname === '/priorities' ||
+    pathname === '/lists' ||
+    pathname.startsWith('/lists/')
+  ) {
+    return 'tasks';
+  }
+  return null;
+}
 
 interface Props {
   variant?: 'fab' | 'inline';
@@ -50,9 +70,12 @@ function MicGlyph({ size }: { size: number }) {
 
 export default function CaptureMicButton({ variant = 'fab' }: Props) {
   const isFab = variant === 'fab';
+  const pathname = usePathname();
+  const origin = originForPathname(pathname);
+  const href = origin ? `/voice?origin=${origin}` : '/voice';
   return (
     <Link
-      href="/voice"
+      href={href}
       aria-label={t('capture.mic.aria')}
       // FAB is intentionally smaller than the WallNav center button
       // (w-14 h-14, 56px) per the user's "slightly smaller" direction
