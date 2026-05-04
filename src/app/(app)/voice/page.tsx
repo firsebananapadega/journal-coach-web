@@ -17,7 +17,16 @@ import { useGroceryStore } from '@/stores/groceryStore';
 
 // CapturePreviewSheet still expects the legacy nested-items grocery
 // shape. We reconstruct it from the flat groceryStore on demand.
-type LegacyGroceryGroup = { id: string; store: string; items: { id: string; name: string; completed: boolean }[] };
+type LegacyGroceryGroup = {
+  id: string;
+  store: string;
+  items: {
+    id: string;
+    name: string;
+    completed: boolean;
+    completed_at: string | null;
+  }[];
+};
 function legacyGroceriesFromStore(): LegacyGroceryGroup[] {
   const { groups, items } = useGroceryStore.getState();
   return groups.map((g) => ({
@@ -25,7 +34,14 @@ function legacyGroceriesFromStore(): LegacyGroceryGroup[] {
     store: g.store,
     items: items
       .filter((i) => i.group_id === g.id)
-      .map((i) => ({ id: i.id, name: i.name, completed: i.completed })),
+      .map((i) => ({
+        id: i.id,
+        name: i.name,
+        completed: i.completed,
+        // Pantry-sync's 14-day uncheck-scope guard reads this; the
+        // CapturePreviewSheet falls back to a safe no-op if missing.
+        completed_at: i.completed_at,
+      })),
   }));
 }
 import { useListStore } from '@/stores/listStore';
@@ -33,7 +49,8 @@ import { useTaskStore } from '@/stores/taskStore';
 import { toLocalDateStr } from '@/lib/dateUtils';
 import { getLanguage } from '@/lib/language';
 import { t } from '@/lib/translations';
-import { CapturePreviewSheet, type CompletionMatch, type PriorityDestinations } from '@/components/CapturePreviewSheet';
+import { CapturePreviewSheet, type CompletionMatch, type PriorityDestinations, type HaveSyncResolution } from '@/components/CapturePreviewSheet';
+import { UNCATEGORIZED_STORE } from '@/stores/groceryStore';
 import { ensureSubscribed } from '@/lib/push';
 import { usePushPromptStore } from '@/stores/pushPromptStore';
 
@@ -381,6 +398,7 @@ export default function VoiceEntryPage() {
     edited: CaptureResult,
     completionMatches: CompletionMatch[],
     destinations: PriorityDestinations,
+    haveSync?: HaveSyncResolution,
   ) => {
     const todayStr = toLocalDateStr(new Date());
 
@@ -468,6 +486,43 @@ export default function VoiceEntryPage() {
         await useGroceryStore.getState().addCompletedItems('General', fallbackBoughtItems);
       } catch (e) {
         console.warn('fallback grocery add failed', e);
+      }
+    }
+
+    // Pantry sync — the "I have …" voice flow. The preview sheet
+    // computed three buckets and let the user opt rows out per-row;
+    // we just apply the resolved arrays. All three actions are
+    // idempotent (markItemDone/Undone no-op when already in target
+    // state) so duplicate fires are safe.
+    if (haveSync) {
+      const grocery = useGroceryStore.getState();
+      for (const id of haveSync.checkIds) {
+        try {
+          await grocery.markItemDone(id);
+        } catch (e) {
+          console.warn('haveSync markItemDone failed', id, e);
+        }
+      }
+      for (const id of haveSync.uncheckIds) {
+        try {
+          await grocery.markItemUndone(id);
+        } catch (e) {
+          console.warn('haveSync markItemUndone failed', id, e);
+        }
+      }
+      if (haveSync.addToUncategorized.length > 0) {
+        try {
+          // ensureUncategorizedGroup is implicit inside
+          // addCompletedItems (it find-or-creates by store name).
+          // Routing to UNCATEGORIZED_STORE keeps the sentinel
+          // single-sourced.
+          await grocery.addCompletedItems(
+            UNCATEGORIZED_STORE,
+            haveSync.addToUncategorized,
+          );
+        } catch (e) {
+          console.warn('haveSync add to Uncategorized failed', e);
+        }
       }
     }
 
@@ -692,7 +747,7 @@ export default function VoiceEntryPage() {
           await triggerCapturePreview();
         }}
         onCancel={() => setPendingCapture(null)}
-        onConfirm={async (edited, matches, destinations) => {
+        onConfirm={async (edited, matches, destinations, haveSync) => {
           setPreviewBusy(true);
           try {
             // 20s ceiling on the whole commit. Previously an unbounded
@@ -701,7 +756,7 @@ export default function VoiceEntryPage() {
             // drop busy so the user can retry or edit, and KEEP the
             // preview open so their edits don't vanish.
             await withTimeout(
-              commitEverything(edited, matches, destinations),
+              commitEverything(edited, matches, destinations, haveSync),
               20000,
               'commitEverything',
             );

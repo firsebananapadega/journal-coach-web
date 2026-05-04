@@ -12,9 +12,28 @@
 // don't need a per-page mic button here.
 
 import { Suspense, useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { useGroceryStore, type GroceryItem } from '@/stores/groceryStore';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import {
+  useGroceryStore,
+  isUncategorized,
+  type GroceryItem,
+  type GroceryGroup,
+} from '@/stores/groceryStore';
 import { t } from '@/lib/translations';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import EmptyState from '@/components/ui/EmptyState';
@@ -47,6 +66,7 @@ function GroceriesInner() {
   const removeGroup = useGroceryStore((s) => s.removeGroup);
   const renameItem = useGroceryStore((s) => s.renameItem);
   const addItem = useGroceryStore((s) => s.addItem);
+  const moveItemToGroup = useGroceryStore((s) => s.moveItemToGroup);
   const pendingInvites = useGroceryStore((s) => s.pendingInvitesForMe);
   const acceptPendingInvite = useGroceryStore((s) => s.acceptPendingInvite);
   const declinePendingInvite = useGroceryStore((s) => s.declinePendingInvite);
@@ -81,8 +101,52 @@ function GroceriesInner() {
     return map;
   }, [items]);
 
+  // Render order: store groups first (by sort_order), Uncategorized
+  // pinned to the bottom regardless of its own sort_order. The
+  // Uncategorized group is the only one users can drag items OUT of
+  // in this pass.
+  const sortedGroups = useMemo<GroceryGroup[]>(() => {
+    const stores = groups.filter((g) => !isUncategorized(g));
+    const uncategorized = groups.filter((g) => isUncategorized(g));
+    return [...stores, ...uncategorized];
+  }, [groups]);
+
   const totalCount = items.length;
   const completedCount = items.filter((i) => i.completed).length;
+
+  // ── Drag-drop: Uncategorized items → store groups ────────────
+  // The 250ms press delay + 5px tolerance lets vertical scrolling
+  // pass through unless the user genuinely intends to drag (matches
+  // the /lists Inbox triage drag pattern). pointerWithin makes the
+  // drop resolve from the cursor's screen position, not the
+  // overlay's bounding rect — so the store under the user's thumb
+  // is the one that activates.
+  const [activeDragItemId, setActiveDragItemId] = useState<string | null>(null);
+  const pointerSensor = useSensor(PointerSensor, {
+    activationConstraint: { delay: 250, tolerance: 5 },
+  });
+  const touchSensor = useSensor(TouchSensor, {
+    activationConstraint: { delay: 250, tolerance: 5 },
+  });
+  const dragSensors = useSensors(pointerSensor, touchSensor);
+
+  const handleDragStart = (e: DragStartEvent) => {
+    setActiveDragItemId(String(e.active.id));
+  };
+  const handleDragEnd = async (e: DragEndEvent) => {
+    setActiveDragItemId(null);
+    const { active, over } = e;
+    if (!over) return;
+    const itemId = String(active.id);
+    const targetGroupId = String(over.id);
+    const target = groups.find((g) => g.id === targetGroupId);
+    if (!target || isUncategorized(target)) return;
+    await moveItemToGroup(itemId, targetGroupId);
+  };
+
+  const activeDragItem = activeDragItemId
+    ? items.find((i) => i.id === activeDragItemId) ?? null
+    : null;
 
   // Per-store collapse state — persisted so the user's choice survives
   // a refresh. Default is "all expanded" (empty Set).
@@ -240,133 +304,93 @@ function GroceriesInner() {
         <EmptyState pose="peek" title={t('groceries.empty')} />
       )}
 
-      <div className="space-y-3">
-        {groups.map((group) => {
-          const groupItems = itemsByGroup.get(group.id) ?? [];
-          const collapsed = collapsedStores.has(group.id);
-          const isEditingThisStore = editingStoreId === group.id;
-          return (
-            // Store group is NO LONGER swipe-deletable. Per-store
-            // delete now lives inside Edit mode (with confirmation),
-            // matching the user's "I shouldn't have the option to
-            // delete the entire store list by swiping" feedback.
-            <div
-              key={group.id}
-              className="bg-surface rounded-xl border border-border overflow-hidden"
-            >
-                <div className="w-full flex items-center justify-between p-3">
-                  <button
-                    onClick={() => toggleCollapsed(group.id)}
-                    className="flex-1 flex items-center gap-2 text-left hover:opacity-90 transition-opacity"
-                    aria-expanded={!collapsed}
-                    aria-controls={`grocery-group-${group.id}`}
-                  >
-                    <motion.svg
-                      animate={
-                        prefersReducedMotion
-                          ? undefined
-                          : { rotate: collapsed ? -90 : 0 }
-                      }
-                      transition={{ type: 'spring', stiffness: 380, damping: 28 }}
-                      width={14}
-                      height={14}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2.5}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="text-text-tertiary"
-                      aria-hidden
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </motion.svg>
-                    <p className="text-base font-bold uppercase tracking-wide text-text-primary">
-                      {group.store}
-                    </p>
-                  </button>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs text-text-tertiary tabular-nums">
-                      {groupItems.filter((i) => i.completed).length}/
-                      {groupItems.length}
-                    </span>
-                    {/* Edit / Done toggle. Only one store can be in
-                        edit mode at a time. Tapping Edit ALSO expands
-                        the store if it was collapsed, so the user
-                        immediately sees the items they're editing. */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isEditingThisStore) {
-                          setEditingStoreId(null);
-                        } else {
-                          setEditingStoreId(group.id);
-                          if (collapsed) toggleCollapsed(group.id);
-                        }
-                      }}
-                      className="text-xs font-semibold text-primary hover:underline"
-                    >
-                      {isEditingThisStore ? t('common.done') : t('common.edit')}
-                    </button>
-                  </div>
-                </div>
+      <DndContext
+        sensors={dragSensors}
+        collisionDetection={pointerWithin}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveDragItemId(null)}
+      >
+        <div className="space-y-3">
+          {sortedGroups.map((group) => {
+            const groupItems = itemsByGroup.get(group.id) ?? [];
+            const collapsed = collapsedStores.has(group.id);
+            const isEditingThisStore = editingStoreId === group.id;
+            const uncategorized = isUncategorized(group);
+            return uncategorized ? (
+              <UncategorizedGroupCard
+                key={group.id}
+                group={group}
+                items={groupItems}
+                collapsed={collapsed}
+                isEditing={isEditingThisStore}
+                onToggleCollapse={() => toggleCollapsed(group.id)}
+                onEditToggle={() => {
+                  if (isEditingThisStore) setEditingStoreId(null);
+                  else {
+                    setEditingStoreId(group.id);
+                    if (collapsed) toggleCollapsed(group.id);
+                  }
+                }}
+                onItemToggle={(id) => toggleItem(id)}
+                onItemRemove={(id) => removeItem(id)}
+                onItemRename={(id, name) => renameItem(id, name)}
+                onAddItem={(name) => addItem(group.id, name)}
+                onDeleteGroup={() => {
+                  const ok = window.confirm(
+                    t('common.deleteStoreConfirm', { store: group.store }),
+                  );
+                  if (!ok) return;
+                  removeGroup(group.id);
+                  setEditingStoreId(null);
+                }}
+              />
+            ) : (
+              <DroppableStoreGroupCard
+                key={group.id}
+                group={group}
+                items={groupItems}
+                collapsed={collapsed}
+                isEditing={isEditingThisStore}
+                onToggleCollapse={() => toggleCollapsed(group.id)}
+                onEditToggle={() => {
+                  if (isEditingThisStore) setEditingStoreId(null);
+                  else {
+                    setEditingStoreId(group.id);
+                    if (collapsed) toggleCollapsed(group.id);
+                  }
+                }}
+                onItemToggle={(id) => toggleItem(id)}
+                onItemRemove={(id) => removeItem(id)}
+                onItemRename={(id, name) => renameItem(id, name)}
+                onAddItem={(name) => addItem(group.id, name)}
+                onDeleteGroup={() => {
+                  const ok = window.confirm(
+                    t('common.deleteStoreConfirm', { store: group.store }),
+                  );
+                  if (!ok) return;
+                  removeGroup(group.id);
+                  setEditingStoreId(null);
+                }}
+              />
+            );
+          })}
+        </div>
 
-                <motion.div
-                  id={`grocery-group-${group.id}`}
-                  initial={false}
-                  animate={{
-                    height: collapsed ? 0 : 'auto',
-                    opacity: collapsed ? 0 : 1,
-                  }}
-                  transition={{
-                    duration: prefersReducedMotion ? 0 : 0.22,
-                    ease: [0.4, 0, 0.2, 1],
-                  }}
-                  style={{ overflow: 'hidden' }}
-                >
-                  <div className="px-3 pb-3 space-y-1">
-                    {groupItems.map((item) => (
-                      <SwipeToDelete
-                        key={item.id}
-                        onDelete={() => removeItem(item.id)}
-                      >
-                        <GroceryItemRow
-                          item={item}
-                          forceEditing={isEditingThisStore}
-                          onToggle={() => toggleItem(item.id)}
-                          onRename={(name) => renameItem(item.id, name)}
-                        />
-                      </SwipeToDelete>
-                    ))}
-                    <AddItemInline
-                      placeholder={t('groceries.addToStore', { store: group.store })}
-                      onAdd={(name) => addItem(group.id, name)}
-                    />
-                    {/* Delete-this-store action — only visible inside
-                        Edit mode. Confirmation required (per user
-                        request) so a stray tap can't wipe the store. */}
-                    {isEditingThisStore && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const ok = window.confirm(
-                            t('common.deleteStoreConfirm', { store: group.store }),
-                          );
-                          if (!ok) return;
-                          removeGroup(group.id);
-                          setEditingStoreId(null);
-                        }}
-                        className="w-full mt-2 py-2.5 rounded-lg text-sm font-medium text-error hover:bg-error/10 transition-colors"
-                      >
-                        {t('common.deleteStore')}
-                      </button>
-                    )}
-                  </div>
-                </motion.div>
-              </div>
-          );
-        })}
-      </div>
+        {/* Drag overlay portaled to <body> so it isn't clipped by any
+            transformed ancestor (matches the /lists triage pattern). */}
+        {typeof document !== 'undefined' &&
+          createPortal(
+            <DragOverlay dropAnimation={null}>
+              {activeDragItem ? (
+                <div className="px-3 py-2 rounded-xl bg-surface border border-primary shadow-warm-md text-sm text-text-primary leading-snug max-w-[220px] line-clamp-1">
+                  {activeDragItem.name}
+                </div>
+              ) : null}
+            </DragOverlay>,
+            document.body,
+          )}
+      </DndContext>
 
       <GroceryShareSheet open={shareOpen} onClose={() => setShareOpen(false)} />
       <AddGrocerySheet open={addItemOpen} onClose={() => setAddItemOpen(false)} />
@@ -375,6 +399,234 @@ function GroceriesInner() {
           list. The existing "+" header button (typed AddGrocerySheet)
           stays for users who'd rather type. */}
       <CaptureMicButton />
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Group card components
+//
+// Two variants:
+//   - DroppableStoreGroupCard — wrap in useDroppable so dragged
+//     Uncategorized items can land here.
+//   - UncategorizedGroupCard — items inside become draggable; the
+//     card itself isn't a drop target (can't drag onto yourself).
+//
+// Both share the visual shell. They diverge on (a) drop highlight,
+// (b) draggable rows, (c) subtitle hint on Uncategorized.
+
+interface GroupCardCommonProps {
+  group: GroceryGroup;
+  items: GroceryItem[];
+  collapsed: boolean;
+  isEditing: boolean;
+  onToggleCollapse: () => void;
+  onEditToggle: () => void;
+  onItemToggle: (id: string) => void;
+  onItemRemove: (id: string) => void;
+  onItemRename: (id: string, name: string) => void;
+  onAddItem: (name: string) => void;
+  onDeleteGroup: () => void;
+}
+
+function GroupHeader({
+  store,
+  count,
+  total,
+  collapsed,
+  isEditing,
+  onToggleCollapse,
+  onEditToggle,
+  subtitle,
+}: {
+  store: string;
+  count: number;
+  total: number;
+  collapsed: boolean;
+  isEditing: boolean;
+  onToggleCollapse: () => void;
+  onEditToggle: () => void;
+  subtitle?: string;
+}) {
+  return (
+    <div className="w-full flex items-center justify-between p-3">
+      <button
+        onClick={onToggleCollapse}
+        className="flex-1 flex items-start gap-2 text-left hover:opacity-90 transition-opacity"
+        aria-expanded={!collapsed}
+      >
+        <motion.svg
+          animate={prefersReducedMotion ? undefined : { rotate: collapsed ? -90 : 0 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+          width={14}
+          height={14}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-text-tertiary mt-1.5"
+          aria-hidden
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </motion.svg>
+        <span className="flex-1 min-w-0">
+          <span className="block text-base font-bold uppercase tracking-wide text-text-primary">
+            {store}
+          </span>
+          {subtitle && (
+            <span className="block text-[11px] text-text-tertiary leading-snug mt-0.5 normal-case font-normal tracking-normal">
+              {subtitle}
+            </span>
+          )}
+        </span>
+      </button>
+      <div className="flex items-center gap-3 shrink-0">
+        <span className="text-xs text-text-tertiary tabular-nums">
+          {count}/{total}
+        </span>
+        <button
+          type="button"
+          onClick={onEditToggle}
+          className="text-xs font-semibold text-primary hover:underline"
+        >
+          {isEditing ? t('common.done') : t('common.edit')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GroupBody({
+  group,
+  items,
+  collapsed,
+  isEditing,
+  draggable,
+  onItemToggle,
+  onItemRemove,
+  onItemRename,
+  onAddItem,
+  onDeleteGroup,
+}: GroupCardCommonProps & { draggable: boolean }) {
+  return (
+    <motion.div
+      id={`grocery-group-${group.id}`}
+      initial={false}
+      animate={{
+        height: collapsed ? 0 : 'auto',
+        opacity: collapsed ? 0 : 1,
+      }}
+      transition={{
+        duration: prefersReducedMotion ? 0 : 0.22,
+        ease: [0.4, 0, 0.2, 1],
+      }}
+      style={{ overflow: 'hidden' }}
+    >
+      <div className="px-3 pb-3 space-y-1">
+        {items.map((item) =>
+          draggable ? (
+            <DraggableGroceryRow key={item.id} itemId={item.id}>
+              <SwipeToDelete onDelete={() => onItemRemove(item.id)}>
+                <GroceryItemRow
+                  item={item}
+                  forceEditing={isEditing}
+                  onToggle={() => onItemToggle(item.id)}
+                  onRename={(name) => onItemRename(item.id, name)}
+                />
+              </SwipeToDelete>
+            </DraggableGroceryRow>
+          ) : (
+            <SwipeToDelete key={item.id} onDelete={() => onItemRemove(item.id)}>
+              <GroceryItemRow
+                item={item}
+                forceEditing={isEditing}
+                onToggle={() => onItemToggle(item.id)}
+                onRename={(name) => onItemRename(item.id, name)}
+              />
+            </SwipeToDelete>
+          ),
+        )}
+        <AddItemInline
+          placeholder={t('groceries.addToStore', { store: group.store })}
+          onAdd={onAddItem}
+        />
+        {isEditing && (
+          <button
+            type="button"
+            onClick={onDeleteGroup}
+            className="w-full mt-2 py-2.5 rounded-lg text-sm font-medium text-error hover:bg-error/10 transition-colors"
+          >
+            {t('common.deleteStore')}
+          </button>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function DroppableStoreGroupCard(props: GroupCardCommonProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: props.group.id });
+  const completed = props.items.filter((i) => i.completed).length;
+  return (
+    <div
+      ref={setNodeRef}
+      className={`bg-surface rounded-xl border overflow-hidden transition-colors ${
+        isOver ? 'border-primary ring-2 ring-primary/30' : 'border-border'
+      }`}
+    >
+      <GroupHeader
+        store={props.group.store}
+        count={completed}
+        total={props.items.length}
+        collapsed={props.collapsed}
+        isEditing={props.isEditing}
+        onToggleCollapse={props.onToggleCollapse}
+        onEditToggle={props.onEditToggle}
+      />
+      <GroupBody {...props} draggable={false} />
+    </div>
+  );
+}
+
+function UncategorizedGroupCard(props: GroupCardCommonProps) {
+  const completed = props.items.filter((i) => i.completed).length;
+  return (
+    <div className="bg-surface rounded-xl border border-border overflow-hidden">
+      <GroupHeader
+        store={t('groceries.uncategorized')}
+        count={completed}
+        total={props.items.length}
+        collapsed={props.collapsed}
+        isEditing={props.isEditing}
+        onToggleCollapse={props.onToggleCollapse}
+        onEditToggle={props.onEditToggle}
+        subtitle={t('groceries.uncategorized.subtitle')}
+      />
+      <GroupBody {...props} draggable={true} />
+    </div>
+  );
+}
+
+function DraggableGroceryRow({
+  itemId,
+  children,
+}: {
+  itemId: string;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: itemId,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ touchAction: 'pan-y', opacity: isDragging ? 0 : 1 }}
+      {...listeners}
+      {...attributes}
+    >
+      {children}
     </div>
   );
 }

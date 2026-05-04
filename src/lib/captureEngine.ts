@@ -79,6 +79,12 @@ export interface CaptureResult {
   gratitude: string[];
   journal: string | null;
   completions: CompletionIntent[];
+  // Present-tense pantry-state assertions. Distinct from `completions`
+  // (past-tense purchases). Powers the "I have eggs and butter" flow:
+  // matches against the existing list to check off, surfaces the rest
+  // for the preview sheet's pantry-sync section. Each string is a
+  // bare noun phrase; the apply layer handles fuzzy matching.
+  have_items: string[];
   // Sprint 2: which notebook the `journal` content (if any) belongs
   // in. Gemini's best guess; user overrides in the preview sheet.
   notebook_slug: string | null;
@@ -219,6 +225,26 @@ CATEGORIES:
    - "I finished the Q3 report" → completions: [{"phrase":"Q3 report","type":"done"}]
    CRITICAL: completions describe items that were ALREADY on the list. They are NOT new priorities AND NOT new groceries. When the user says "I bought / got / picked up" something, emit it ONLY in completions. Do NOT also add it to the "priorities" or "groceries" arrays. The app will check off the matching item. The only exception is if the user is EXPLICITLY adding a new shopping list ("I want to add to my list: …", "remind me to buy …"); past-tense "I bought" / "I got" is always a completion.
 
+9C. **have_items** — User asserting PRESENT-TENSE state about what they currently have at home (typically reading off the fridge / pantry). DIFFERENT from completions:
+   - "I bought X" → past-tense purchase action → completions with type "bought".
+   - "I have X" / "I still have X" → present-tense state assertion → have_items.
+   Emit a flat string array of bare noun phrases. The app uses this to check off matching grocery items, surface previously-checked items the user did NOT mention, and add unmatched items to an Uncategorized bucket.
+   Phrases that emit have_items (English):
+   - "I have eggs and butter" → have_items: ["eggs","butter"]
+   - "I still have rice and pasta" → have_items: ["rice","pasta"]
+   - "in the fridge I've got milk, OJ, yogurt" → have_items: ["milk","OJ","yogurt"]
+   - "we have plenty of olive oil and bread" → have_items: ["olive oil","bread"]
+   Phrases in Spanish:
+   - "Tengo huevos y mantequilla" → have_items: ["huevos","mantequilla"]
+   - "Todavía tengo arroz y pasta" → have_items: ["arroz","pasta"]
+   GUARDRAILS — emit nothing in have_items for any of these:
+   - Vague / collective phrases: "I have everything", "I have all my groceries", "I have lots of stuff" → have_items: []
+   - Negation: "I don't have eggs" → groceries[] (need to buy), NOT have_items.
+   - Past-tense purchase: "I bought milk" → completions, NOT have_items.
+   - Tasks / non-grocery nouns: "I have a meeting at 3" → priorities, NOT have_items.
+   - Bare possessions unrelated to pantry: "I have a car" → ignore.
+   Items in have_items are ALSO NOT emitted in groceries[] or completions. The same noun never appears in two channels at once.
+
 8. **plans** — DEPRECATED CHANNEL. Always return [] here. Time-anchored events (appointments, meals, meetups, travel, flights) now flow through **priorities** with the \`time\` and \`due_date\` fields set. Apply the temporal-reasoning rules below when populating priority \`time\` for events.
 
    TEMPORAL REASONING — THINK BEFORE YOU ASSIGN TIMES (applies to priority.time):
@@ -264,7 +290,7 @@ RULES:
    Also emit "notebook_confidence" as a number 0.0–1.0. Default to "journal" with confidence 0.5 when unsure. Omit ("journal" default) when "journal" itself is null.
 
 Respond with ONLY valid JSON:
-{"priorities": [{"text": "task", "when": "today", "category": "other", "subgroup": null, "list_hint": null, "due_date": null, "time": null, "remind_at_iso": null, "reminder_phrase": null}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null, "completions": [], "notebook_slug": "journal", "notebook_confidence": 0.8}`;
+{"priorities": [{"text": "task", "when": "today", "category": "other", "subgroup": null, "list_hint": null, "due_date": null, "time": null, "remind_at_iso": null, "reminder_phrase": null}], "plans": [], "groceries": [], "intentions": [], "habits": [], "ideas": [], "gratitude": [], "journal": null, "completions": [], "have_items": [], "notebook_slug": "journal", "notebook_confidence": 0.8}`;
 
 export function resolveWhen(when: string, referenceDate?: string): string {
   const ref = referenceDate ? new Date(referenceDate + 'T12:00:00') : new Date();
@@ -435,6 +461,24 @@ export async function classifyCapture(
       .filter((c): c is CompletionIntent => c !== null);
   }
 
+  // Normalize have_items — flat string array, trim + dedupe (case-
+  // insensitive) + cap. Drops empties so the apply layer doesn't have
+  // to defend against them.
+  const have_items: string[] = [];
+  if (Array.isArray(parsed.have_items)) {
+    const seen = new Set<string>();
+    for (const raw of parsed.have_items as unknown[]) {
+      if (typeof raw !== 'string') continue;
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      have_items.push(trimmed);
+      if (have_items.length >= 50) break;
+    }
+  }
+
   // Normalize groceries — Gemini may return various formats
   let groceries: GroceryStore[] = [];
   try {
@@ -521,6 +565,7 @@ export async function classifyCapture(
     gratitude: Array.isArray(parsed.gratitude) ? parsed.gratitude as string[] : [],
     journal: typeof parsed.journal === 'string' ? parsed.journal : null,
     completions,
+    have_items,
     notebook_slug: notebookSlug,
     notebook_confidence: notebookConfidence,
   };
@@ -536,6 +581,7 @@ export function hasContent(result: CaptureResult): boolean {
     result.ideas.length > 0 ||
     result.gratitude.length > 0 ||
     result.completions.length > 0 ||
+    result.have_items.length > 0 ||
     (result.journal !== null && result.journal.trim().length > 0)
   );
 }
@@ -741,6 +787,7 @@ export function parseIntentFallback(text: string): CaptureResult {
     gratitude: [],
     journal: null,
     completions: [],
+    have_items: [],
     notebook_slug: null,
     notebook_confidence: 0.5,
   };

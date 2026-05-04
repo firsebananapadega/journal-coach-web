@@ -24,11 +24,29 @@ export interface GroceryItem {
   id: string;
   name: string;
   completed: boolean;
+  // Optional ISO timestamp of the last check-off. Required for the
+  // pantry-sync "uncheck if not mentioned" 14-day scope guard so old
+  // long-since-checked items don't get false-unchecked. Callers that
+  // don't surface this field (legacy paths) skip the uncheck branch
+  // entirely — safe default.
+  completed_at?: string | null;
 }
 export interface GroceryGroup {
   id: string;
   store: string;
   items: GroceryItem[];
+}
+
+// ── Pantry-sync resolution ────────────────────────────────────
+// The shape returned to onConfirm describing the user's per-row
+// decisions on the have-flow. The commit handler in voice/page.tsx
+// applies these as: markItemDone(checkIds), markItemUndone(uncheckIds),
+// addCompletedItems(UNCATEGORIZED, addToUncategorized). Empty arrays
+// for any bucket = nothing to do.
+export interface HaveSyncResolution {
+  checkIds: string[];
+  uncheckIds: string[];
+  addToUncategorized: string[];
 }
 import type { ListRecord } from '@/stores/listStore';
 import { useNotebookStore } from '@/stores/notebookStore';
@@ -67,6 +85,7 @@ interface Props {
     edited: CaptureResult,
     completionMatches: CompletionMatch[],
     destinations: PriorityDestinations,
+    haveSync?: HaveSyncResolution,
   ) => Promise<void>;
   onCancel: () => void;
   busy?: boolean;
@@ -583,6 +602,86 @@ function RoutingSummary({
   );
 }
 
+// ── Pantry-sync bucket types (in-component only) ────────────
+// Each "I have …" phrase resolves to one of three buckets:
+//   - check: matched against an existing UNCHECKED grocery item
+//             that we'd flip to checked.
+//   - add: didn't match any existing item; will land in
+//             Uncategorized as pre-checked.
+// Plus a separate uncheck bucket: items currently CHECKED that
+// the user did NOT mention this round (and were checked off
+// recently — see HAVE_UNCHECK_WINDOW_MS for the scope guard).
+interface HaveCheckMatch {
+  phrase: string;
+  itemId: string;
+  itemName: string;
+  store: string;
+}
+interface HaveUncheckMatch {
+  itemId: string;
+  itemName: string;
+  store: string;
+}
+const HAVE_UNCHECK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+function computeHaveBuckets(
+  haveItems: string[],
+  groceries: GroceryGroup[],
+): { check: HaveCheckMatch[]; uncheck: HaveUncheckMatch[]; add: string[] } {
+  const allPairs = groceries.flatMap((g) =>
+    g.items.map((it) => ({ group: g, item: it })),
+  );
+  const matchedItemIds = new Set<string>();
+  const check: HaveCheckMatch[] = [];
+  const add: string[] = [];
+
+  for (const phrase of haveItems) {
+    const m = bestMatch(phrase, allPairs.map((p) => p.item));
+    if (m) {
+      const pair = allPairs.find((p) => p.item.id === m.item.id);
+      if (pair) {
+        matchedItemIds.add(pair.item.id);
+        // Idempotency: skip the check bucket if the item is already
+        // checked. The apply layer is also idempotent (markItemDone
+        // no-ops on already-completed) but skipping here keeps the
+        // preview honest — we only show real pending changes.
+        if (!pair.item.completed) {
+          check.push({
+            phrase,
+            itemId: pair.item.id,
+            itemName: pair.item.name,
+            store: pair.group.store,
+          });
+        }
+        continue;
+      }
+    }
+    add.push(phrase);
+  }
+
+  // Uncheck candidates: currently-checked items the user did NOT
+  // mention this round, scoped to recent check-offs only (last 14
+  // days). Older check-offs are persistent inventory the user has
+  // implicitly trusted; we don't touch them.
+  const cutoff = Date.now() - HAVE_UNCHECK_WINDOW_MS;
+  const uncheck: HaveUncheckMatch[] = [];
+  for (const pair of allPairs) {
+    if (!pair.item.completed) continue;
+    if (matchedItemIds.has(pair.item.id)) continue;
+    const completedAt = pair.item.completed_at;
+    if (!completedAt) continue; // missing timestamp → skip (safe default)
+    const t = Date.parse(completedAt);
+    if (!Number.isFinite(t) || t < cutoff) continue;
+    uncheck.push({
+      itemId: pair.item.id,
+      itemName: pair.item.name,
+      store: pair.group.store,
+    });
+  }
+
+  return { check, uncheck, add };
+}
+
 function computeMatches(
   completions: CompletionIntent[],
   priorities: PriorityItem[],
@@ -643,6 +742,14 @@ export function CapturePreviewSheet({
   const [matches, setMatches] = useState<CompletionMatch[]>([]);
   // Per-priority destination override, index-aligned with edited.priorities.
   const [destinations, setDestinations] = useState<PriorityDestinations>([]);
+  // Pantry-sync buckets (the "I have …" voice flow). Initialized when
+  // the sheet opens; per-row × toggles remove rows from the bucket.
+  // Empty buckets = no pantry-sync section rendered.
+  const [haveBuckets, setHaveBuckets] = useState<{
+    check: HaveCheckMatch[];
+    uncheck: HaveUncheckMatch[];
+    add: string[];
+  }>({ check: [], uncheck: [], add: [] });
 
   // Ensure notebooks are loaded so the NotebookPicker can render its
   // options.
@@ -661,6 +768,11 @@ export function CapturePreviewSheet({
       setDestinations(cloned.priorities.map((p) => resolveDestination(p, lists)));
       setMatches(
         computeMatches(result.completions, existingPriorities, existingGroceries),
+      );
+      setHaveBuckets(
+        result.have_items && result.have_items.length > 0
+          ? computeHaveBuckets(result.have_items, existingGroceries)
+          : { check: [], uncheck: [], add: [] },
       );
     }
   }, [open, result, existingPriorities, existingGroceries, lists]);
@@ -684,9 +796,12 @@ export function CapturePreviewSheet({
       edited.gratitude.length +
       (edited.journal ? 1 : 0) +
       matchedCompletions +
-      unmatchedBoughtFallback
+      unmatchedBoughtFallback +
+      haveBuckets.check.length +
+      haveBuckets.uncheck.length +
+      haveBuckets.add.length
     );
-  }, [edited, matches]);
+  }, [edited, matches, haveBuckets]);
 
   if (!open || !edited) return null;
 
@@ -773,6 +888,24 @@ export function CapturePreviewSheet({
   const removeMatch = (i: number) =>
     setMatches((cur) => cur.filter((_, idx) => idx !== i));
 
+  // Per-row × in the pantry-sync section — drops the row from the
+  // affected bucket so it won't be applied on Confirm.
+  const removeHaveCheck = (idx: number) =>
+    setHaveBuckets((cur) => ({
+      ...cur,
+      check: cur.check.filter((_, i) => i !== idx),
+    }));
+  const removeHaveUncheck = (idx: number) =>
+    setHaveBuckets((cur) => ({
+      ...cur,
+      uncheck: cur.uncheck.filter((_, i) => i !== idx),
+    }));
+  const removeHaveAdd = (idx: number) =>
+    setHaveBuckets((cur) => ({
+      ...cur,
+      add: cur.add.filter((_, i) => i !== idx),
+    }));
+
   // ── grouped tasks for rendering ──
   const tasksByCategory: Record<PriorityCategory, Array<{ task: PriorityTask; i: number }>> = {
     medications: [],
@@ -788,7 +921,17 @@ export function CapturePreviewSheet({
 
   const handleSave = async () => {
     if (busy) return;
-    await onConfirm(edited, matches, destinations);
+    const haveSync: HaveSyncResolution | undefined =
+      haveBuckets.check.length > 0 ||
+      haveBuckets.uncheck.length > 0 ||
+      haveBuckets.add.length > 0
+        ? {
+            checkIds: haveBuckets.check.map((c) => c.itemId),
+            uncheckIds: haveBuckets.uncheck.map((u) => u.itemId),
+            addToUncategorized: haveBuckets.add,
+          }
+        : undefined;
+    await onConfirm(edited, matches, destinations, haveSync);
   };
 
   const isEmpty = totalChanges === 0;
@@ -932,6 +1075,112 @@ export function CapturePreviewSheet({
                   );
                 })}
               </div>
+            </section>
+          )}
+
+          {/* Pantry sync — the "I have …" voice flow. Only renders
+              when at least one bucket has rows. Per-row × removes the
+              row from its bucket; on Confirm the resolved buckets get
+              passed back to the commit handler. */}
+          {(haveBuckets.check.length > 0 ||
+            haveBuckets.uncheck.length > 0 ||
+            haveBuckets.add.length > 0) && (
+            <section className="space-y-3">
+              <SectionHeader
+                label={t('preview.haveSync.title')}
+                count={
+                  haveBuckets.check.length +
+                  haveBuckets.uncheck.length +
+                  haveBuckets.add.length
+                }
+              />
+
+              {haveBuckets.check.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-wider text-success font-semibold">
+                    {t('preview.haveSync.willCheck')}
+                  </p>
+                  {haveBuckets.check.map((c, idx) => (
+                    <div
+                      key={c.itemId}
+                      className="flex items-start gap-2 py-1.5 px-2 rounded-lg bg-success/5"
+                    >
+                      <span className="text-sm text-success">✓</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] text-text-primary">{c.itemName}</p>
+                        <p className="text-[11px] text-text-tertiary mt-0.5">
+                          {c.store}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => removeHaveCheck(idx)}
+                        className="text-text-tertiary hover:text-error px-1 text-sm"
+                        aria-label="Skip this row"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {haveBuckets.uncheck.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-semibold">
+                    {t('preview.haveSync.willUncheck')}
+                  </p>
+                  <p className="text-[11px] text-text-tertiary leading-snug">
+                    {t('preview.haveSync.uncheckHint')}
+                  </p>
+                  {haveBuckets.uncheck.map((u, idx) => (
+                    <div
+                      key={u.itemId}
+                      className="flex items-start gap-2 py-1.5 px-2 rounded-lg bg-amber-500/5"
+                    >
+                      <span className="text-sm text-amber-600 dark:text-amber-400">⏵</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] text-text-primary">{u.itemName}</p>
+                        <p className="text-[11px] text-text-tertiary mt-0.5">
+                          {u.store}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => removeHaveUncheck(idx)}
+                        className="text-text-tertiary hover:text-error px-1 text-sm"
+                        aria-label="Keep checked"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {haveBuckets.add.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-wider text-primary font-semibold">
+                    {t('preview.haveSync.willAdd')}
+                  </p>
+                  {haveBuckets.add.map((phrase, idx) => (
+                    <div
+                      key={`${phrase}-${idx}`}
+                      className="flex items-start gap-2 py-1.5 px-2 rounded-lg bg-primary/5"
+                    >
+                      <span className="text-sm text-primary">+</span>
+                      <p className="flex-1 text-[14px] text-text-primary min-w-0">
+                        {phrase}
+                      </p>
+                      <button
+                        onClick={() => removeHaveAdd(idx)}
+                        className="text-text-tertiary hover:text-error px-1 text-sm"
+                        aria-label="Skip this row"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           )}
 

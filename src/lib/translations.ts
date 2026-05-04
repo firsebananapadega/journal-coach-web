@@ -421,6 +421,40 @@ const translations: Record<string, Record<Locale, string>> = {
   },
   'groceries.joinedYes': { en: 'Move them', es: 'Moverlos' },
   'groceries.joinedNo': { en: 'No, keep them separate', es: 'No, mantenlos aparte' },
+  'groceries.uncategorized': { en: 'Uncategorized', es: 'Sin clasificar' },
+  'groceries.uncategorized.subtitle': {
+    en: 'Drag onto a store, or it stays here.',
+    es: 'Arrástralo a una tienda, o se queda aquí.',
+  },
+  'groceries.dropOnStore': {
+    en: 'Drop here to add to {store}',
+    es: 'Suelta aquí para añadir a {store}',
+  },
+  // ─── Pantry-sync preview (the "I have …" voice flow)
+  'preview.haveSync.title': {
+    en: 'Pantry sync — I have these',
+    es: 'Sincronización de despensa — Tengo esto',
+  },
+  'preview.haveSync.willCheck': {
+    en: 'Will check off (you have these)',
+    es: 'Se marcarán (los tienes)',
+  },
+  'preview.haveSync.willUncheck': {
+    en: "Will uncheck (you didn't mention)",
+    es: 'Se desmarcarán (no los mencionaste)',
+  },
+  'preview.haveSync.willAdd': {
+    en: 'Add to Uncategorized (new for me)',
+    es: 'Añadir a Sin clasificar (nuevo)',
+  },
+  'preview.haveSync.uncheckHint': {
+    en: 'These were checked recently. Tap × to keep them checked.',
+    es: 'Marcados recientemente. Toca × para mantenerlos marcados.',
+  },
+  'preview.haveSync.empty': {
+    en: 'Nothing to sync — your list already matches.',
+    es: 'Nada que sincronizar — tu lista ya coincide.',
+  },
 
   // ─── Share sheet (grocery sharing)
   'share.title': { en: 'Share grocery list', es: 'Compartir lista de compras' },

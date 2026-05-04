@@ -9,6 +9,19 @@ import { getDB } from '../lib/db';
 import { enqueue } from '../lib/syncQueue';
 import { isOnline } from '../lib/networkStatus';
 
+/** Sentinel store name for the Uncategorized group — the default
+ *  landing for any grocery item without a known store assignment.
+ *  Always rendered last on /groceries regardless of sort_order, and
+ *  is the only group source items can drag OUT of in the current
+ *  drag-drop pass. The string IS the marker (no DB schema flag);
+ *  consumers compare with this constant rather than literal strings
+ *  so we can swap it later without scattering replacements. */
+export const UNCATEGORIZED_STORE = 'Uncategorized';
+
+export function isUncategorized(group: { store: string }): boolean {
+  return group.store === UNCATEGORIZED_STORE;
+}
+
 // Shared, real-time grocery lists.
 //
 // Each user has one active list (`profiles.active_grocery_list_id`).
@@ -117,6 +130,18 @@ interface GroceryState {
   renameItem: (itemId: string, name: string) => Promise<void>;
   removeItem: (itemId: string) => Promise<void>;
   markItemDone: (itemId: string) => Promise<void>;
+  /** Idempotent inverse of markItemDone: sets completed=false. Used
+   *  by the "I have …" flow when a previously-checked item the user
+   *  no longer mentioned needs to flip back to "needs to buy." */
+  markItemUndone: (itemId: string) => Promise<void>;
+  /** Move an existing item to a different group. Optimistic; the
+   *  outbox replays the group_id update server-side. Used by the
+   *  Uncategorized → store drag-drop on /groceries. */
+  moveItemToGroup: (itemId: string, targetGroupId: string) => Promise<void>;
+  /** Find-or-create the sentinel "Uncategorized" group on the
+   *  current list. Lazy — only creates when a caller actually needs
+   *  somewhere to drop unmatched items. Returns the group id. */
+  ensureUncategorizedGroup: () => Promise<string | null>;
 
   /** Voice "I bought X, Y" fallback path. Adds the named items to
    *  the given store already marked completed=true. Used when Gemini
@@ -669,7 +694,10 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     const { listId } = get();
     if (!listId) return;
     for (const g of newGroups) {
-      const trimmedStore = g.store.trim() || 'General';
+      // Capture without a store name lands in Uncategorized so the
+      // user can drag it into a real store later. Existing literal
+      // 'General' captures (legacy data) keep working alongside.
+      const trimmedStore = g.store.trim() || UNCATEGORIZED_STORE;
       // Find or create the store group (case-insensitive match on store name).
       let group = get().groups.find((existing) => existing.store.toLowerCase() === trimmedStore.toLowerCase());
       if (!group) {
@@ -734,6 +762,48 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     const target = items.find((i) => i.id === itemId);
     if (!target || target.completed) return;
     await get().toggleItem(itemId);
+  },
+
+  markItemUndone: async (itemId) => {
+    const { items } = get();
+    const target = items.find((i) => i.id === itemId);
+    if (!target || !target.completed) return;
+    await get().toggleItem(itemId);
+  },
+
+  moveItemToGroup: async (itemId, targetGroupId) => {
+    const { items, groups } = get();
+    const target = items.find((i) => i.id === itemId);
+    if (!target) return;
+    if (target.group_id === targetGroupId) return;
+    if (!groups.find((g) => g.id === targetGroupId)) return;
+    // Append to the end of the target group so the moved item is
+    // visible without scroll. Find max sort_order within the target
+    // group and add 1.
+    const targetMax = items
+      .filter((i) => i.group_id === targetGroupId)
+      .reduce((m, i) => Math.max(m, i.sort_order), -1);
+    const nextOrder = targetMax + 1;
+    set({
+      items: items.map((i) =>
+        i.id === itemId
+          ? { ...i, group_id: targetGroupId, sort_order: nextOrder }
+          : i,
+      ),
+    });
+    await enqueue({
+      op: 'update',
+      table: 'grocery_items',
+      row_id: itemId,
+      payload: { group_id: targetGroupId, sort_order: nextOrder },
+    });
+  },
+
+  ensureUncategorizedGroup: async () => {
+    const existing = get().groups.find((g) => g.store === UNCATEGORIZED_STORE);
+    if (existing) return existing.id;
+    const created = await get().addGroup(UNCATEGORIZED_STORE);
+    return created?.id ?? null;
   },
 
   addCompletedItems: async (store, names) => {
