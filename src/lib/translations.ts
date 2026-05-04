@@ -1409,6 +1409,14 @@ const translations: Record<string, Record<Locale, string>> = {
     en: "Save today's three",
     es: 'Guardar las tres de hoy',
   },
+  'gratitude.daily.addAnother': {
+    en: '+ Add another',
+    es: '+ Añadir otra',
+  },
+  'gratitude.daily.removeOne': {
+    en: 'Remove',
+    es: 'Quitar',
+  },
   'gratitude.daily.savedToast': {
     en: 'Saved your gratitude',
     es: 'Guardamos tu gratitud',

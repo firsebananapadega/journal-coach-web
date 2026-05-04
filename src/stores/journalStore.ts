@@ -127,13 +127,14 @@ interface JournalState {
     notebookId: string;
     items: Array<{ what: string; why: string }>;
   }) => Promise<JournalEntry | null>;
-  /** Append-one variant. Used by the GratitudeDailyCard's
-   *  one-at-a-time UI: each save adds a single item to today's
-   *  metadata.gratitude_items array. Creates the entry if it's
-   *  the first save of the day. Same skipAutoDetect guarantee. */
+  /** Batch-append variant. The GratitudeDailyCard saves 1-3 items in
+   *  a single tap; this concatenates them onto today's
+   *  metadata.gratitude_items array (creating the entry on first save
+   *  of the day). Same skipAutoDetect guarantee. Empty `what` items
+   *  are dropped. */
   appendTodayGratitude: (input: {
     notebookId: string;
-    item: { what: string; why: string };
+    items: Array<{ what: string; why: string }>;
   }) => Promise<JournalEntry | null>;
   reset: () => void;
 }
@@ -563,9 +564,11 @@ export const useJournalStore = create<JournalState>((set, get) => ({
     );
   },
 
-  appendTodayGratitude: async ({ notebookId, item }) => {
-    const trimmed = { what: item.what.trim(), why: item.why.trim() };
-    if (!trimmed.what) return null;
+  appendTodayGratitude: async ({ notebookId, items }) => {
+    const trimmedNew = items
+      .map((it) => ({ what: it.what.trim(), why: it.why.trim() }))
+      .filter((it) => it.what.length > 0);
+    if (trimmedNew.length === 0) return null;
 
     const today = (() => {
       const d = new Date();
@@ -592,23 +595,22 @@ export const useJournalStore = create<JournalState>((set, get) => ({
       const prevItems =
         (existing.metadata as { gratitude_items?: Array<{ what: string; why: string }> } | null)
           ?.gratitude_items ?? [];
-      const items = [...prevItems, trimmed];
-      const contentText = renderItems(items);
+      const merged = [...prevItems, ...trimmedNew];
+      const contentText = renderItems(merged);
       await get().updateEntry(existing.id, {
         content_text: contentText,
         word_count: contentText.split(/\s+/).filter(Boolean).length,
         metadata: {
           ...((existing.metadata as Record<string, unknown> | null) ?? {}),
-          gratitude_items: items,
+          gratitude_items: merged,
           gratitude_date: today,
         },
       });
       return get().entries.find((e) => e.id === existing.id) ?? null;
     }
 
-    // First save of the day — single-item entry.
-    const items = [trimmed];
-    const contentText = renderItems(items);
+    // First save of the day — entry with all batched items.
+    const contentText = renderItems(trimmedNew);
     return await get().createEntry(
       {
         entry_type: 'gratitude',
@@ -616,7 +618,7 @@ export const useJournalStore = create<JournalState>((set, get) => ({
         content_text: contentText,
         word_count: contentText.split(/\s+/).filter(Boolean).length,
         metadata: {
-          gratitude_items: items,
+          gratitude_items: trimmedNew,
           gratitude_date: today,
         },
       },
