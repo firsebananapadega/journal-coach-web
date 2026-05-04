@@ -630,16 +630,51 @@ export async function classifyCapture(
     // chrono load failed — leave Gemini's values as-is.
   }
 
+  // ── Cross-channel dedupe ─────────────────────────────────────
+  // Defense-in-depth: the prompt tells Gemini "the same noun never
+  // appears in two channels at once" but the model occasionally
+  // double-emits (e.g. "beetroot. I have one beetroot." → both
+  // groceries[] and have_items[]). The regex fallback can also
+  // double-emit when a transcript has a HAVE-cue line and a separate
+  // grocery-cue line referencing the same noun. have_items wins
+  // because it carries qty/state info; the bare grocery emit is
+  // dropped.
+  //
+  // Conservative: case-insensitive exact-match only. "beetroot" and
+  // "red beetroot" stay as two separate items (different specifications).
+  let dedupedGroceries = groceries;
+  let dedupedCompletions = completions;
+  if (have_items.length > 0) {
+    const haveNames = new Set(
+      have_items.map((h) => h.name.trim().toLowerCase()),
+    );
+    if (groceries.length > 0) {
+      dedupedGroceries = groceries
+        .map((g) => ({
+          ...g,
+          items: g.items.filter(
+            (item) => !haveNames.has(item.trim().toLowerCase()),
+          ),
+        }))
+        .filter((g) => g.items.length > 0);
+    }
+    if (completions.length > 0) {
+      dedupedCompletions = completions.filter(
+        (c) => !haveNames.has(c.phrase.trim().toLowerCase()),
+      );
+    }
+  }
+
   return {
     priorities,
     plans,
-    groceries,
+    groceries: dedupedGroceries,
     intentions: Array.isArray(parsed.intentions) ? parsed.intentions as string[] : [],
     habits: Array.isArray(parsed.habits) ? parsed.habits as string[] : [],
     ideas: Array.isArray(parsed.ideas) ? parsed.ideas as string[] : [],
     gratitude: Array.isArray(parsed.gratitude) ? parsed.gratitude as string[] : [],
     journal: typeof parsed.journal === 'string' ? parsed.journal : null,
-    completions,
+    completions: dedupedCompletions,
     have_items,
     notebook_slug: notebookSlug,
     notebook_confidence: notebookConfidence,

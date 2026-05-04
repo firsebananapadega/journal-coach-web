@@ -428,6 +428,11 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'Drag onto a store, or it stays here.',
     es: 'Arrástralo a una tienda, o se queda aquí.',
   },
+  'groceries.uncategorized.dragHint': {
+    en: 'Uncategorized — drag into a store',
+    es: 'Sin clasificar — arrastra a una tienda',
+  },
+  'groceries.qtyLabel': { en: 'Qty', es: 'Cant.' },
   'groceries.dropOnStore': {
     en: 'Drop here to add to {store}',
     es: 'Suelta aquí para añadir a {store}',

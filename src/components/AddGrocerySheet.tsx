@@ -4,14 +4,16 @@
 // Bypasses the AI capture engine (groceries can still go through
 // classify/preview when added from /voice or other capture surfaces;
 // this is the deliberate "I want to type one in" path on /groceries).
-// Quantity / units stay embedded in the name string ("2 lbs apples")
-// to match the existing inline-edit shape of the list.
+// Quantity now has its own optional integer field (persisted to the
+// `quantity` column on grocery_items). Units / qualifiers can still
+// stay embedded in the name string ("2 lbs ground beef") when desired.
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGroceryStore } from '@/stores/groceryStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { useVisualViewport } from '@/hooks/useVisualViewport';
+import { t } from '@/lib/translations';
 
 interface Props {
   open: boolean;
@@ -35,6 +37,9 @@ export function AddGrocerySheet({ open, onClose, defaultGroupId }: Props) {
   const keyboardOpen = vv?.keyboardOpen ?? false;
 
   const [text, setText] = useState('');
+  // Optional quantity. Local string state so empty / partial typing
+  // is OK; we parse to integer at submit time.
+  const [qty, setQty] = useState('');
   // Either an existing group id, or NEW_STORE for the inline-create path.
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [newStoreName, setNewStoreName] = useState('');
@@ -43,6 +48,7 @@ export function AddGrocerySheet({ open, onClose, defaultGroupId }: Props) {
   useEffect(() => {
     if (!open) return;
     setText('');
+    setQty('');
     setNewStoreName('');
     if (defaultGroupId) {
       setSelectedGroupId(defaultGroupId);
@@ -70,7 +76,15 @@ export function AddGrocerySheet({ open, onClose, defaultGroupId }: Props) {
         if (!created) return;
         groupId = created.id;
       }
-      await addItem(groupId, text.trim());
+      // Parse the optional qty input. Integer ≥ 1 → store; anything
+      // else (empty, non-numeric, zero, negative) → null.
+      const parsedQty = (() => {
+        const trimmed = qty.trim();
+        if (!trimmed) return null;
+        const n = Number.parseInt(trimmed, 10);
+        return Number.isInteger(n) && n >= 1 ? n : null;
+      })();
+      await addItem(groupId, text.trim(), parsedQty);
       onClose();
     } finally {
       setSubmitting(false);
@@ -131,20 +145,38 @@ export function AddGrocerySheet({ open, onClose, defaultGroupId }: Props) {
                 </button>
               </div>
 
-              <input
-                autoFocus
-                type="text"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && canSubmit) {
-                    e.preventDefault();
-                    void handleSubmit();
-                  }
-                }}
-                placeholder="e.g. 2 lbs apples"
-                className="w-full px-3 py-2.5 bg-bg border border-border focus:border-primary rounded-xl text-base text-text-primary outline-none placeholder:text-text-tertiary"
-              />
+              <div className="flex gap-2">
+                <input
+                  autoFocus
+                  type="text"
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && canSubmit) {
+                      e.preventDefault();
+                      void handleSubmit();
+                    }
+                  }}
+                  placeholder="e.g. apples"
+                  className="flex-1 min-w-0 px-3 py-2.5 bg-bg border border-border focus:border-primary rounded-xl text-base text-text-primary outline-none placeholder:text-text-tertiary"
+                />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && canSubmit) {
+                      e.preventDefault();
+                      void handleSubmit();
+                    }
+                  }}
+                  placeholder={t('groceries.qtyLabel')}
+                  aria-label={t('groceries.qtyLabel')}
+                  className="w-16 px-2 py-2.5 bg-bg border border-border focus:border-primary rounded-xl text-base text-text-primary text-center tabular-nums outline-none placeholder:text-text-tertiary"
+                />
+              </div>
 
               <div>
                 <label className="block text-[11px] uppercase tracking-widest text-text-tertiary font-semibold mb-1">

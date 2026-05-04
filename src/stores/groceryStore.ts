@@ -57,6 +57,12 @@ export interface GroceryItem {
    *  explicit user override (toggled via the Edit-mode chip on
    *  /groceries). See src/lib/groceryClassify.ts. */
   perishable: boolean | null;
+  /** Optional integer quantity. Captured by the voice have-flow
+   *  when the user volunteers a number ("I have three onions" → 3),
+   *  by the AddGrocerySheet's Qty input, and editable inline in
+   *  per-store Edit mode. NULL = "no quantity specified" (most
+   *  items). The UI hides the inline `× N` tag when null. */
+  quantity: number | null;
 }
 
 export interface GroceryListMember {
@@ -127,7 +133,7 @@ interface GroceryState {
 
   addGroup: (store: string) => Promise<GroceryGroup | null>;
   removeGroup: (groupId: string) => Promise<void>;
-  addItem: (groupId: string, name: string) => Promise<void>;
+  addItem: (groupId: string, name: string, quantity?: number | null) => Promise<void>;
   addGroupsFromCapture: (
     groups: { store: string; items: string[] }[],
   ) => Promise<void>;
@@ -155,8 +161,19 @@ interface GroceryState {
   /** Voice "I bought X, Y" fallback path. Adds the named items to
    *  the given store already marked completed=true. Used when Gemini
    *  fails to classify but our fuzzy matcher still recognises the
-   *  spoken items. */
-  addCompletedItems: (store: string, names: string[]) => Promise<void>;
+   *  spoken items. Accepts plain string names (legacy) OR objects
+   *  carrying optional per-item quantity (used by the have-flow's
+   *  add-to-Uncategorized branch when the user volunteered a count). */
+  addCompletedItems: (
+    store: string,
+    items: Array<string | { name: string; quantity?: number | null }>,
+  ) => Promise<void>;
+  /** Set the per-item quantity. Pass null to clear. Optimistic;
+   *  the outbox replays the column update. Used by the voice
+   *  have-flow when the user updated a number, by the manual
+   *  Edit-mode qty input, and by the AddGrocerySheet via
+   *  addItem's 3rd arg. */
+  setItemQuantity: (itemId: string, value: number | null) => Promise<void>;
 
   createInvite: () => Promise<{ token: string; url: string } | null>;
   revokeInvite: (token: string) => Promise<void>;
@@ -659,7 +676,7 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
 
   // ── Item CRUD ──────────────────────────────────────────────
 
-  addItem: async (groupId, name) => {
+  addItem: async (groupId, name, quantity) => {
     const trimmed = name.trim();
     if (!trimmed) return;
     const { listId, items } = get();
@@ -668,6 +685,13 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     if (items.some(
       (i) => i.group_id === groupId && !i.completed && i.name.toLowerCase() === trimmed.toLowerCase(),
     )) return;
+
+    // Normalize quantity: integer ≥ 1 only; otherwise null. Mirrors
+    // the parser's qty_count guard.
+    const qty: number | null =
+      typeof quantity === 'number' && Number.isInteger(quantity) && quantity >= 1
+        ? quantity
+        : null;
 
     const userId = await getUserId();
     const id = uuid();
@@ -686,6 +710,7 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       // column is only ever set to true/false when the user
       // explicitly overrides via the Edit-mode chip.
       perishable: null,
+      quantity: qty,
     };
     set({ items: [...items, optimistic] });
     await enqueue({
@@ -699,6 +724,7 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         name: trimmed,
         added_by: userId,
         sort_order: optimistic.sort_order,
+        quantity: qty,
       },
     });
   },
@@ -838,8 +864,8 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     });
   },
 
-  addCompletedItems: async (store, names) => {
-    if (names.length === 0) return;
+  addCompletedItems: async (store, items) => {
+    if (items.length === 0) return;
     const { listId } = get();
     if (!listId) return;
     const trimmedStore = store.trim() || 'General';
@@ -850,26 +876,61 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     }
     const userId = await getUserId();
     const nowIso = new Date().toISOString();
-    const rows = names.map((name) => ({
-      id: uuid(),
-      list_id: listId,
-      group_id: group!.id,
-      name: name.trim(),
-      completed: true,
-      completed_at: nowIso,
-      completed_by: userId,
-      added_by: userId,
-      sort_order: 0,
-      // Same lazy-classification stance as addItem: leave null,
-      // resolve via dictionary at have-flow preview time.
-      perishable: null,
-    }));
+    // Normalize the union: accept legacy string[] or the new
+    // {name, quantity?} shape. Each row gets a properly-typed
+    // optional quantity.
+    const rows = items.map((entry) => {
+      const name = typeof entry === 'string' ? entry : entry.name;
+      const rawQty = typeof entry === 'string' ? null : entry.quantity ?? null;
+      const qty: number | null =
+        typeof rawQty === 'number' && Number.isInteger(rawQty) && rawQty >= 1
+          ? rawQty
+          : null;
+      return {
+        id: uuid(),
+        list_id: listId,
+        group_id: group!.id,
+        name: name.trim(),
+        completed: true,
+        completed_at: nowIso,
+        completed_by: userId,
+        added_by: userId,
+        sort_order: 0,
+        // Same lazy-classification stance as addItem: leave null,
+        // resolve via dictionary at have-flow preview time.
+        perishable: null,
+        quantity: qty,
+      };
+    });
     set({ items: [...get().items, ...rows as GroceryItem[]] });
     // One outbox row per item so partial failures stop at the first
     // bad row instead of dropping the whole batch silently.
     for (const row of rows) {
       await enqueue({ op: 'insert', table: 'grocery_items', row_id: row.id, payload: row });
     }
+  },
+
+  setItemQuantity: async (itemId, value) => {
+    // Normalize: integer ≥ 1, else null. Same guard as addItem.
+    const qty: number | null =
+      typeof value === 'number' && Number.isInteger(value) && value >= 1
+        ? value
+        : null;
+    const { items } = get();
+    const target = items.find((i) => i.id === itemId);
+    if (!target) return;
+    if (target.quantity === qty) return;
+    set({
+      items: items.map((i) =>
+        i.id === itemId ? { ...i, quantity: qty } : i,
+      ),
+    });
+    await enqueue({
+      op: 'update',
+      table: 'grocery_items',
+      row_id: itemId,
+      payload: { quantity: qty },
+    });
   },
 
   // ── Sharing ────────────────────────────────────────────────

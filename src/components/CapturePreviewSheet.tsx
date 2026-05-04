@@ -51,15 +51,22 @@ export interface GroceryGroup {
 export interface HaveSyncResolution {
   checkIds: string[];
   uncheckIds: string[];
-  // Names to add to Uncategorized as CHECKED (in-pantry add).
-  addToUncategorized: string[];
-  // NEW (running-low path): item IDs to flip from checked → unchecked
+  // Names to add to Uncategorized as CHECKED (in-pantry add). Each
+  // entry can carry an optional quantity captured from the user's
+  // voice ("I have three onions" → { name: 'onions', quantity: 3 }).
+  addToUncategorized: Array<{ name: string; quantity: number | null }>;
+  // (running-low path): item IDs to flip from checked → unchecked
   // because the user signaled they're running out.
   lowStockUncheckIds: string[];
-  // NEW (running-low path): names to add to Uncategorized as UNCHECKED
+  // (running-low path): names to add to Uncategorized as UNCHECKED
   // (= "still need to buy" — distinct from addToUncategorized which is
-  // "I have it, just no store assigned yet").
-  lowStockAddNames: string[];
+  // "I have it, just no store assigned yet"). Carries optional qty too.
+  lowStockAddNames: Array<{ name: string; quantity: number | null }>;
+  // Quantity updates to apply to existing rows the have-flow matched.
+  // Triggered when the user volunteered a number AND the item was
+  // already on the list ("I have one apple" → write quantity=1 on
+  // the matched apple row). Empty when no quantities were given.
+  quantityUpdates: Array<{ itemId: string; quantity: number }>;
 }
 import type { ListRecord } from '@/stores/listStore';
 import { useNotebookStore } from '@/stores/notebookStore';
@@ -631,6 +638,10 @@ interface HaveCheckMatch {
   itemName: string;
   store: string;
   qty_count: number | null;
+  // When non-null, the apply layer should also write the volunteered
+  // count to the matched item (the user said "I have three onions"
+  // and we're checking off an existing onions row → update qty=3).
+  applyQuantity: number | null;
 }
 interface HaveUncheckMatch {
   itemId: string;
@@ -643,11 +654,15 @@ interface HaveLowStockMatch {
   qty_count: number | null;
   store: string | null;
   // The two action arrays the apply layer needs:
-  //   matched + currently checked → uncheckId
-  //   no match → addAsUnchecked = phrase
+  //   matched + currently checked → uncheckId (+ optional qty update)
+  //   no match → addAsUnchecked = phrase (+ optional quantity)
   // Exactly one is set per row.
   uncheckItemId?: string;
   addAsUnchecked?: string;
+  // When non-null AND uncheckItemId is set, also persist this number
+  // to the matched item ("I have one apple now" overwrites whatever
+  // count was on the row before).
+  applyQuantity: number | null;
 }
 interface HaveAddMatch {
   phrase: string;
@@ -717,6 +732,7 @@ function computeHaveBuckets(
             qty_count: qty,
             store: pair.group.store,
             uncheckItemId: pair.item.completed ? pair.item.id : undefined,
+            applyQuantity: qty,
           });
         } else if (!pair.item.completed) {
           // Standard check-off path. Already-checked items are
@@ -728,6 +744,7 @@ function computeHaveBuckets(
             itemName: pair.item.name,
             store: pair.group.store,
             qty_count: qty,
+            applyQuantity: qty,
           });
         }
         continue;
@@ -742,6 +759,7 @@ function computeHaveBuckets(
         qty_count: qty,
         store: null,
         addAsUnchecked: phrase,
+        applyQuantity: qty,
       });
     } else {
       // Add to Uncategorized as CHECKED (existing behavior).
@@ -1033,13 +1051,35 @@ export function CapturePreviewSheet({
       ? {
           checkIds: haveBuckets.check.map((c) => c.itemId),
           uncheckIds: haveBuckets.uncheck.map((u) => u.itemId),
-          addToUncategorized: haveBuckets.add.map((a) => a.phrase),
+          // add path: pre-checked rows in Uncategorized; carry qty if
+          // the user said one ("I have three onions").
+          addToUncategorized: haveBuckets.add.map((a) => ({
+            name: a.phrase,
+            quantity: a.qty_count,
+          })),
           lowStockUncheckIds: haveBuckets.lowStock
             .filter((l) => l.uncheckItemId != null)
             .map((l) => l.uncheckItemId as string),
           lowStockAddNames: haveBuckets.lowStock
             .filter((l) => l.addAsUnchecked != null)
-            .map((l) => l.addAsUnchecked as string),
+            .map((l) => ({
+              name: l.addAsUnchecked as string,
+              quantity: l.applyQuantity,
+            })),
+          // Quantity updates for matched items where the user
+          // volunteered a number. Combines check + lowStock-uncheck
+          // paths since both produce id+qty pairs.
+          quantityUpdates: [
+            ...haveBuckets.check
+              .filter((c) => c.applyQuantity != null)
+              .map((c) => ({ itemId: c.itemId, quantity: c.applyQuantity as number })),
+            ...haveBuckets.lowStock
+              .filter((l) => l.uncheckItemId != null && l.applyQuantity != null)
+              .map((l) => ({
+                itemId: l.uncheckItemId as string,
+                quantity: l.applyQuantity as number,
+              })),
+          ],
         }
       : undefined;
     await onConfirm(edited, matches, destinations, haveSync);

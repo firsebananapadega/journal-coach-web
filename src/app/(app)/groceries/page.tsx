@@ -319,32 +319,12 @@ function GroceriesInner() {
             const isEditingThisStore = editingStoreId === group.id;
             const uncategorized = isUncategorized(group);
             return uncategorized ? (
-              <UncategorizedGroupCard
+              <UncategorizedFlatList
                 key={group.id}
-                group={group}
                 items={groupItems}
-                collapsed={collapsed}
-                isEditing={isEditingThisStore}
-                onToggleCollapse={() => toggleCollapsed(group.id)}
-                onEditToggle={() => {
-                  if (isEditingThisStore) setEditingStoreId(null);
-                  else {
-                    setEditingStoreId(group.id);
-                    if (collapsed) toggleCollapsed(group.id);
-                  }
-                }}
                 onItemToggle={(id) => toggleItem(id)}
                 onItemRemove={(id) => removeItem(id)}
                 onItemRename={(id, name) => renameItem(id, name)}
-                onAddItem={(name) => addItem(group.id, name)}
-                onDeleteGroup={() => {
-                  const ok = window.confirm(
-                    t('common.deleteStoreConfirm', { store: group.store }),
-                  );
-                  if (!ok) return;
-                  removeGroup(group.id);
-                  setEditingStoreId(null);
-                }}
               />
             ) : (
               <DroppableStoreGroupCard
@@ -591,21 +571,44 @@ function DroppableStoreGroupCard(props: GroupCardCommonProps) {
   );
 }
 
-function UncategorizedGroupCard(props: GroupCardCommonProps) {
-  const completed = props.items.filter((i) => i.completed).length;
+/** Flat list of Uncategorized items — NOT a card. The Uncategorized
+ *  group is temporary holding space for items the AI couldn't route
+ *  to a specific store; the user is expected to drag each row out
+ *  into a real store. Heavy chrome (chevron, big header card, count
+ *  badge, Edit/Done button) implies permanence — this section is
+ *  meant to disappear once the user finishes dragging.
+ *
+ *  Renders nothing when there are no uncategorized items, so the
+ *  /groceries page collapses cleanly back to just the store cards. */
+function UncategorizedFlatList({
+  items,
+  onItemToggle,
+  onItemRemove,
+  onItemRename,
+}: {
+  items: GroceryItem[];
+  onItemToggle: (id: string) => void;
+  onItemRemove: (id: string) => void;
+  onItemRename: (id: string, name: string) => void;
+}) {
+  if (items.length === 0) return null;
   return (
-    <div className="bg-surface rounded-xl border border-border overflow-hidden">
-      <GroupHeader
-        store={t('groceries.uncategorized')}
-        count={completed}
-        total={props.items.length}
-        collapsed={props.collapsed}
-        isEditing={props.isEditing}
-        onToggleCollapse={props.onToggleCollapse}
-        onEditToggle={props.onEditToggle}
-        subtitle={t('groceries.uncategorized.subtitle')}
-      />
-      <GroupBody {...props} draggable={true} />
+    <div className="space-y-1 pt-2">
+      <p className="text-[11px] uppercase tracking-wider text-text-tertiary px-1">
+        {t('groceries.uncategorized.dragHint')}
+      </p>
+      {items.map((item) => (
+        <DraggableGroceryRow key={item.id} itemId={item.id}>
+          <SwipeToDelete onDelete={() => onItemRemove(item.id)}>
+            <GroceryItemRow
+              item={item}
+              forceEditing={false}
+              onToggle={() => onItemToggle(item.id)}
+              onRename={(name) => onItemRename(item.id, name)}
+            />
+          </SwipeToDelete>
+        </DraggableGroceryRow>
+      ))}
     </div>
   );
 }
@@ -647,12 +650,19 @@ function GroceryItemRow({
   onRename: (name: string) => void;
 }) {
   const [draft, setDraft] = useState(item.name);
+  // Local string state for the qty input (so empty / partial typing
+  // works). Persisted via setItemQuantity on commit/blur.
+  const [qtyDraft, setQtyDraft] = useState<string>(
+    item.quantity != null ? String(item.quantity) : '',
+  );
+  const setItemQuantity = useGroceryStore((s) => s.setItemQuantity);
   const inputRef = useRef<HTMLInputElement>(null);
   const editing = forceEditing;
 
   useEffect(() => {
     setDraft(item.name);
-  }, [item.name, forceEditing]);
+    setQtyDraft(item.quantity != null ? String(item.quantity) : '');
+  }, [item.name, item.quantity, forceEditing]);
 
   const handleTextTap = () => {
     onToggle();
@@ -664,6 +674,21 @@ function GroceryItemRow({
       onRename(trimmed);
     } else {
       setDraft(item.name);
+    }
+  };
+
+  const commitQty = () => {
+    const t = qtyDraft.trim();
+    if (t === '') {
+      if (item.quantity != null) void setItemQuantity(item.id, null);
+      return;
+    }
+    const n = Number.parseInt(t, 10);
+    if (Number.isInteger(n) && n >= 1) {
+      if (item.quantity !== n) void setItemQuantity(item.id, n);
+    } else {
+      // Non-numeric input: revert.
+      setQtyDraft(item.quantity != null ? String(item.quantity) : '');
     }
   };
 
@@ -712,20 +737,52 @@ function GroceryItemRow({
             onBlur={commit}
             className="flex-1 bg-transparent text-base text-text-primary outline-none border-b border-primary py-0.5"
           />
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={qtyDraft}
+            onChange={(e) => setQtyDraft(e.target.value.replace(/[^0-9]/g, ''))}
+            onBlur={commitQty}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitQty();
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            placeholder="–"
+            aria-label={t('groceries.qtyLabel')}
+            className="w-12 text-center bg-transparent text-sm text-text-secondary outline-none border-b border-border focus:border-primary py-0.5 tabular-nums"
+          />
           <PerishableChip item={item} />
         </>
       ) : (
-        <button
-          type="button"
-          onClick={handleTextTap}
-          className={`flex-1 text-left text-base py-0.5 ${
-            item.completed
-              ? 'text-text-tertiary line-through'
-              : 'text-text-primary'
-          }`}
-        >
-          {item.name}
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={handleTextTap}
+            className={`flex-1 text-left text-base py-0.5 ${
+              item.completed
+                ? 'text-text-tertiary line-through'
+                : 'text-text-primary'
+            }`}
+          >
+            {item.name}
+          </button>
+          {item.quantity != null && (
+            <span
+              className={`shrink-0 text-sm tabular-nums ${
+                item.completed
+                  ? 'text-text-tertiary line-through'
+                  : 'text-text-tertiary'
+              }`}
+              aria-label={`${item.quantity} ${t('groceries.qtyLabel')}`}
+            >
+              × {item.quantity}
+            </span>
+          )}
+        </>
       )}
     </div>
   );

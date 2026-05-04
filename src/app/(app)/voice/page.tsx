@@ -541,7 +541,8 @@ export default function VoiceEntryPage() {
           // ensureUncategorizedGroup is implicit inside
           // addCompletedItems (it find-or-creates by store name).
           // Routing to UNCATEGORIZED_STORE keeps the sentinel
-          // single-sourced. These add as CHECKED (= "have it").
+          // single-sourced. These add as CHECKED (= "have it") and
+          // carry per-item quantity when the user volunteered one.
           await grocery.addCompletedItems(
             UNCATEGORIZED_STORE,
             haveSync.addToUncategorized,
@@ -557,16 +558,27 @@ export default function VoiceEntryPage() {
         try {
           const groupId = await grocery.ensureUncategorizedGroup();
           if (groupId) {
-            for (const name of haveSync.lowStockAddNames) {
+            for (const entry of haveSync.lowStockAddNames) {
               try {
-                await grocery.addItem(groupId, name);
+                await grocery.addItem(groupId, entry.name, entry.quantity);
               } catch (e) {
-                console.warn('haveSync lowStock addItem failed', name, e);
+                console.warn('haveSync lowStock addItem failed', entry.name, e);
               }
             }
           }
         } catch (e) {
           console.warn('haveSync ensureUncategorizedGroup failed', e);
+        }
+      }
+      // Quantity updates for matched items where the user volunteered
+      // a number. Runs LAST so any preceding markItemDone /
+      // markItemUndone has already settled. setItemQuantity is
+      // idempotent.
+      for (const u of haveSync.quantityUpdates) {
+        try {
+          await grocery.setItemQuantity(u.itemId, u.quantity);
+        } catch (e) {
+          console.warn('haveSync setItemQuantity failed', u.itemId, e);
         }
       }
     }
