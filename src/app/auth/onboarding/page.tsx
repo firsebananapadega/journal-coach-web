@@ -1,21 +1,18 @@
 'use client';
 
-// Onboarding v4 — 5 mandatory screens + 1 conditional install
-// screen. Replaces the post-PR-2 minimal welcome/install flow with
-// a Confirmafy-informed personalization-first design:
+// Onboarding v5 — productivity-first redesign. 5 mandatory screens
+// + 1 conditional install screen.
 //
 //   1. Welcome           (existing WelcomeStep — language toggle)
-//   2. What brought you here?  (multi-select intent chips)
-//   3. When do you reflect?    (single-select time chip)
-//   4. First win               (auto-picked prompt → real entry)
-//   5. Permission primer       (pre-OS prompt card)
-//   6. Install                 (existing InstallStep, auto-skips)
+//   2. What brought you here?  (productivity-flavored intent chips)
+//   3. Voice capture demo      (real classify + real save — magic moment)
+//   4. Permission primer       (morning-briefing pre-prompt card)
+//   5. Install                 (existing InstallStep, auto-skips)
 //
-// The intent chips drive feature-flag auto-flips
-// (plans_enabled / guided_enabled / ensureGratitudeNotebook) inside
-// completeOnboarding so the user lands on a personalized home
-// screen instead of a blank slate. Reflection time pre-fills the
-// matching pulse-reminder when push is granted on Screen 5.
+// v4's reflection-time question and text-only first-win were folded
+// into Screen 3's voice-capture demo. The intent chips now drive a
+// narrower auto-flip set inside completeOnboarding ('reflect' →
+// plans_enabled + Gratitude notebook; everything else is core).
 //
 // Existing users with onboarding_completed=true never see this — the
 // (app)/layout redirect only fires when the flag is false.
@@ -27,23 +24,20 @@ import {
   useAuthStore,
   type IntentChip,
   type Profile,
-  type ReflectionTime,
 } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import type { GuideId } from '@/lib/guideConfigs';
 import WelcomeStep from '@/components/onboarding/WelcomeStep';
 import BroughtYouHereStep from '@/components/onboarding/BroughtYouHereStep';
-import ReflectionTimeStep from '@/components/onboarding/ReflectionTimeStep';
-import FirstWinStep from '@/components/onboarding/FirstWinStep';
+import OnboardingCaptureStep from '@/components/onboarding/OnboardingCaptureStep';
 import PermissionPrimerStep from '@/components/onboarding/PermissionPrimerStep';
 import InstallStep from '@/components/onboarding/InstallStep';
 
 type StepKey =
   | 'welcome'
   | 'broughtYouHere'
-  | 'reflectionTime'
-  | 'firstWin'
+  | 'capture'
   | 'primer'
   | 'install';
 
@@ -60,9 +54,9 @@ export default function OnboardingPage() {
   // visit so users see who they're picking BEFORE committing.
   const [guide] = useState<GuideId>('bodhi');
 
-  // v4 personalization state
+  // v5 personalization state — reflectionTime dropped (folded into
+  // the morning-briefing primer at fixed 8 AM).
   const [broughtYouHere, setBroughtYouHere] = useState<IntentChip[]>([]);
-  const [reflectionTime, setReflectionTime] = useState<ReflectionTime>('anytime');
   const [pushGranted, setPushGranted] = useState<boolean>(false);
 
   const [stepKey, setStepKey] = useState<StepKey>('welcome');
@@ -73,7 +67,7 @@ export default function OnboardingPage() {
   const [error, setError] = useState('');
 
   const flow = useMemo<StepKey[]>(() => {
-    return ['welcome', 'broughtYouHere', 'reflectionTime', 'firstWin', 'primer', 'install'];
+    return ['welcome', 'broughtYouHere', 'capture', 'primer', 'install'];
   }, []);
 
   const stepIndex = flow.indexOf(stepKey);
@@ -105,7 +99,6 @@ export default function OnboardingPage() {
         'both',
         {
           broughtYouHere,
-          reflectionTime,
           pushGranted,
         },
       );
@@ -205,11 +198,10 @@ export default function OnboardingPage() {
         >
           {stepKey === 'welcome' && <WelcomeStep onContinue={next} />}
 
-          {/* Steps 2-5 share the card-on-gradient layout. Welcome
+          {/* Steps 2-4 share the card-on-gradient layout. Welcome
               owns its own (existing) layout; Install owns its own. */}
           {(stepKey === 'broughtYouHere'
-            || stepKey === 'reflectionTime'
-            || stepKey === 'firstWin'
+            || stepKey === 'capture'
             || stepKey === 'primer') && (
             <div className="relative min-h-screen flex items-start justify-center px-5 pt-16 pb-8">
               <div className="w-full max-w-md bg-surface rounded-3xl border border-border shadow-warm-lg p-6">
@@ -221,24 +213,14 @@ export default function OnboardingPage() {
                     onBack={back}
                   />
                 )}
-                {stepKey === 'reflectionTime' && (
-                  <ReflectionTimeStep
-                    value={reflectionTime}
-                    onChange={setReflectionTime}
-                    onContinue={next}
-                    onBack={back}
-                  />
-                )}
-                {stepKey === 'firstWin' && (
-                  <FirstWinStep
-                    picks={broughtYouHere}
+                {stepKey === 'capture' && (
+                  <OnboardingCaptureStep
                     onComplete={next}
                     onBack={back}
                   />
                 )}
                 {stepKey === 'primer' && (
                   <PermissionPrimerStep
-                    reflectionTime={reflectionTime}
                     onComplete={handlePrimerComplete}
                     onBack={back}
                   />

@@ -24,6 +24,7 @@ import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
+import TapToSpeakButton from '@/components/TapToSpeakButton';
 
 const MAX_OBSTACLES = 3;
 
@@ -33,47 +34,6 @@ interface Props {
 }
 
 type Step = 'wish' | 'outcome' | 'obstacles' | 'plan';
-
-/** Inline tap-to-speak button. Same shape as the one in PresenceCapture
- *  so users get a consistent affordance everywhere mic input is offered.
- *  Spread the hook's micButtonProps onto it. */
-function MicButton({
-  isListening,
-  className,
-  ...rest
-}: {
-  isListening: boolean;
-  className?: string;
-} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'>) {
-  return (
-    <button
-      type="button"
-      aria-label={
-        isListening
-          ? t('template.stopRecording')
-          : t('template.tapToSpeak')
-      }
-      className={`absolute top-1/2 right-2.5 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
-        isListening
-          ? 'bg-error text-white scale-105'
-          : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
-      } ${className ?? ''}`}
-      {...rest}
-    >
-      {isListening ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-          <rect x="6" y="6" width="12" height="12" rx="2" />
-        </svg>
-      ) : (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-          <line x1="12" x2="12" y1="19" y2="22" />
-        </svg>
-      )}
-    </button>
-  );
-}
 
 export default function WoopSheet({ open, onClose }: Props) {
   const showToast = useUiStore((s) => s.showToast);
@@ -338,23 +298,23 @@ export default function WoopSheet({ open, onClose }: Props) {
                       <p className="text-sm text-text-secondary leading-relaxed mb-5">
                         {t('plans.wishHint')}
                       </p>
-                      <div className="relative">
-                        <input
-                          ref={wishInputRef}
-                          type="text"
-                          value={wish}
-                          onChange={(e) => setWish(e.target.value.slice(0, 120))}
-                          placeholder={t('plans.wishPlaceholder')}
-                          autoFocus
-                          className="w-full pl-4 pr-14 py-3.5 bg-surface border border-border rounded-xl text-[17px] text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
-                        />
-                        {speechSupported && (
-                          <MicButton
+                      <input
+                        ref={wishInputRef}
+                        type="text"
+                        value={wish}
+                        onChange={(e) => setWish(e.target.value.slice(0, 120))}
+                        placeholder={t('plans.wishPlaceholder')}
+                        autoFocus
+                        className="block w-full px-4 py-3.5 bg-surface border border-border rounded-xl text-[17px] text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
+                      />
+                      {speechSupported && (
+                        <div className="mt-2">
+                          <TapToSpeakButton
                             isListening={wishMic.isListening}
                             {...wishMic.micButtonProps}
                           />
-                        )}
-                      </div>
+                        </div>
+                      )}
                       <p className="text-xs text-text-tertiary mt-2">
                         {wish.length} / 120
                       </p>
@@ -369,24 +329,23 @@ export default function WoopSheet({ open, onClose }: Props) {
                       <p className="text-sm text-text-secondary leading-relaxed mb-5">
                         {t('plans.outcomeHint')}
                       </p>
-                      <div className="relative">
-                        <textarea
-                          ref={outcomeTextareaRef}
-                          value={outcome}
-                          onChange={(e) => setOutcome(e.target.value.slice(0, 800))}
-                          placeholder={t('plans.outcomePlaceholder')}
-                          autoFocus
-                          rows={6}
-                          className="w-full pl-4 pr-14 py-3.5 bg-surface border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
-                        />
-                        {speechSupported && (
-                          <MicButton
+                      <textarea
+                        ref={outcomeTextareaRef}
+                        value={outcome}
+                        onChange={(e) => setOutcome(e.target.value.slice(0, 800))}
+                        placeholder={t('plans.outcomePlaceholder')}
+                        autoFocus
+                        rows={6}
+                        className="block w-full px-4 py-3.5 bg-surface border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
+                      />
+                      {speechSupported && (
+                        <div className="mt-2">
+                          <TapToSpeakButton
                             isListening={outcomeMic.isListening}
                             {...outcomeMic.micButtonProps}
-                            className="!top-3 !translate-y-0"
                           />
-                        )}
-                      </div>
+                        </div>
+                      )}
                       <p className="text-xs text-text-tertiary mt-2">
                         {outcome.length} / 800
                       </p>
@@ -401,13 +360,13 @@ export default function WoopSheet({ open, onClose }: Props) {
                       <p className="text-sm text-text-secondary leading-relaxed mb-5">
                         {t('plans.obstaclesHint')}
                       </p>
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {obstacles.map((o, i) => {
                           const slotRef = obstacleRefs[i];
                           const slotMic = obstacleMics[i];
                           return (
-                            <div key={i} className="flex items-start gap-2">
-                              <div className="relative flex-1">
+                            <div key={i} className="space-y-2">
+                              <div className="flex items-start gap-2">
                                 <textarea
                                   ref={slotRef}
                                   rows={3}
@@ -419,28 +378,28 @@ export default function WoopSheet({ open, onClose }: Props) {
                                       : t('plans.obstaclePlaceholderMore')
                                   }
                                   autoFocus={i === obstacles.length - 1}
-                                  className="w-full pl-4 pr-12 py-3 bg-surface border border-border rounded-xl text-[15px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
+                                  className="flex-1 px-4 py-3 bg-surface border border-border rounded-xl text-[15px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
                                 />
-                                {speechSupported && slotMic && (
-                                  <MicButton
-                                    isListening={slotMic.isListening}
-                                    {...slotMic.micButtonProps}
-                                    className="!w-8 !h-8 !right-2 !top-3 !translate-y-0"
-                                  />
+                                {obstacles.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeObstacle(i)}
+                                    className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-tertiary hover:text-error hover:bg-error/10 transition-colors"
+                                    aria-label={t('common.remove')}
+                                  >
+                                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                                      <line x1="18" y1="6" x2="6" y2="18" />
+                                      <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
+                                  </button>
                                 )}
                               </div>
-                              {obstacles.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeObstacle(i)}
-                                  className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-text-tertiary hover:text-error hover:bg-error/10 transition-colors"
-                                  aria-label={t('common.remove')}
-                                >
-                                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                                    <line x1="18" y1="6" x2="6" y2="18" />
-                                    <line x1="6" y1="6" x2="18" y2="18" />
-                                  </svg>
-                                </button>
+                              {speechSupported && slotMic && (
+                                <TapToSpeakButton
+                                  isListening={slotMic.isListening}
+                                  {...slotMic.micButtonProps}
+                                  size="compact"
+                                />
                               )}
                             </div>
                           );

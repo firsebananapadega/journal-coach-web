@@ -992,7 +992,7 @@ const translations: Record<string, Record<Locale, string>> = {
   },
   'onboarding.primaryUse.continue': { en: 'Start', es: 'Empezar' },
 
-  // ─── Onboarding v4: brought-you-here intent chips ───
+  // ─── Onboarding v5: brought-you-here intent chips (productivity) ───
   'onboarding.broughtYouHere.title': {
     en: 'What brought you here?',
     es: '¿Qué te trajo aquí?',
@@ -1001,45 +1001,45 @@ const translations: Record<string, Record<Locale, string>> = {
     en: 'Pick anything that fits. We’ll set things up around what you want.',
     es: 'Elige lo que aplique. Vamos a configurar la app para lo que buscas.',
   },
-  'onboarding.broughtYouHere.habit.label': {
-    en: 'Build a daily reflection habit',
-    es: 'Crear un hábito diario de reflexión',
+  'onboarding.broughtYouHere.todos.label': {
+    en: 'Stay on top of my to-dos',
+    es: 'Mantenerme al día con mis pendientes',
   },
-  'onboarding.broughtYouHere.habit.hint': {
-    en: 'A small check-in every day.',
-    es: 'Una pequeña pausa cada día.',
+  'onboarding.broughtYouHere.todos.hint': {
+    en: 'Capture, prioritize, check off.',
+    es: 'Captura, prioriza, marca como hecho.',
   },
-  'onboarding.broughtYouHere.goals.label': {
-    en: 'Get clearer about my goals',
-    es: 'Tener más claridad sobre mis metas',
+  'onboarding.broughtYouHere.planWeek.label': {
+    en: 'Plan my week ahead',
+    es: 'Planear mi semana',
   },
-  'onboarding.broughtYouHere.goals.hint': {
-    en: 'Turn vague intentions into something concrete.',
-    es: 'Convierte intenciones vagas en algo concreto.',
+  'onboarding.broughtYouHere.planWeek.hint': {
+    en: 'Today, upcoming, and what’s scheduled.',
+    es: 'Hoy, próximamente y lo que está programado.',
   },
-  'onboarding.broughtYouHere.gratitude.label': {
-    en: 'Track gratitude',
-    es: 'Llevar un registro de gratitud',
+  'onboarding.broughtYouHere.groceries.label': {
+    en: 'Track groceries + shopping',
+    es: 'Llevar la lista de compras',
   },
-  'onboarding.broughtYouHere.gratitude.hint': {
-    en: 'Three good things, daily.',
-    es: 'Tres cosas buenas, a diario.',
+  'onboarding.broughtYouHere.groceries.hint': {
+    en: 'Voice in, sorted by store, share with your partner.',
+    es: 'Dícelo, se ordena por tienda, compártela con tu pareja.',
   },
-  'onboarding.broughtYouHere.feelings.label': {
-    en: 'Process what I’m feeling',
-    es: 'Procesar lo que estoy sintiendo',
+  'onboarding.broughtYouHere.voiceCapture.label': {
+    en: 'Capture ideas + tasks fast',
+    es: 'Capturar ideas y tareas rápido',
   },
-  'onboarding.broughtYouHere.feelings.hint': {
-    en: 'Talk it out with a guide that listens.',
-    es: 'Habla con una guía que te escucha.',
+  'onboarding.broughtYouHere.voiceCapture.hint': {
+    en: 'Talk into your phone. We sort it for you.',
+    es: 'Habla al teléfono. Nosotros lo organizamos.',
   },
-  'onboarding.broughtYouHere.plans.label': {
-    en: 'Plan small changes',
-    es: 'Planear cambios pequeños',
+  'onboarding.broughtYouHere.reflect.label': {
+    en: 'Reflect / journal on top of that',
+    es: 'Reflexionar y escribir, además de eso',
   },
-  'onboarding.broughtYouHere.plans.hint': {
-    en: 'Wish, obstacle, plan. Backed by research.',
-    es: 'Deseo, obstáculo, plan. Respaldado por la ciencia.',
+  'onboarding.broughtYouHere.reflect.hint': {
+    en: 'Pulse, gratitude, plans — opt-in extras.',
+    es: 'Pulso, gratitud, planes — extras opcionales.',
   },
   'onboarding.broughtYouHere.exploring.label': {
     en: 'Just exploring',
@@ -1050,114 +1050,104 @@ const translations: Record<string, Record<Locale, string>> = {
     es: 'Sin prisa. Echa un vistazo.',
   },
 
-  // ─── Onboarding v4: reflection-time chip ───
-  'onboarding.reflectionTime.title': {
-    en: 'When do you usually reflect?',
-    es: '¿Cuándo sueles reflexionar?',
+  // ─── Onboarding v5: voice capture demo ───
+  'onboarding.capture.title': {
+    en: 'Try it now — say everything on your mind',
+    es: 'Pruébalo — dilo todo lo que tienes en mente',
   },
-  'onboarding.reflectionTime.subtitle': {
-    en: 'We’ll suggest a daily nudge for that window. You can change it later.',
-    es: 'Te sugeriremos un recordatorio para ese momento. Puedes cambiarlo después.',
+  'onboarding.capture.subtitle': {
+    en: 'Tasks, groceries, anything. We’ll sort it for you.',
+    es: 'Tareas, compras, cualquier cosa. Lo organizamos por ti.',
   },
-  'onboarding.reflectionTime.morning.label': { en: 'Morning', es: 'Mañana' },
-  'onboarding.reflectionTime.morning.hint': {
-    en: 'Set the day before it sets you.',
-    es: 'Marca el día antes de que el día te marque a ti.',
+  'onboarding.capture.placeholder': {
+    en: 'Today I need to call mom, finish the deck, get oranges and milk from Costco, and I want to write a note about the trip…',
+    es: 'Hoy tengo que llamar a mamá, terminar la terraza, comprar naranjas y leche en Costco, y quiero escribir una nota sobre el viaje…',
   },
-  'onboarding.reflectionTime.midday.label': { en: 'Mid-day', es: 'Mediodía' },
-  'onboarding.reflectionTime.midday.hint': {
-    en: 'A pause to come back to yourself.',
-    es: 'Una pausa para volver a ti.',
+  'onboarding.capture.seeWhatWeGot': {
+    en: 'See what we got',
+    es: 'Ver lo que captamos',
   },
-  'onboarding.reflectionTime.evening.label': { en: 'Evening', es: 'Noche' },
-  'onboarding.reflectionTime.evening.hint': {
-    en: 'Close the loop on your day.',
-    es: 'Cierra el día.',
+  'onboarding.capture.classifying': {
+    en: 'Sorting…',
+    es: 'Organizando…',
   },
-  'onboarding.reflectionTime.anytime.label': { en: 'Anytime', es: 'A cualquier hora' },
-  'onboarding.reflectionTime.anytime.hint': {
-    en: 'I’ll find my own moment.',
-    es: 'Encontraré mi propio momento.',
+  'onboarding.capture.classifyError': {
+    en: 'Couldn’t parse that. Try again or skip.',
+    es: 'No pudimos analizar eso. Inténtalo de nuevo o sáltalo.',
   },
-
-  // ─── Onboarding v4: first-win prompt ───
-  'onboarding.firstWin.subtitle': {
-    en: 'Just a sentence is enough. We’ll save it where it belongs.',
-    es: 'Con una frase basta. Lo guardamos donde corresponde.',
+  'onboarding.capture.skipForNow': {
+    en: 'Skip for now',
+    es: 'Saltar por ahora',
   },
-  'onboarding.firstWin.saveCta': {
-    en: 'Save and continue',
-    es: 'Guardar y seguir',
+  'onboarding.capture.previewTitle': {
+    en: 'Here’s what we got',
+    es: 'Esto es lo que entendimos',
   },
-  'onboarding.firstWin.gratitude.prompt': {
-    en: 'One thing you’re grateful for today',
-    es: 'Una cosa por la que estás agradecido hoy',
+  'onboarding.capture.previewSubtitle': {
+    en: 'Save it now and you’ll land on Today with everything ready.',
+    es: 'Guárdalo ahora y caerás en Hoy con todo listo.',
   },
-  'onboarding.firstWin.gratitude.placeholder': {
-    en: 'A small specific moment beats a vague category.',
-    es: 'Un momento pequeño y específico vale más que algo vago.',
+  'onboarding.capture.previewEmpty': {
+    en: 'We didn’t catch much in there. Try again or skip and we’ll get going.',
+    es: 'No detectamos mucho. Inténtalo de nuevo o sáltalo y arrancamos.',
   },
-  'onboarding.firstWin.plan.prompt': {
-    en: 'What’s one thing you want to change?',
-    es: '¿Qué es una cosa que quieres cambiar?',
+  'onboarding.capture.tasksLabel': {
+    en: '{count} task{count, plural, one {} other {s}} for today',
+    es: '{count} tarea{count, plural, one {} other {s}} para hoy',
   },
-  'onboarding.firstWin.plan.placeholder': {
-    en: 'In one sentence. We’ll help you build the plan later.',
-    es: 'En una frase. Te ayudamos a armar el plan después.',
+  'onboarding.capture.groceriesLabel': {
+    en: '{count} grocery item{count, plural, one {} other {s}}',
+    es: '{count} producto{count, plural, one {} other {s}} de despensa',
   },
-  'onboarding.firstWin.feelings.prompt': {
-    en: 'How are you feeling right now?',
-    es: '¿Cómo te sientes en este momento?',
+  'onboarding.capture.journalLabel': {
+    en: 'Note for your journal',
+    es: 'Nota para tu diario',
   },
-  'onboarding.firstWin.feelings.placeholder': {
-    en: 'Whatever’s present. No editing.',
-    es: 'Lo que esté presente. Sin editar.',
+  'onboarding.capture.tryAgain': {
+    en: 'Try again',
+    es: 'Reintentar',
   },
-  'onboarding.firstWin.habit.prompt': {
-    en: 'How is your day starting?',
-    es: '¿Cómo está empezando tu día?',
+  'onboarding.capture.saveCta': {
+    en: 'Save it all',
+    es: 'Guardar todo',
   },
-  'onboarding.firstWin.habit.placeholder': {
-    en: 'A short sentence is plenty.',
-    es: 'Una frase corta es suficiente.',
+  'onboarding.capture.savedToast': {
+    en: 'Saved — see you on Today',
+    es: 'Guardado — nos vemos en Hoy',
   },
-  'onboarding.firstWin.default.prompt': {
-    en: 'What’s on your mind today?',
-    es: '¿Qué tienes en mente hoy?',
-  },
-  'onboarding.firstWin.default.placeholder': {
-    en: 'Just a sentence to get started.',
-    es: 'Una frase para empezar.',
+  'onboarding.capture.fellBack': {
+    en: 'AI was busy — used a simpler parser. You can edit anything on Today.',
+    es: 'La IA estaba ocupada — usamos un análisis simple. Puedes editar todo en Hoy.',
   },
 
-  // ─── Onboarding v4: permission primer ───
-  'onboarding.primer.headlineTimed': {
-    en: 'Mind if we ping you at {time}?',
-    es: '¿Te molesta si te recordamos a las {time}?',
-  },
-  'onboarding.primer.headlineAnytime': {
-    en: 'Mind if we send a gentle daily nudge?',
-    es: '¿Te molesta un recordatorio amable a diario?',
+  // ─── Onboarding v5: permission primer (morning briefing) ───
+  'onboarding.primer.headline': {
+    en: 'Want a morning briefing at 8 AM?',
+    es: '¿Te enviamos un resumen matutino a las 8 a.m.?',
   },
   'onboarding.primer.subtitle': {
-    en: 'A small reminder helps the habit stick. You can change it any time.',
-    es: 'Un pequeño recordatorio ayuda a que el hábito se quede. Puedes cambiarlo cuando quieras.',
+    en: 'A short ping to start your day with what’s on the list.',
+    es: 'Un aviso breve para arrancar el día con lo que tienes en la lista.',
   },
   'onboarding.primer.detail': {
-    en: 'No spam. No promo. One quiet nudge that opens straight to today’s reflection.',
-    es: 'Sin spam ni promos. Solo un aviso discreto que te lleva directo a la reflexión del día.',
+    en: 'No spam. No promo. You can change the time or turn it off in Settings.',
+    es: 'Sin spam ni promos. Puedes cambiar la hora o desactivarlo en Ajustes.',
   },
   'onboarding.primer.sure': { en: 'Sure', es: 'Claro' },
   'onboarding.primer.notYet': { en: 'Not yet', es: 'Ahora no' },
 
+  // ─── Tap to speak (shared button label) ───
+  'tapToSpeak.idle': { en: 'Tap to speak', es: 'Toca para hablar' },
+  'tapToSpeak.listening': { en: 'Listening…', es: 'Escuchando…' },
+
   // ─── Onboarding v3: welcome / install / tour ───
   'onboarding.welcome.headline': {
-    en: 'Capture tasks. Reflect daily. See your patterns.',
-    es: 'Captura tareas. Reflexiona a diario. Mira tus patrones.',
+    en: 'Capture, plan, ship.',
+    es: 'Capturar, planear, hacer.',
   },
   'onboarding.welcome.body': {
-    en: 'Talk into your phone. We’ll structure it. Your first entry in under a minute.',
-    es: 'Habla a tu teléfono. Nosotros lo estructuramos. Tu primera entrada en menos de un minuto.',
+    en: 'Less in your head, more done. Talk into your phone — we sort tasks, groceries, and ideas for you.',
+    es: 'Menos en tu cabeza, más hecho. Habla al teléfono — organizamos tareas, compras e ideas por ti.',
   },
   'onboarding.welcome.cta': { en: 'Start', es: 'Empezar' },
   'onboarding.guide.title': { en: 'Choose your guide', es: 'Elige tu guía' },

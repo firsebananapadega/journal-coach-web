@@ -20,6 +20,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSelectionAwareMic } from '@/hooks/useSelectionAwareMic';
 import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 import { t } from '@/lib/translations';
+import TapToSpeakButton from '@/components/TapToSpeakButton';
 
 // Auto-grow + auto-scroll cap. Same vocabulary as the guided dock
 // textarea — caps at ~6 lines (152px including padding) so the
@@ -179,42 +180,20 @@ export default function PresenceCapture({ onSaved }: PresenceCaptureProps = {}) 
           <label className="text-lg text-text-primary font-medium leading-snug block">
             {t('presence.intro')}
           </label>
-          {/* Wrapper is the positioning context for the inline mic
-              button. Right padding on the textarea reserves visual
-              space so dictated text never slides under the mic. */}
-          <div className="relative">
-            <textarea
-              ref={attentionMicRef}
-              value={attention}
-              onChange={(e) => setAttention(e.target.value.slice(0, PRESENCE_ATTENTION_MAX_CHARS))}
-              placeholder={t('presence.attentionPlaceholder')}
-              rows={1}
-              className="w-full pl-4 pr-14 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
+          <textarea
+            ref={attentionMicRef}
+            value={attention}
+            onChange={(e) => setAttention(e.target.value.slice(0, PRESENCE_ATTENTION_MAX_CHARS))}
+            placeholder={t('presence.attentionPlaceholder')}
+            rows={1}
+            className="w-full px-4 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
+          />
+          {speechSupported && (
+            <TapToSpeakButton
+              isListening={attentionMic.isListening}
+              {...attentionMic.micButtonProps}
             />
-            {speechSupported && (
-              <button
-                {...attentionMic.micButtonProps}
-                aria-label={attentionMic.isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
-                className={`absolute top-1/2 right-2.5 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
-                  attentionMic.isListening
-                    ? 'bg-error text-white scale-105'
-                    : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
-                }`}
-              >
-                {attentionMic.isListening ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </svg>
-                )}
-              </button>
-            )}
-          </div>
+          )}
         </div>
 
         {/* 2. One word — body emoji-scale removed per user feedback;
@@ -224,45 +203,26 @@ export default function PresenceCapture({ onSaved }: PresenceCaptureProps = {}) 
           <label className="text-lg text-text-primary font-medium leading-snug block">
             {t('presence.oneWordPrompt')}
           </label>
-          <div className="relative">
-            <input
-              ref={oneWordInputRef}
-              type="text"
-              value={oneWord}
-              onChange={(e) => setOneWord(e.target.value.slice(0, 24).replace(/\s+/g, ''))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && canSave) {
-                  e.preventDefault();
-                  void handleSave();
-                }
-              }}
-              placeholder={t('presence.oneWordPlaceholder')}
-              className="w-full pl-4 pr-14 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
+          <input
+            ref={oneWordInputRef}
+            type="text"
+            value={oneWord}
+            onChange={(e) => setOneWord(e.target.value.slice(0, 24).replace(/\s+/g, ''))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && canSave) {
+                e.preventDefault();
+                void handleSave();
+              }
+            }}
+            placeholder={t('presence.oneWordPlaceholder')}
+            className="w-full px-4 py-3.5 bg-bg border border-border rounded-xl text-[17px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary"
+          />
+          {speechSupported && (
+            <TapToSpeakButton
+              isListening={oneWordMic.isListening}
+              {...oneWordMic.micButtonProps}
             />
-            {speechSupported && (
-              <button
-                {...oneWordMic.micButtonProps}
-                aria-label={oneWordMic.isListening ? t('template.stopRecording') : t('template.tapToSpeak')}
-                className={`absolute top-1/2 right-2.5 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
-                  oneWordMic.isListening
-                    ? 'bg-error text-white scale-105'
-                    : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
-                }`}
-              >
-                {oneWordMic.isListening ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </svg>
-                )}
-              </button>
-            )}
-          </div>
+          )}
         </div>
 
         <button

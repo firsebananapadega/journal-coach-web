@@ -96,16 +96,20 @@ export interface Profile {
   updated_at: string;
 }
 
-/** Intent chip keys for `brought_you_here`. Source of truth — both
- *  the BroughtYouHereStep UI and the auto-flip logic in
- *  completeOnboarding read these. */
+/** Intent chip keys for `brought_you_here`. Productivity-first set
+ *  introduced with onboarding v5 — the prior journaling-flavored
+ *  chips ('reflection_habit' / 'gratitude' / 'feelings' / 'goals' /
+ *  'plans') were retired. Existing users with those values stored
+ *  on their profile keep them as historical data; nothing reads them
+ *  post-signup. The DB column is `text[]`, so the type narrowing is
+ *  purely a code-side guarantee. */
 export type IntentChip =
-  | 'reflection_habit'
-  | 'goals'
-  | 'gratitude'
-  | 'feelings'
-  | 'plans'
-  | 'exploring';
+  | 'todos'         // Stay on top of my to-dos
+  | 'plan_week'     // Plan my week ahead
+  | 'groceries'     // Track groceries + shopping
+  | 'voice_capture' // Capture ideas + tasks fast (voice)
+  | 'reflect'       // Reflect / journal on top
+  | 'exploring';    // Just exploring
 
 /** Reflection-time chip keys for `preferred_reflection_time`. */
 export type ReflectionTime = 'morning' | 'midday' | 'evening' | 'anytime';
@@ -132,12 +136,11 @@ interface AuthState {
     intentions: string[],
     preferredGuide?: string,
     primaryUse?: PrimaryUse,
-    /** v2 personalization fields. Optional so legacy callers
-     *  (sign-up flow) keep working; the new onboarding page passes
-     *  them. Auto-flips inside completeOnboarding key off these. */
+    /** v5 personalization fields. Optional so legacy callers keep
+     *  working; the new onboarding page passes them. Auto-flips
+     *  inside completeOnboarding key off these. */
     onboardingV2?: {
       broughtYouHere?: IntentChip[];
-      reflectionTime?: ReflectionTime;
       pushGranted?: boolean;
     },
   ) => Promise<void>;
@@ -443,7 +446,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     primaryUse?: PrimaryUse,
     onboardingV2?: {
       broughtYouHere?: IntentChip[];
-      reflectionTime?: ReflectionTime;
       pushGranted?: boolean;
     },
   ) => {
@@ -461,24 +463,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (stored === 'es-MX' || stored === 'en-US') chosenLanguage = stored;
       }
 
-      // ── Onboarding v2 — feature-flag auto-flips ────────────────
-      // Map intent chips → opt-in feature flags so the user lands
-      // on a personalized home screen instead of a blank slate.
-      // Each flag also has its own Settings toggle so users can
-      // change their mind later; this is just the default state at
-      // signup time.
+      // ── Onboarding v5 — feature-flag auto-flips ────────────────
+      // Productivity is core (tasks / lists / upcoming / groceries
+      // / voice capture all just work) — only the 'reflect' chip
+      // unlocks the journaling-side opt-ins. Each flag also has its
+      // own Settings toggle so users can change their mind later.
       const v2Picks = onboardingV2?.broughtYouHere ?? [];
-      const reflectionTime: ReflectionTime =
-        onboardingV2?.reflectionTime ?? 'anytime';
-      const wantsPlans =
-        v2Picks.includes('plans') || v2Picks.includes('goals');
-      const wantsGuided = v2Picks.includes('feelings');
+      const wantsReflectionFeatures = v2Picks.includes('reflect');
 
       // ── Notification reminder pre-fill ─────────────────────────
-      // Only if the user actually granted permission on Screen 5.
-      // Otherwise we leave notification_preferences alone (existing
-      // defaults stay applied). The map: the user's reflection-time
-      // pick determines which mode gets pre-flipped.
+      // Onboarding v5 collapsed the reflection-time question into a
+      // fixed "Want a morning briefing at 8 AM?" primer. When the
+      // user grants push, flip the morning reminder on with that
+      // sensible default. Other modes stay off; users opt in via
+      // Settings.
       const existingPrefs =
         (get().profile?.notification_preferences as
           | {
@@ -490,21 +488,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           | null
           | undefined) ?? {};
       let nextPrefs = existingPrefs;
-      if (onboardingV2?.pushGranted && reflectionTime !== 'anytime') {
+      if (onboardingV2?.pushGranted) {
         const times = { ...(existingPrefs.reminder_times ?? {}) };
-        const next = { ...existingPrefs };
-        if (reflectionTime === 'morning') {
-          next.morning_reminder = true;
-          times.morning = times.morning ?? '08:00';
-        } else if (reflectionTime === 'midday') {
-          next.presence_reminder = true;
-          times.presence = times.presence ?? '13:00';
-        } else if (reflectionTime === 'evening') {
-          next.evening_reminder = true;
-          times.evening = times.evening ?? '21:30';
-        }
-        next.reminder_times = times;
-        nextPrefs = next;
+        times.morning = times.morning ?? '08:00';
+        nextPrefs = {
+          ...existingPrefs,
+          morning_reminder: true,
+          reminder_times: times,
+        };
       }
 
       const { data, error } = await withTimeout(
@@ -518,12 +509,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             primary_use: primaryUse ?? 'both',
             language: chosenLanguage,
             onboarding_completed: true,
-            // v2 personalization
+            // v5 personalization
             brought_you_here: v2Picks,
-            preferred_reflection_time: reflectionTime,
-            // Auto-flipped feature flags (gated on intent-chip picks)
-            plans_enabled: wantsPlans,
-            guided_enabled: wantsGuided,
+            // preferred_reflection_time stays as the column default
+            // ('anytime') — onboarding v5 dropped the question.
+            // Auto-flipped feature flags. Productivity is core; only
+            // the 'reflect' chip unlocks plans + gratitude notebook.
+            plans_enabled: wantsReflectionFeatures,
             // Reminder pre-fill (only when push was granted)
             notification_preferences: nextPrefs,
             updated_at: new Date().toISOString(),
@@ -541,20 +533,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // the row update so the profile is the source of truth at the
       // moment the user lands on /today. notebookStore primitives
       // are idempotent; skipping them is harmless.
-      if (v2Picks.includes('gratitude')) {
+      if (wantsReflectionFeatures) {
         try {
           const { useNotebookStore } = await import('./notebookStore');
           await useNotebookStore.getState().ensureGratitudeNotebook('system');
-        } catch {
-          /* non-blocking — user can still tap Gratitude later */
-        }
-      }
-      if (wantsPlans) {
-        try {
-          const { useNotebookStore } = await import('./notebookStore');
           await useNotebookStore.getState().ensurePlansNotebook();
         } catch {
-          /* non-blocking */
+          /* non-blocking — user can still enable later in Settings */
         }
       }
     } catch (error: unknown) {

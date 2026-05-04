@@ -30,6 +30,7 @@ import { isSpeechRecognitionSupported } from '@/lib/speechRecognition';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
 import { getLanguage } from '@/lib/language';
+import TapToSpeakButton from '@/components/TapToSpeakButton';
 
 interface Props {
   notebookId: string;
@@ -46,20 +47,6 @@ function todayLocalDateStr(): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-function MicGlyph({ isListening }: { isListening: boolean }) {
-  return isListening ? (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <rect x="6" y="6" width="12" height="12" rx="2" />
-    </svg>
-  ) : (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-      <line x1="12" x2="12" y1="19" y2="22" />
-    </svg>
-  );
 }
 
 export default function GratitudeDailyCard({ notebookId }: Props) {
@@ -157,36 +144,19 @@ export default function GratitudeDailyCard({ notebookId }: Props) {
         </p>
       </div>
 
-      {/* Single "what" input + mic button as a SIBLING (not overlay). */}
+      {/* "what" textarea, "why" input, and a BELOW-input
+          tap-to-speak button. The mic moved out of the textbox so
+          the input has full text room and the speak affordance
+          stands out. */}
       <div className="space-y-2">
-        <div className="flex items-start gap-2">
-          <textarea
-            ref={whatRef}
-            value={what}
-            onChange={(e) => setWhat(e.target.value.slice(0, 200))}
-            placeholder={t('gratitude.daily.placeholderSingle')}
-            rows={1}
-            className="flex-1 px-3 py-2.5 bg-bg border border-border rounded-xl text-[15px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
-          />
-          {speechSupported && (
-            <button
-              type="button"
-              {...mic.micButtonProps}
-              aria-label={
-                mic.isListening
-                  ? t('template.stopRecording')
-                  : t('template.tapToSpeak')
-              }
-              className={`shrink-0 w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-warm-sm ${
-                mic.isListening
-                  ? 'bg-error text-white scale-105'
-                  : 'bg-surface border border-border text-text-secondary hover:text-primary hover:border-primary/50'
-              }`}
-            >
-              <MicGlyph isListening={mic.isListening} />
-            </button>
-          )}
-        </div>
+        <textarea
+          ref={whatRef}
+          value={what}
+          onChange={(e) => setWhat(e.target.value.slice(0, 200))}
+          placeholder={t('gratitude.daily.placeholderSingle')}
+          rows={1}
+          className="block w-full px-3 py-2.5 bg-bg border border-border rounded-xl text-[15px] leading-relaxed text-text-primary outline-none focus:border-primary placeholder:text-text-tertiary resize-none"
+        />
         <input
           type="text"
           value={why}
@@ -194,6 +164,12 @@ export default function GratitudeDailyCard({ notebookId }: Props) {
           placeholder={t('gratitude.daily.whyPlaceholder')}
           className="block w-full pl-3 pr-3 py-1.5 bg-transparent border-0 border-b border-dashed border-border focus:border-primary text-[13px] text-text-secondary outline-none placeholder:text-text-tertiary"
         />
+        {speechSupported && (
+          <TapToSpeakButton
+            isListening={mic.isListening}
+            {...mic.micButtonProps}
+          />
+        )}
       </div>
 
       <div className="flex items-center justify-end pt-1">

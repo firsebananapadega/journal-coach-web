@@ -2,17 +2,14 @@
 
 // Onboarding Screen 2 — "What brought you here?"
 //
-// Multi-select chip card list, mirroring the Confirmafy reference
-// (full-width tap targets, leading icon, bold label, optional
-// sub-text). The user can pick 0-N chips; Continue is always
-// enabled. The picks drive feature-flag auto-flips at the end of
-// onboarding (see authStore.completeOnboarding):
+// Productivity-first chip set (v5). Multi-select chip card list,
+// mirroring the Confirmafy reference (full-width tap targets,
+// leading icon, bold label, optional sub-text). Picks drive
+// feature-flag auto-flips at the end of onboarding (see
+// authStore.completeOnboarding):
 //
-//   gratitude   → ensure Gratitude system notebook
-//   plans/goals → plans_enabled = true + ensure Plans notebook
-//   feelings    → guided_enabled = true
-//   habit       → no flag (handled by reflection-time pre-fill)
-//   exploring   → no flips
+//   reflect → plans_enabled = true + ensure Gratitude notebook
+//   all others → no flips (productivity features are core)
 //
 // Skip = continuing with 0 selections. Allowed; the user just lands
 // on the default home shape.
@@ -37,11 +34,11 @@ interface ChipDef {
 }
 
 const CHIPS: ChipDef[] = [
-  { key: 'reflection_habit', glyph: '📔', labelKey: 'onboarding.broughtYouHere.habit.label', hintKey: 'onboarding.broughtYouHere.habit.hint' },
-  { key: 'goals', glyph: '🎯', labelKey: 'onboarding.broughtYouHere.goals.label', hintKey: 'onboarding.broughtYouHere.goals.hint' },
-  { key: 'gratitude', glyph: '✦', labelKey: 'onboarding.broughtYouHere.gratitude.label', hintKey: 'onboarding.broughtYouHere.gratitude.hint' },
-  { key: 'feelings', glyph: '💭', labelKey: 'onboarding.broughtYouHere.feelings.label', hintKey: 'onboarding.broughtYouHere.feelings.hint' },
-  { key: 'plans', glyph: '🌱', labelKey: 'onboarding.broughtYouHere.plans.label', hintKey: 'onboarding.broughtYouHere.plans.hint' },
+  { key: 'todos', glyph: '🗒', labelKey: 'onboarding.broughtYouHere.todos.label', hintKey: 'onboarding.broughtYouHere.todos.hint' },
+  { key: 'plan_week', glyph: '📅', labelKey: 'onboarding.broughtYouHere.planWeek.label', hintKey: 'onboarding.broughtYouHere.planWeek.hint' },
+  { key: 'groceries', glyph: '🛒', labelKey: 'onboarding.broughtYouHere.groceries.label', hintKey: 'onboarding.broughtYouHere.groceries.hint' },
+  { key: 'voice_capture', glyph: '🎤', labelKey: 'onboarding.broughtYouHere.voiceCapture.label', hintKey: 'onboarding.broughtYouHere.voiceCapture.hint' },
+  { key: 'reflect', glyph: '📓', labelKey: 'onboarding.broughtYouHere.reflect.label', hintKey: 'onboarding.broughtYouHere.reflect.hint' },
   { key: 'exploring', glyph: '🌤', labelKey: 'onboarding.broughtYouHere.exploring.label', hintKey: 'onboarding.broughtYouHere.exploring.hint' },
 ];
 

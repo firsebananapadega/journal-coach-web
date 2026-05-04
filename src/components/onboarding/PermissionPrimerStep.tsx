@@ -1,63 +1,30 @@
 'use client';
 
-// Onboarding Screen 5 — push-permission primer.
+// Onboarding Screen 4 — push-permission primer (v5).
 //
-// Instead of triggering the iOS system prompt cold (which costs
-// ~30+% of opt-ins per OneSignal/Hurree), we render a soft pre-
-// permission card. The user picks "Sure" or "Not yet"; only on
-// "Sure" do we fire the native prompt.
+// Cold OS prompts cost ~30+% of opt-ins (OneSignal/Hurree). This
+// pre-permission card asks first; only on "Sure" do we fire the
+// native iOS prompt.
 //
-// The pre-prompt copy adapts to the user's reflection-time pick
-// from Screen 3:
-//   morning  → "Mind if we ping you at 8:00 AM?"
-//   midday   → "Mind if we ping you at 1:00 PM?"
-//   evening  → "Mind if we ping you at 9:30 PM?"
-//   anytime  → "Mind if we send a gentle daily nudge?"
-//
-// Permission outcome (granted vs denied vs error) is reported back
-// to the parent via onComplete(granted) so the caller can persist
-// it in completeOnboarding's notification_preferences pre-fill.
+// v5 reframed the copy from evening-reflection to a fixed
+// productivity-shaped morning-briefing default. completeOnboarding
+// then flips morning_reminder=true with reminder_times.morning='08:00'
+// when push is granted. The user can change the time + opt out per-
+// mode in Settings later.
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import type { ReflectionTime } from '@/stores/authStore';
 import { enablePushReminders } from '@/lib/push';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 import { t } from '@/lib/translations';
-import { getLanguage } from '@/lib/language';
 
 interface Props {
-  reflectionTime: ReflectionTime;
   onComplete: (granted: boolean) => void;
   onBack: () => void;
 }
 
-const DEFAULT_TIMES: Record<Exclude<ReflectionTime, 'anytime'>, string> = {
-  morning: '08:00',
-  midday: '13:00',
-  evening: '21:30',
-};
-
-/** Format an HH:MM string in the user's locale (12h en-US, 12h es-MX
- *  with the dot conventions). */
-function formatClock(hhmm: string): string {
-  const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return new Intl.DateTimeFormat(getLanguage(), { hour: 'numeric', minute: '2-digit' }).format(d);
-}
-
-export default function PermissionPrimerStep({ reflectionTime, onComplete, onBack }: Props) {
+export default function PermissionPrimerStep({ onComplete, onBack }: Props) {
   const [pending, setPending] = useState(false);
-
-  const headline = useMemo(() => {
-    if (reflectionTime === 'anytime') {
-      return t('onboarding.primer.headlineAnytime');
-    }
-    const time = formatClock(DEFAULT_TIMES[reflectionTime]);
-    return t('onboarding.primer.headlineTimed', { time });
-  }, [reflectionTime]);
 
   const handleAccept = async () => {
     if (pending) return;
@@ -86,7 +53,7 @@ export default function PermissionPrimerStep({ reflectionTime, onComplete, onBac
           </svg>
         </div>
         <h2 className="text-2xl font-bold text-text-primary leading-tight">
-          {headline}
+          {t('onboarding.primer.headline')}
         </h2>
         <p className="text-sm text-text-secondary mt-2 leading-relaxed">
           {t('onboarding.primer.subtitle')}
