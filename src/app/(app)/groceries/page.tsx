@@ -506,29 +506,38 @@ function GroupBody({
       style={{ overflow: 'hidden' }}
     >
       <div className="px-3 pb-3 space-y-1">
-        {items.map((item) =>
-          draggable ? (
+        {items.map((item) => {
+          const row = (
+            <GroceryItemRow
+              item={item}
+              forceEditing={isEditing}
+              onToggle={() => onItemToggle(item.id)}
+              onRename={(name) => onItemRename(item.id, name)}
+            />
+          );
+          // Swipe-to-delete is suppressed in Edit mode. Edit mode
+          // already exposes per-row chips (qty input + perishable
+          // toggle) and the inline rename input — letting the row
+          // also slide into a delete state intercepts every horizontal
+          // gesture (the user reported swipes triggering delete when
+          // they tried to interact with the chip). The bottom-of-card
+          // "Delete this store" button still covers bulk delete; for
+          // per-item delete the user exits edit mode and swipes.
+          const swipeWrapped = isEditing ? (
+            row
+          ) : (
+            <SwipeToDelete onDelete={() => onItemRemove(item.id)}>
+              {row}
+            </SwipeToDelete>
+          );
+          return draggable ? (
             <DraggableGroceryRow key={item.id} itemId={item.id}>
-              <SwipeToDelete onDelete={() => onItemRemove(item.id)}>
-                <GroceryItemRow
-                  item={item}
-                  forceEditing={isEditing}
-                  onToggle={() => onItemToggle(item.id)}
-                  onRename={(name) => onItemRename(item.id, name)}
-                />
-              </SwipeToDelete>
+              {swipeWrapped}
             </DraggableGroceryRow>
           ) : (
-            <SwipeToDelete key={item.id} onDelete={() => onItemRemove(item.id)}>
-              <GroceryItemRow
-                item={item}
-                forceEditing={isEditing}
-                onToggle={() => onItemToggle(item.id)}
-                onRename={(name) => onItemRename(item.id, name)}
-              />
-            </SwipeToDelete>
-          ),
-        )}
+            <div key={item.id}>{swipeWrapped}</div>
+          );
+        })}
         <AddItemInline
           placeholder={t('groceries.addToStore', { store: group.store })}
           onAdd={onAddItem}
@@ -720,6 +729,10 @@ function GroceryItemRow({
       </button>
       {editing ? (
         <>
+          {/* min-w-0 lets the flex-1 input actually shrink so the
+              perishable chip stays fully visible on small viewports.
+              Without it, the input refuses to go below its content
+              width and clips the chip ("Peri…"). */}
           <input
             ref={inputRef}
             value={draft}
@@ -735,7 +748,7 @@ function GroceryItemRow({
               }
             }}
             onBlur={commit}
-            className="flex-1 bg-transparent text-base text-text-primary outline-none border-b border-primary py-0.5"
+            className="flex-1 min-w-0 bg-transparent text-base text-text-primary outline-none border-b border-primary py-0.5"
           />
           <input
             type="text"
@@ -753,7 +766,7 @@ function GroceryItemRow({
             }}
             placeholder="–"
             aria-label={t('groceries.qtyLabel')}
-            className="w-12 text-center bg-transparent text-sm text-text-secondary outline-none border-b border-border focus:border-primary py-0.5 tabular-nums"
+            className="shrink-0 w-10 text-center bg-transparent text-sm text-text-secondary outline-none border-b border-border focus:border-primary py-0.5 tabular-nums"
           />
           <PerishableChip item={item} />
         </>
