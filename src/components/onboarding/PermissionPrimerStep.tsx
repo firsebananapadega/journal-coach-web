@@ -60,11 +60,12 @@ export default function PermissionPrimerStep({ onComplete, onBack }: Props) {
         </p>
       </div>
 
-      <div className="bg-surface border border-border rounded-2xl p-4 space-y-2">
-        <p className="text-sm text-text-secondary leading-relaxed">
-          {t('onboarding.primer.detail')}
-        </p>
-      </div>
+      {/* Plain hint line, not a card. The bg-surface card it used to
+          live in shared its DNA with the app's tappable surfaces, so
+          users mis-read it as a button. */}
+      <p className="text-xs text-text-tertiary leading-relaxed px-1">
+        {t('onboarding.primer.detail')}
+      </p>
 
       <div className="flex items-center justify-between gap-3 pt-1">
         <button
