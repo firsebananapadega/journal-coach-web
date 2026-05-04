@@ -36,7 +36,6 @@ interface ProfileRow {
   last_presence_pulse_reminder_at: string | null;
   primary_use: 'tasks' | 'journal' | 'both' | null;
   language: 'en-US' | 'es-MX' | null;
-  active_grocery_list_id: string | null;
 }
 
 interface SubRow {
@@ -164,10 +163,12 @@ async function pulseDoneToday(
 }
 
 /** Build the bilingual title/body for the morning briefing.
- *  Pulls today's uncompleted tasks (count + top by Eisenhower
- *  rank) and pending grocery count for the user's active list.
- *  Empty days still get a "clean slate" body — opt-in users
- *  shouldn't experience a missing 8 AM ping. */
+ *  Tasks-only digest — pulls today's uncompleted tasks (count +
+ *  top by Eisenhower rank). Groceries are intentionally NOT
+ *  surfaced here; if the user wants to be reminded about a
+ *  shopping run, they create a task for it. Empty days get a
+ *  warm "enjoy your day" body — opt-in users always get their
+ *  8 AM ping, never a missing one. */
 async function buildMorningBriefing(
   admin: SupabaseClient,
   profile: ProfileRow,
@@ -203,94 +204,33 @@ async function buildMorningBriefing(
     // Soft-fail — better to send a less-rich brief than to skip.
   }
 
-  // Pending groceries on the user's active list.
-  let groceryCount = 0;
-  let groceryStore: string | null = null;
-  if (profile.active_grocery_list_id) {
-    try {
-      const { data: items } = await admin
-        .from('grocery_items')
-        .select('group_id')
-        .eq('list_id', profile.active_grocery_list_id)
-        .eq('completed', false);
-      groceryCount = items?.length ?? 0;
-      // Most-frequent group_id → store name. Cheap mode-of since
-      // briefings rarely span >2-3 groups.
-      if (items && items.length > 0) {
-        const tally = new Map<string, number>();
-        for (const it of items) {
-          const gid = (it.group_id as string | null) ?? '';
-          if (gid) tally.set(gid, (tally.get(gid) ?? 0) + 1);
-        }
-        let bestGroupId: string | null = null;
-        let bestCount = 0;
-        for (const [gid, n] of tally) {
-          if (n > bestCount) {
-            bestCount = n;
-            bestGroupId = gid;
-          }
-        }
-        if (bestGroupId) {
-          const { data: grp } = await admin
-            .from('grocery_groups')
-            .select('store')
-            .eq('id', bestGroupId)
-            .maybeSingle();
-          groceryStore = (grp?.store as string | undefined) ?? null;
-        }
-      }
-    } catch {
-      // Soft-fail.
-    }
-  }
-
   const emoji = '☀️';
   const title = isSpanish
     ? `${emoji} ${formattedTime} — Resumen matutino`
     : `${emoji} ${formattedTime} — Morning briefing`;
 
   // Body assembly. Cap "top task" text at 40 chars so the body
-  // stays under iOS's recommended 150-char ceiling even with the
-  // count prefixes.
+  // stays under iOS's recommended 150-char ceiling.
   const trimTop = (s: string) => (s.length > 40 ? `${s.slice(0, 39)}…` : s);
   const tasksLabelOne = isSpanish ? 'tarea' : 'task';
   const tasksLabelMany = isSpanish ? 'tareas' : 'tasks';
-  const itemsLabelOne = isSpanish ? 'producto' : 'grocery';
-  const itemsLabelMany = isSpanish ? 'productos' : 'groceries';
   const forToday = isSpanish ? 'hoy' : 'for today';
   const topPrefix = isSpanish ? 'Primero' : 'Top';
-
   const taskLabel = taskCount === 1 ? tasksLabelOne : tasksLabelMany;
-  const itemLabel = groceryCount === 1 ? itemsLabelOne : itemsLabelMany;
 
   let body: string;
 
-  if (taskCount === 0 && groceryCount === 0) {
-    // Clean-slate fresh-start framing. Capture-CTA reinforces the
-    // fact that the user can voice-capture from anywhere.
+  if (taskCount === 0) {
+    // No tasks → warm empty-state. Reinforces that the briefing is
+    // useful even on quiet days; missing pings would erode trust.
     body = isSpanish
-      ? 'Día en blanco. Toca + para capturar lo que tengas en mente.'
-      : "Clean slate today. Tap + to capture what's on your mind.";
-  } else if (taskCount > 0 && groceryCount > 0) {
-    const head = isSpanish
-      ? `${taskCount} ${taskLabel} ${forToday} · ${groceryCount} ${itemLabel}`
-      : `${taskCount} ${taskLabel} ${forToday} · ${groceryCount} ${itemLabel}`;
-    const tail = topTaskText ? ` · ${topPrefix}: ${trimTop(topTaskText)}` : '';
-    const candidate = `${head}${tail}`;
-    body = candidate.length > 120 ? head : candidate;
-  } else if (taskCount > 0) {
-    const head = isSpanish
-      ? `${taskCount} ${taskLabel} ${forToday}`
-      : `${taskCount} ${taskLabel} ${forToday}`;
-    const tail = topTaskText ? ` · ${topPrefix}: ${trimTop(topTaskText)}` : '';
-    const candidate = `${head}${tail}`;
-    body = candidate.length > 120 ? head : candidate;
+      ? 'No tienes tareas hoy. ¡Disfruta el día!'
+      : "No tasks for today. Enjoy your day!";
   } else {
-    // Groceries only.
-    const head = isSpanish
-      ? `${groceryCount} ${itemLabel} para hoy`
-      : `${groceryCount} ${itemLabel} to grab today`;
-    body = groceryStore ? `${head} — ${groceryStore}` : head;
+    const head = `${taskCount} ${taskLabel} ${forToday}`;
+    const tail = topTaskText ? ` · ${topPrefix}: ${trimTop(topTaskText)}` : '';
+    const candidate = `${head}${tail}`;
+    body = candidate.length > 120 ? head : candidate;
   }
 
   return { title, body, url: '/today' };
@@ -490,7 +430,7 @@ export async function POST(req: Request) {
   const { data: profiles, error } = await admin
     .from('profiles')
     .select(
-      'id, display_name, timezone, notification_preferences, last_morning_pulse_reminder_at, last_evening_pulse_reminder_at, last_presence_pulse_reminder_at, primary_use, language, active_grocery_list_id',
+      'id, display_name, timezone, notification_preferences, last_morning_pulse_reminder_at, last_evening_pulse_reminder_at, last_presence_pulse_reminder_at, primary_use, language',
     )
     .or(
       'notification_preferences->>morning_reminder.eq.true,notification_preferences->>evening_reminder.eq.true,notification_preferences->>presence_reminder.eq.true,notification_preferences->>presence_reminder.is.null',

@@ -60,8 +60,8 @@ const translations: Record<string, Record<Locale, string>> = {
     es: 'Resumen matutino',
   },
   'settings.morningBriefing.subtitle': {
-    en: "8 AM digest of your day's tasks and groceries.",
-    es: 'Resumen a las 8 a.m. de tus tareas y compras.',
+    en: "8 AM digest of today's tasks.",
+    es: 'Resumen a las 8 a.m. de tus tareas de hoy.',
   },
   'settings.homeScreen': { en: 'Home Screen', es: 'Pantalla de inicio' },
   'settings.guidedJournal': { en: 'Guided Journal', es: 'Diario guiado' },
