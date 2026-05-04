@@ -1092,16 +1092,24 @@ const translations: Record<string, Record<Locale, string>> = {
     es: 'No detectamos mucho. Inténtalo de nuevo o sáltalo y arrancamos.',
   },
   'onboarding.capture.tasksLabel': {
-    en: '{count} task{count, plural, one {} other {s}} for today',
-    es: '{count} tarea{count, plural, one {} other {s}} para hoy',
+    en: 'Tasks for today',
+    es: 'Tareas para hoy',
   },
   'onboarding.capture.groceriesLabel': {
-    en: '{count} grocery item{count, plural, one {} other {s}}',
-    es: '{count} producto{count, plural, one {} other {s}} de despensa',
+    en: 'Groceries',
+    es: 'Compras',
   },
   'onboarding.capture.journalLabel': {
     en: 'Note for your journal',
     es: 'Nota para tu diario',
+  },
+  'onboarding.capture.tasksSuffixOne': { en: 'task', es: 'tarea' },
+  'onboarding.capture.tasksSuffixMany': { en: 'tasks', es: 'tareas' },
+  'onboarding.capture.itemsSuffixOne': { en: 'item', es: 'producto' },
+  'onboarding.capture.itemsSuffixMany': { en: 'items', es: 'productos' },
+  'onboarding.capture.moreSuffix': {
+    en: 'more',
+    es: 'más',
   },
   'onboarding.capture.tryAgain': {
     en: 'Try again',
