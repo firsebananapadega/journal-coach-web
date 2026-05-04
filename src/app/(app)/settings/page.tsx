@@ -322,12 +322,17 @@ export default function SettingsPage() {
               Pulse reminders
             </h2>
             <div className="bg-surface rounded-2xl border border-border p-4 shadow-warm-sm space-y-4">
-              {/* Morning */}
+              {/* Morning briefing — replaces the prior "morning
+                  pulse" push. Toggle still flips morning_reminder;
+                  the cron now sends a digest of today's tasks +
+                  groceries instead of a pulse nudge. */}
               <div className="flex items-center justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-text-primary">Morning pulse</p>
+                  <p className="text-sm font-semibold text-text-primary">
+                    {t('settings.morningBriefing.title')}
+                  </p>
                   <p className="text-xs text-text-tertiary leading-snug mt-0.5">
-                    Notify me to set today's intention.
+                    {t('settings.morningBriefing.subtitle')}
                   </p>
                 </div>
                 <input

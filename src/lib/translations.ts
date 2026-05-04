@@ -55,6 +55,14 @@ const translations: Record<string, Record<Locale, string>> = {
 
   // ─── Settings ───
   'settings.title': { en: 'Settings', es: 'Ajustes' },
+  'settings.morningBriefing.title': {
+    en: 'Morning briefing',
+    es: 'Resumen matutino',
+  },
+  'settings.morningBriefing.subtitle': {
+    en: "8 AM digest of your day's tasks and groceries.",
+    es: 'Resumen a las 8 a.m. de tus tareas y compras.',
+  },
   'settings.homeScreen': { en: 'Home Screen', es: 'Pantalla de inicio' },
   'settings.guidedJournal': { en: 'Guided Journal', es: 'Diario guiado' },
   'settings.yourGuide': { en: 'Your Guide', es: 'Tu guía' },
