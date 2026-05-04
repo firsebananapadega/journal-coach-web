@@ -52,6 +52,11 @@ export interface GroceryItem {
   completed_by: string | null;
   added_by: string | null;
   sort_order: number;
+  /** Per-item override for the have-flow's perishable filter.
+   *  null = "use the auto-classify dictionary." true/false =
+   *  explicit user override (toggled via the Edit-mode chip on
+   *  /groceries). See src/lib/groceryClassify.ts. */
+  perishable: boolean | null;
 }
 
 export interface GroceryListMember {
@@ -142,6 +147,10 @@ interface GroceryState {
    *  current list. Lazy — only creates when a caller actually needs
    *  somewhere to drop unmatched items. Returns the group id. */
   ensureUncategorizedGroup: () => Promise<string | null>;
+  /** Set the per-item perishable override. Pass true/false to lock
+   *  the value; pass null to clear back to "use the auto-classify
+   *  dictionary." Optimistic; the outbox replays the column update. */
+  setItemPerishable: (itemId: string, value: boolean | null) => Promise<void>;
 
   /** Voice "I bought X, Y" fallback path. Adds the named items to
    *  the given store already marked completed=true. Used when Gemini
@@ -672,6 +681,11 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       completed_by: null,
       added_by: userId,
       sort_order: items.filter((i) => i.group_id === groupId).length,
+      // Leave perishable null on insert; the have-flow filter
+      // resolves it lazily via the dictionary at preview time. The
+      // column is only ever set to true/false when the user
+      // explicitly overrides via the Edit-mode chip.
+      perishable: null,
     };
     set({ items: [...items, optimistic] });
     await enqueue({
@@ -806,6 +820,24 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     return created?.id ?? null;
   },
 
+  setItemPerishable: async (itemId, value) => {
+    const { items } = get();
+    const target = items.find((i) => i.id === itemId);
+    if (!target) return;
+    if (target.perishable === value) return;
+    set({
+      items: items.map((i) =>
+        i.id === itemId ? { ...i, perishable: value } : i,
+      ),
+    });
+    await enqueue({
+      op: 'update',
+      table: 'grocery_items',
+      row_id: itemId,
+      payload: { perishable: value },
+    });
+  },
+
   addCompletedItems: async (store, names) => {
     if (names.length === 0) return;
     const { listId } = get();
@@ -828,6 +860,9 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       completed_by: userId,
       added_by: userId,
       sort_order: 0,
+      // Same lazy-classification stance as addItem: leave null,
+      // resolve via dictionary at have-flow preview time.
+      perishable: null,
     }));
     set({ items: [...get().items, ...rows as GroceryItem[]] });
     // One outbox row per item so partial failures stop at the first

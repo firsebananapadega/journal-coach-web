@@ -30,6 +30,11 @@ export interface GroceryItem {
   // don't surface this field (legacy paths) skip the uncheck branch
   // entirely — safe default.
   completed_at?: string | null;
+  // Per-item perishable override, optional. When undefined or null,
+  // the have-flow filter falls back to the auto-classify dictionary
+  // (src/lib/groceryClassify.ts). Only items whose effective state
+  // resolves to `true` are eligible for the auto-uncheck bucket.
+  perishable?: boolean | null;
 }
 export interface GroceryGroup {
   id: string;
@@ -53,6 +58,7 @@ import { useNotebookStore } from '@/stores/notebookStore';
 import NotebookPickerChip from '@/components/notebooks/NotebookPickerChip';
 import TaskReminderChip from '@/components/tasks/TaskReminderChip';
 import { bestMatch } from '@/lib/fuzzyMatch';
+import { effectivePerishable } from '@/lib/groceryClassify';
 import { t } from '@/lib/translations';
 import { prefersReducedMotion } from '@/lib/motionVariants';
 
@@ -660,9 +666,14 @@ function computeHaveBuckets(
   }
 
   // Uncheck candidates: currently-checked items the user did NOT
-  // mention this round, scoped to recent check-offs only (last 14
-  // days). Older check-offs are persistent inventory the user has
-  // implicitly trusted; we don't touch them.
+  // mention this round, scoped to:
+  //   1. recent check-offs only (last 14 days) — persistent inventory
+  //      the user has implicitly trusted shouldn't be touched.
+  //   2. perishables only — pantry/household items (paper towels,
+  //      shampoo, canned goods) get bought infrequently; a fridge-
+  //      enumeration pass shouldn't false-uncheck them. Resolves
+  //      via the per-item override → built-in dictionary →
+  //      null (treated as non-perishable for filter safety).
   const cutoff = Date.now() - HAVE_UNCHECK_WINDOW_MS;
   const uncheck: HaveUncheckMatch[] = [];
   for (const pair of allPairs) {
@@ -672,6 +683,7 @@ function computeHaveBuckets(
     if (!completedAt) continue; // missing timestamp → skip (safe default)
     const t = Date.parse(completedAt);
     if (!Number.isFinite(t) || t < cutoff) continue;
+    if (effectivePerishable(pair.item) !== true) continue;
     uncheck.push({
       itemId: pair.item.id,
       itemName: pair.item.name,

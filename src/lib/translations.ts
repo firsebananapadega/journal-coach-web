@@ -422,6 +422,8 @@ const translations: Record<string, Record<Locale, string>> = {
   'groceries.joinedYes': { en: 'Move them', es: 'Moverlos' },
   'groceries.joinedNo': { en: 'No, keep them separate', es: 'No, mantenlos aparte' },
   'groceries.uncategorized': { en: 'Uncategorized', es: 'Sin clasificar' },
+  'groceries.perishable': { en: 'Perishable', es: 'Perecedero' },
+  'groceries.nonPerishable': { en: 'Non-perishable', es: 'No perecedero' },
   'groceries.uncategorized.subtitle': {
     en: 'Drag onto a store, or it stays here.',
     es: 'Arrástralo a una tienda, o se queda aquí.',

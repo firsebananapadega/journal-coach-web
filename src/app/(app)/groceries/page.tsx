@@ -34,6 +34,7 @@ import {
   type GroceryItem,
   type GroceryGroup,
 } from '@/stores/groceryStore';
+import { effectivePerishable } from '@/lib/groceryClassify';
 import { t } from '@/lib/translations';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import EmptyState from '@/components/ui/EmptyState';
@@ -693,23 +694,26 @@ function GroceryItemRow({
         </motion.div>
       </button>
       {editing ? (
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              commit();
-              (e.target as HTMLInputElement).blur();
-            } else if (e.key === 'Escape') {
-              setDraft(item.name);
-              (e.target as HTMLInputElement).blur();
-            }
-          }}
-          onBlur={commit}
-          className="flex-1 bg-transparent text-base text-text-primary outline-none border-b border-primary py-0.5"
-        />
+        <>
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commit();
+                (e.target as HTMLInputElement).blur();
+              } else if (e.key === 'Escape') {
+                setDraft(item.name);
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            onBlur={commit}
+            className="flex-1 bg-transparent text-base text-text-primary outline-none border-b border-primary py-0.5"
+          />
+          <PerishableChip item={item} />
+        </>
       ) : (
         <button
           type="button"
@@ -724,6 +728,43 @@ function GroceryItemRow({
         </button>
       )}
     </div>
+  );
+}
+
+/** Two-state chip shown only in per-store Edit mode. Displays the
+ *  effective perishable status (override → dictionary → null
+ *  treated as non-perishable for display). Tap flips the override
+ *  to the opposite state. The auto-classify path is reached only
+ *  when the user has never explicitly set this item — once they
+ *  tap, the override locks. */
+function PerishableChip({ item }: { item: GroceryItem }) {
+  const setItemPerishable = useGroceryStore((s) => s.setItemPerishable);
+  const effective = effectivePerishable(item);
+  // Display: true → Perishable, anything else → Non-perishable.
+  const isPerishable = effective === true;
+  const label = isPerishable
+    ? t('groceries.perishable')
+    : t('groceries.nonPerishable');
+  const handleTap = () => {
+    // Flip the override. If currently effective true (whether via
+    // override or dictionary), set explicit false; otherwise set
+    // explicit true. Either way the column ends up with a boolean,
+    // never null — taps are deliberate.
+    void setItemPerishable(item.id, !isPerishable);
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleTap}
+      className={`shrink-0 text-[10px] px-2 py-1 rounded-full font-medium border transition-colors ${
+        isPerishable
+          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+          : 'bg-surface-elevated text-text-secondary border-border'
+      } hover:border-primary`}
+      aria-label={label}
+    >
+      {label}
+    </button>
   );
 }
 

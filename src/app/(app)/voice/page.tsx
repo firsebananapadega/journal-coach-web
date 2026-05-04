@@ -25,6 +25,7 @@ type LegacyGroceryGroup = {
     name: string;
     completed: boolean;
     completed_at: string | null;
+    perishable: boolean | null;
   }[];
 };
 function legacyGroceriesFromStore(): LegacyGroceryGroup[] {
@@ -41,6 +42,10 @@ function legacyGroceriesFromStore(): LegacyGroceryGroup[] {
         // Pantry-sync's 14-day uncheck-scope guard reads this; the
         // CapturePreviewSheet falls back to a safe no-op if missing.
         completed_at: i.completed_at,
+        // Per-item perishable override — the have-flow filter resolves
+        // this via effectivePerishable() which falls back to the
+        // dictionary when null.
+        perishable: i.perishable,
       })),
   }));
 }
