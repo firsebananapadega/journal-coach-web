@@ -85,7 +85,7 @@ export interface CaptureResult {
   // for the preview sheet's pantry-sync section.
   //
   // Each entry has a bare noun phrase plus optional quantity signals:
-  //   qty_hint  — coarse band: 'low' | 'sufficient' | 'plenty' | null.
+  //   qty_hint  — coarse band: 'low' | 'medium' | 'high' | null.
   //               Drives bucket routing in the preview ('low' →
   //               keep-on-list rather than check-off).
   //   qty_count — specific integer when the user volunteered one
@@ -93,7 +93,7 @@ export interface CaptureResult {
   //               renders "(3 left)" inline. Doesn't affect routing.
   have_items: Array<{
     name: string;
-    qty_hint?: 'low' | 'sufficient' | 'plenty' | null;
+    qty_hint?: 'low' | 'medium' | 'high' | null;
     qty_count?: number | null;
   }>;
   // Sprint 2: which notebook the `journal` content (if any) belongs
@@ -240,17 +240,17 @@ CATEGORIES:
    - "I bought X" → past-tense purchase action → completions with type "bought".
    - "I have X" / "I still have X" → present-tense state assertion → have_items.
 
-   Each entry is an object: {"name": "<noun>", "qty_hint": "low" | "sufficient" | "plenty" | null, "qty_count": <integer|null>}
+   Each entry is an object: {"name": "<noun>", "qty_hint": "low" | "medium" | "high" | null, "qty_count": <integer|null>}
 
    Quantity rules:
    - qty_count: integer ≥ 1 ONLY when the user said a specific number ("three onions" → 3). Drop fractions ("half a gallon"), ranges ("two or three"), and non-numeric quantifiers ("a few" → null).
-   - qty_hint:
+   - qty_hint (band):
      - "low" — user signaled running low: "only one X left", "running low on X", "almost out of X", "a couple X left", "queda poco X".
-     - "plenty" — user signaled abundance: "plenty of X", "lots of X", "X is full", "X is good", "mucho X", "X lleno".
-     - "sufficient" — explicit "enough" framing without abundance language.
+     - "high" — user signaled abundance: "plenty of X", "lots of X", "X is full", "X is good", "mucho X", "X lleno".
+     - "medium" — explicit "enough" framing without abundance language: "I have enough X", "X is fine", "tengo suficiente X".
      - null — no quantity language.
    - Auto-rule: qty_count === 1 AND no other quantity language → set qty_hint = "low" (one of anything you'd inventory is realistically low).
-   - For qty_count >= 2, leave qty_hint = null unless the user explicitly used low/plenty language — we don't guess whether 3 onions is enough.
+   - For qty_count >= 2, leave qty_hint = null unless the user explicitly used low/medium/high language — we don't guess whether 3 onions is enough.
 
    English examples:
    - "I have eggs and butter" → [{"name":"eggs","qty_hint":null,"qty_count":null},{"name":"butter","qty_hint":null,"qty_count":null}]
@@ -258,7 +258,8 @@ CATEGORIES:
    - "three onions left" → [{"name":"onions","qty_hint":null,"qty_count":3}]
    - "two avocados" (within an "I have" context) → [{"name":"avocados","qty_hint":null,"qty_count":2}]
    - "running low on celery" → [{"name":"celery","qty_hint":"low","qty_count":null}]
-   - "plenty of milk" → [{"name":"milk","qty_hint":"plenty","qty_count":null}]
+   - "plenty of milk" → [{"name":"milk","qty_hint":"high","qty_count":null}]
+   - "I have enough rice" → [{"name":"rice","qty_hint":"medium","qty_count":null}]
    - "I still have rice and pasta" → [{"name":"rice","qty_hint":null,"qty_count":null},{"name":"pasta","qty_hint":null,"qty_count":null}]
    - "in the fridge I've got milk, OJ, yogurt" → [{"name":"milk",…},{"name":"OJ",…},{"name":"yogurt",…}]
    - "about half a gallon of milk" → [{"name":"milk","qty_hint":null,"qty_count":null}] (non-integer dropped)
@@ -516,16 +517,16 @@ export async function classifyCapture(
   // dedupe + cap at 50.
   const have_items: Array<{
     name: string;
-    qty_hint: 'low' | 'sufficient' | 'plenty' | null;
+    qty_hint: 'low' | 'medium' | 'high' | null;
     qty_count: number | null;
   }> = [];
-  const isQtyHint = (v: unknown): v is 'low' | 'sufficient' | 'plenty' =>
-    v === 'low' || v === 'sufficient' || v === 'plenty';
+  const isQtyHint = (v: unknown): v is 'low' | 'medium' | 'high' =>
+    v === 'low' || v === 'medium' || v === 'high';
   if (Array.isArray(parsed.have_items)) {
     const seen = new Set<string>();
     for (const raw of parsed.have_items as unknown[]) {
       let name: string;
-      let qty_hint: 'low' | 'sufficient' | 'plenty' | null = null;
+      let qty_hint: 'low' | 'medium' | 'high' | null = null;
       let qty_count: number | null = null;
       if (typeof raw === 'string') {
         name = raw.trim();
@@ -546,7 +547,7 @@ export async function classifyCapture(
       seen.add(key);
       // Auto-derive: a count of exactly 1 with no other quantity
       // language is universally "running low." Higher counts leave
-      // qty_hint alone — 3 onions might be plenty or low depending
+      // qty_hint alone — 3 onions might be high or low depending
       // on item; we don't second-guess.
       if (qty_count === 1 && qty_hint === null) qty_hint = 'low';
       have_items.push({ name, qty_hint, qty_count });

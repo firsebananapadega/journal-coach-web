@@ -35,6 +35,7 @@ import {
   type GroceryGroup,
 } from '@/stores/groceryStore';
 import { effectivePerishable } from '@/lib/groceryClassify';
+import { useUiStore } from '@/stores/uiStore';
 import { t } from '@/lib/translations';
 import { SwipeToDelete } from '@/components/SwipeToDelete';
 import EmptyState from '@/components/ui/EmptyState';
@@ -304,6 +305,8 @@ function GroceriesInner() {
       {groups.length === 0 && (
         <EmptyState pose="peek" title={t('groceries.empty')} />
       )}
+
+      <RunningLowSection items={items} onToggleItem={toggleItem} />
 
       <DndContext
         sensors={dragSensors}
@@ -589,6 +592,138 @@ function DroppableStoreGroupCard(props: GroupCardCommonProps) {
  *
  *  Renders nothing when there are no uncategorized items, so the
  *  /groceries page collapses cleanly back to just the store cards. */
+/** "Possibly running low" — passive discovery surface at the top of
+ *  /groceries. Helps the user notice items they bought a while ago
+ *  (and haven't said they still have) plus items the voice flow
+ *  tagged qty_band='low'. The user CAN'T enumerate what's missing
+ *  from memory alone — this section prompts them.
+ *
+ *  Candidate logic (recompute on every render):
+ *    completed = true                     (you have it / bought it)
+ *    last_purchased_at is set             (cadence data exists)
+ *    AND (
+ *      now - last_purchased_at > threshold     (cycle elapsed)
+ *      OR qty_band = 'low'                     (explicitly low)
+ *    )
+ *
+ *  Threshold is per-item via effectivePerishable():
+ *    perishable=true   → 7d  (eggs, milk, bread, produce, meat)
+ *    perishable=false  → 30d (paper towels, shampoo, canned)
+ *    perishable=null   → 14d (unknown — middle of the road)
+ *
+ *  Tap a row → toggleItem flips completed=false → it lands back in
+ *  its store group as unchecked (= now on shopping list).
+ *  Tap × → refreshLastPurchased(now) → row leaves this section
+ *  until the threshold re-ticks. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+function thresholdMsFor(item: GroceryItem): number {
+  const p = effectivePerishable(item);
+  const days = p === true ? 7 : p === false ? 30 : 14;
+  return days * DAY_MS;
+}
+
+interface RunningLowCandidate {
+  item: GroceryItem;
+  reason: 'time' | 'low';
+  daysSince: number;
+}
+
+function RunningLowSection({
+  items,
+  onToggleItem,
+}: {
+  items: GroceryItem[];
+  onToggleItem: (id: string) => void;
+}) {
+  const refreshLastPurchased = useGroceryStore((s) => s.refreshLastPurchased);
+  const showToast = useUiStore((s) => s.showToast);
+
+  // "Now" captured outside render via state + effect so React's
+  // render-purity rule is happy (Date.now() in render is flagged as
+  // impure). Refresh hourly so an open page eventually picks up
+  // newly-aging items without a manual reload.
+  const [nowMs, setNowMs] = useState<number>(0);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const candidates: RunningLowCandidate[] = useMemo(() => {
+    if (nowMs === 0) return [];
+    return items
+      .map((item): RunningLowCandidate | null => {
+        if (!item.completed) return null;
+        if (!item.last_purchased_at) return null;
+        const t = Date.parse(item.last_purchased_at);
+        if (!Number.isFinite(t)) return null;
+        const elapsed = nowMs - t;
+        const overTime = elapsed > thresholdMsFor(item);
+        const lowBand = item.qty_band === 'low';
+        if (!overTime && !lowBand) return null;
+        return {
+          item,
+          reason: overTime ? 'time' : 'low',
+          daysSince: Math.max(0, Math.floor(elapsed / DAY_MS)),
+        };
+      })
+      .filter((c): c is RunningLowCandidate => c !== null)
+      // Sort: lowest stock signal first (qty_band='low'), then most-overdue.
+      .sort((a, b) => {
+        if (a.reason !== b.reason) return a.reason === 'low' ? -1 : 1;
+        return b.daysSince - a.daysSince;
+      });
+  }, [items, nowMs]);
+
+  if (candidates.length === 0) return null;
+
+  return (
+    <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-3 space-y-2">
+      <p className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-400 font-semibold">
+        {t('groceries.runningLow.title')} · {candidates.length}
+      </p>
+      <ul className="space-y-1">
+        {candidates.map((c) => {
+          const reasonText =
+            c.reason === 'low'
+              ? t('groceries.runningLow.lowStock', { days: c.daysSince })
+              : t('groceries.runningLow.boughtAgo', { days: c.daysSince });
+          return (
+            <li
+              key={c.item.id}
+              className="flex items-center gap-2 py-1.5 px-1 rounded-lg"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleItem(c.item.id);
+                  showToast(t('groceries.runningLow.revivedToast'), 'success');
+                }}
+                className="flex-1 text-left flex items-center gap-2 min-w-0"
+              >
+                <span className="text-[15px] text-text-primary truncate">
+                  {c.item.name}
+                </span>
+                <span className="text-[11px] text-text-tertiary tabular-nums shrink-0">
+                  {reasonText}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void refreshLastPurchased(c.item.id)}
+                aria-label={t('groceries.runningLow.dismissAria')}
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-text-tertiary hover:text-text-primary hover:bg-amber-500/10"
+              >
+                ×
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function UncategorizedFlatList({
   items,
   onItemToggle,
@@ -768,7 +903,7 @@ function GroceryItemRow({
             aria-label={t('groceries.qtyLabel')}
             className="shrink-0 w-10 text-center bg-transparent text-sm text-text-secondary outline-none border-b border-border focus:border-primary py-0.5 tabular-nums"
           />
-          <PerishableChip item={item} />
+          <QtyBandChip item={item} editing={true} />
         </>
       ) : (
         <>
@@ -795,42 +930,61 @@ function GroceryItemRow({
               × {item.quantity}
             </span>
           )}
+          <QtyBandChip item={item} editing={false} />
         </>
       )}
     </div>
   );
 }
 
-/** Two-state chip shown only in per-store Edit mode. Displays the
- *  effective perishable status (override → dictionary → null
- *  treated as non-perishable for display). Tap flips the override
- *  to the opposite state. The auto-classify path is reached only
- *  when the user has never explicitly set this item — once they
- *  tap, the override locks. */
-function PerishableChip({ item }: { item: GroceryItem }) {
-  const setItemPerishable = useGroceryStore((s) => s.setItemPerishable);
-  const effective = effectivePerishable(item);
-  // Display: true → Perishable, anything else → Non-perishable.
-  const isPerishable = effective === true;
-  const label = isPerishable
-    ? t('groceries.perishable')
-    : t('groceries.nonPerishable');
+/** Quantity-band chip showing the user's stocking level: low, medium,
+ *  or high. Visible on every row when set; in Edit mode the chip is
+ *  tappable and cycles through states (none → low → medium → high →
+ *  none). On a checked-off (= just bought) row the chip is hidden so
+ *  it doesn't read as a stale alert. The column data is preserved. */
+function QtyBandChip({ item, editing }: { item: GroceryItem; editing: boolean }) {
+  const setItemQtyBand = useGroceryStore((s) => s.setItemQtyBand);
+  const band = item.qty_band; // 'low' | 'medium' | 'high' | null
+
+  // Read-only render: hide entirely when null, also when the item
+  // is checked off (the band signal is moot once you've bought it).
+  if (!editing && (band == null || item.completed)) return null;
+
   const handleTap = () => {
-    // Flip the override. If currently effective true (whether via
-    // override or dictionary), set explicit false; otherwise set
-    // explicit true. Either way the column ends up with a boolean,
-    // never null — taps are deliberate.
-    void setItemPerishable(item.id, !isPerishable);
+    // Cycle: none → low → medium → high → none.
+    const nextBand =
+      band === null ? 'low' : band === 'low' ? 'medium' : band === 'medium' ? 'high' : null;
+    void setItemQtyBand(item.id, nextBand);
   };
+
+  // Color per state. null in edit mode shows a thin neutral
+  // placeholder so the chip is tappable.
+  const colorClass =
+    band === 'low'
+      ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30'
+      : band === 'medium'
+      ? 'bg-surface-elevated text-text-secondary border-border'
+      : band === 'high'
+      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+      : 'border-dashed border-border text-text-tertiary';
+  const label = band ? t(`groceries.qtyBand.${band}`) : '—';
+
+  if (!editing) {
+    // Static chip — read-only display. Not a button.
+    return (
+      <span
+        className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-medium border tabular-nums ${colorClass}`}
+        aria-label={label}
+      >
+        {label}
+      </span>
+    );
+  }
   return (
     <button
       type="button"
       onClick={handleTap}
-      className={`shrink-0 text-[10px] px-2 py-1 rounded-full font-medium border transition-colors ${
-        isPerishable
-          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
-          : 'bg-surface-elevated text-text-secondary border-border'
-      } hover:border-primary`}
+      className={`shrink-0 text-[10px] px-2 py-1 rounded-full font-medium border transition-colors hover:border-primary ${colorClass}`}
       aria-label={label}
     >
       {label}

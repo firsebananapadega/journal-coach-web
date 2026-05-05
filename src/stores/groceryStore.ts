@@ -63,6 +63,17 @@ export interface GroceryItem {
    *  per-store Edit mode. NULL = "no quantity specified" (most
    *  items). The UI hides the inline `× N` tag when null. */
   quantity: number | null;
+  /** User-visible quantity band: 'low' | 'medium' | 'high' | null.
+   *  Persisted from the voice have-flow (band-language phrases) and
+   *  from the in-row Edit-mode chip cycle. Surfaced as a small
+   *  color-coded chip on the row. */
+  qty_band: 'low' | 'medium' | 'high' | null;
+  /** Sticky timestamp of the last completed=true transition. Set
+   *  every time the row flips false → true (manual toggle, voice
+   *  check-off, addCompletedItems). NEVER cleared on uncheck.
+   *  Drives the "Possibly running low" suggestion via time-elapsed
+   *  + qty_band. */
+  last_purchased_at: string | null;
 }
 
 export interface GroceryListMember {
@@ -159,14 +170,18 @@ interface GroceryState {
   setItemPerishable: (itemId: string, value: boolean | null) => Promise<void>;
 
   /** Voice "I bought X, Y" fallback path. Adds the named items to
-   *  the given store already marked completed=true. Used when Gemini
-   *  fails to classify but our fuzzy matcher still recognises the
-   *  spoken items. Accepts plain string names (legacy) OR objects
-   *  carrying optional per-item quantity (used by the have-flow's
-   *  add-to-Uncategorized branch when the user volunteered a count). */
+   *  the given store already marked completed=true. Also used by
+   *  the have-flow's add-to-Uncategorized branch (always pre-checked
+   *  in the new model). Each entry can carry optional qty + qty_band.
+   *  All inserts stamp last_purchased_at = now() since they enter
+   *  the list as already-purchased. */
   addCompletedItems: (
     store: string,
-    items: Array<string | { name: string; quantity?: number | null }>,
+    items: Array<string | {
+      name: string;
+      quantity?: number | null;
+      qty_band?: 'low' | 'medium' | 'high' | null;
+    }>,
   ) => Promise<void>;
   /** Set the per-item quantity. Pass null to clear. Optimistic;
    *  the outbox replays the column update. Used by the voice
@@ -174,6 +189,19 @@ interface GroceryState {
    *  Edit-mode qty input, and by the AddGrocerySheet via
    *  addItem's 3rd arg. */
   setItemQuantity: (itemId: string, value: number | null) => Promise<void>;
+  /** Set the user-visible quantity band: 'low' | 'medium' | 'high'
+   *  | null. Persisted to grocery_items.qty_band. Used by the voice
+   *  have-flow when the user volunteered band language ("plenty of
+   *  X" → 'high', "running low on X" → 'low') and by the in-row
+   *  Edit-mode chip cycle. */
+  setItemQtyBand: (itemId: string, value: 'low' | 'medium' | 'high' | null) => Promise<void>;
+  /** Sticky timestamp refresh — sets last_purchased_at = now()
+   *  without changing other state. Used by:
+   *    - the have-flow when a matched item is already checked
+   *      ("I still have eggs" → reset the running-low timer)
+   *    - the "Possibly running low" section's × dismiss
+   *      ("I'm fine on this" → reset the timer). */
+  refreshLastPurchased: (itemId: string) => Promise<void>;
 
   createInvite: () => Promise<{ token: string; url: string } | null>;
   revokeInvite: (token: string) => Promise<void>;
@@ -705,12 +733,14 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       completed_by: null,
       added_by: userId,
       sort_order: items.filter((i) => i.group_id === groupId).length,
-      // Leave perishable null on insert; the have-flow filter
-      // resolves it lazily via the dictionary at preview time. The
-      // column is only ever set to true/false when the user
-      // explicitly overrides via the Edit-mode chip.
+      // Leave perishable null on insert; the dictionary resolves it
+      // lazily for the running-low threshold. User no longer overrides.
       perishable: null,
       quantity: qty,
+      // Unchecked add → not yet purchased → no qty_band, no
+      // last_purchased_at.
+      qty_band: null,
+      last_purchased_at: null,
     };
     set({ items: [...items, optimistic] });
     await enqueue({
@@ -761,20 +791,29 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
     if (!target) return;
     const next = !target.completed;
     const userId = await getUserId();
-    const completed_at = next ? new Date().toISOString() : null;
+    const nowIso = new Date().toISOString();
+    const completed_at = next ? nowIso : null;
     const completed_by = next ? userId : null;
+    // Sticky timestamp: every false → true transition stamps
+    // last_purchased_at = now(). NEVER cleared on the reverse
+    // transition. Drives the "Possibly running low" suggestion.
+    const last_purchased_at = next ? nowIso : target.last_purchased_at;
     set({
       items: items.map((i) =>
         i.id === itemId
-          ? { ...i, completed: next, completed_at, completed_by }
+          ? { ...i, completed: next, completed_at, completed_by, last_purchased_at }
           : i,
       ),
     });
+    const payload: Record<string, unknown> = { completed: next, completed_at, completed_by };
+    if (next) {
+      payload.last_purchased_at = last_purchased_at;
+    }
     await enqueue({
       op: 'update',
       table: 'grocery_items',
       row_id: itemId,
-      payload: { completed: next, completed_at, completed_by },
+      payload,
     });
   },
 
@@ -886,6 +925,11 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         typeof rawQty === 'number' && Number.isInteger(rawQty) && rawQty >= 1
           ? rawQty
           : null;
+      const rawBand = typeof entry === 'string' ? null : entry.qty_band ?? null;
+      const band: 'low' | 'medium' | 'high' | null =
+        rawBand === 'low' || rawBand === 'medium' || rawBand === 'high'
+          ? rawBand
+          : null;
       return {
         id: uuid(),
         list_id: listId,
@@ -896,10 +940,13 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
         completed_by: userId,
         added_by: userId,
         sort_order: 0,
-        // Same lazy-classification stance as addItem: leave null,
-        // resolve via dictionary at have-flow preview time.
+        // Lazy-classification: dictionary resolves at threshold time.
         perishable: null,
         quantity: qty,
+        qty_band: band,
+        // Pre-checked rows (= "I have it" / "I just bought it") seed
+        // the running-low timer with now().
+        last_purchased_at: nowIso,
       };
     });
     set({ items: [...get().items, ...rows as GroceryItem[]] });
@@ -930,6 +977,45 @@ export const useGroceryStore = create<GroceryState>((set, get) => ({
       table: 'grocery_items',
       row_id: itemId,
       payload: { quantity: qty },
+    });
+  },
+
+  setItemQtyBand: async (itemId, value) => {
+    // Whitelist the value. Anything else collapses to null.
+    const band: 'low' | 'medium' | 'high' | null =
+      value === 'low' || value === 'medium' || value === 'high' ? value : null;
+    const { items } = get();
+    const target = items.find((i) => i.id === itemId);
+    if (!target) return;
+    if (target.qty_band === band) return;
+    set({
+      items: items.map((i) =>
+        i.id === itemId ? { ...i, qty_band: band } : i,
+      ),
+    });
+    await enqueue({
+      op: 'update',
+      table: 'grocery_items',
+      row_id: itemId,
+      payload: { qty_band: band },
+    });
+  },
+
+  refreshLastPurchased: async (itemId) => {
+    const { items } = get();
+    const target = items.find((i) => i.id === itemId);
+    if (!target) return;
+    const nowIso = new Date().toISOString();
+    set({
+      items: items.map((i) =>
+        i.id === itemId ? { ...i, last_purchased_at: nowIso } : i,
+      ),
+    });
+    await enqueue({
+      op: 'update',
+      table: 'grocery_items',
+      row_id: itemId,
+      payload: { last_purchased_at: nowIso },
     });
   },
 

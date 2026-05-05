@@ -505,11 +505,13 @@ export default function VoiceEntryPage() {
       }
     }
 
-    // Pantry sync — the "I have …" voice flow. The preview sheet
-    // computed buckets and let the user opt rows out per-row; we
-    // just apply the resolved arrays. All actions are idempotent
-    // (markItemDone/Undone no-op when already in target state) so
-    // duplicate fires are safe.
+    // Pantry sync — the "I have …" voice flow. Auto-uncheck was
+    // dropped; nothing here ever flips an item OFF. Two action sets:
+    //   - check matches → markItemDone (refreshes last_purchased_at).
+    //   - add unmatched → addCompletedItems(Uncategorized) as CHECKED
+    //     with optional qty + qty_band.
+    // Plus silent refreshes on already-checked matches so the running-
+    // low timer resets when the user says "I still have eggs."
     if (haveSync) {
       const grocery = useGroceryStore.getState();
       for (const id of haveSync.checkIds) {
@@ -519,30 +521,8 @@ export default function VoiceEntryPage() {
           console.warn('haveSync markItemDone failed', id, e);
         }
       }
-      for (const id of haveSync.uncheckIds) {
-        try {
-          await grocery.markItemUndone(id);
-        } catch (e) {
-          console.warn('haveSync markItemUndone failed', id, e);
-        }
-      }
-      // Running-low: items the user said they have, but only a
-      // small/last quantity. If the matched item was checked, flip
-      // it back to unchecked so it lands on the shopping list.
-      for (const id of haveSync.lowStockUncheckIds) {
-        try {
-          await grocery.markItemUndone(id);
-        } catch (e) {
-          console.warn('haveSync lowStock markItemUndone failed', id, e);
-        }
-      }
       if (haveSync.addToUncategorized.length > 0) {
         try {
-          // ensureUncategorizedGroup is implicit inside
-          // addCompletedItems (it find-or-creates by store name).
-          // Routing to UNCATEGORIZED_STORE keeps the sentinel
-          // single-sourced. These add as CHECKED (= "have it") and
-          // carry per-item quantity when the user volunteered one.
           await grocery.addCompletedItems(
             UNCATEGORIZED_STORE,
             haveSync.addToUncategorized,
@@ -551,34 +531,33 @@ export default function VoiceEntryPage() {
           console.warn('haveSync add to Uncategorized failed', e);
         }
       }
-      if (haveSync.lowStockAddNames.length > 0) {
-        // Running-low names with no match on the existing list go
-        // into Uncategorized as UNCHECKED (= "still need to buy"
-        // — distinct from addToUncategorized's checked semantics).
+      // Silent timer refresh — matched items that were already
+      // checked when the user said "I have X." Updates
+      // last_purchased_at without changing other state so the
+      // running-low suggestion resets.
+      for (const id of haveSync.refreshIds) {
         try {
-          const groupId = await grocery.ensureUncategorizedGroup();
-          if (groupId) {
-            for (const entry of haveSync.lowStockAddNames) {
-              try {
-                await grocery.addItem(groupId, entry.name, entry.quantity);
-              } catch (e) {
-                console.warn('haveSync lowStock addItem failed', entry.name, e);
-              }
-            }
-          }
+          await grocery.refreshLastPurchased(id);
         } catch (e) {
-          console.warn('haveSync ensureUncategorizedGroup failed', e);
+          console.warn('haveSync refreshLastPurchased failed', id, e);
         }
       }
       // Quantity updates for matched items where the user volunteered
-      // a number. Runs LAST so any preceding markItemDone /
-      // markItemUndone has already settled. setItemQuantity is
-      // idempotent.
+      // a number. setItemQuantity is idempotent.
       for (const u of haveSync.quantityUpdates) {
         try {
           await grocery.setItemQuantity(u.itemId, u.quantity);
         } catch (e) {
           console.warn('haveSync setItemQuantity failed', u.itemId, e);
+        }
+      }
+      // qty_band updates for matched items where the user volunteered
+      // a band ("plenty of milk" → write qty_band='high').
+      for (const b of haveSync.qtyBandUpdates) {
+        try {
+          await grocery.setItemQtyBand(b.itemId, b.qty_band);
+        } catch (e) {
+          console.warn('haveSync setItemQtyBand failed', b.itemId, e);
         }
       }
     }

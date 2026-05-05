@@ -50,23 +50,27 @@ export interface GroceryGroup {
 // for any bucket = nothing to do.
 export interface HaveSyncResolution {
   checkIds: string[];
-  uncheckIds: string[];
-  // Names to add to Uncategorized as CHECKED (in-pantry add). Each
-  // entry can carry an optional quantity captured from the user's
-  // voice ("I have three onions" → { name: 'onions', quantity: 3 }).
-  addToUncategorized: Array<{ name: string; quantity: number | null }>;
-  // (running-low path): item IDs to flip from checked → unchecked
-  // because the user signaled they're running out.
-  lowStockUncheckIds: string[];
-  // (running-low path): names to add to Uncategorized as UNCHECKED
-  // (= "still need to buy" — distinct from addToUncategorized which is
-  // "I have it, just no store assigned yet"). Carries optional qty too.
-  lowStockAddNames: Array<{ name: string; quantity: number | null }>;
-  // Quantity updates to apply to existing rows the have-flow matched.
-  // Triggered when the user volunteered a number AND the item was
-  // already on the list ("I have one apple" → write quantity=1 on
-  // the matched apple row). Empty when no quantities were given.
+  // Names to add to Uncategorized as CHECKED (= "I have it, store
+  // unassigned"). Each entry carries optional quantity + qty_band
+  // captured from the user's voice ("I have three onions" → { name:
+  // 'onions', quantity: 3, qty_band: null }; "I have one grapefruit"
+  // → { name: 'grapefruit', quantity: 1, qty_band: 'low' }).
+  addToUncategorized: Array<{
+    name: string;
+    quantity: number | null;
+    qty_band: 'low' | 'medium' | 'high' | null;
+  }>;
+  // Item IDs whose last_purchased_at should be refreshed silently —
+  // matched items that were already checked off when the user said
+  // "I have X." User is implicitly confirming "I still have this."
+  refreshIds: string[];
+  // Quantity updates for matched items the user volunteered a number
+  // on. Triggered when "I have one apple" matches an existing apple
+  // row → write quantity=1.
   quantityUpdates: Array<{ itemId: string; quantity: number }>;
+  // Band updates for matched items the user volunteered a band on
+  // ("plenty of milk" → write qty_band='high' on matched milk).
+  qtyBandUpdates: Array<{ itemId: string; qty_band: 'low' | 'medium' | 'high' }>;
 }
 import type { ListRecord } from '@/stores/listStore';
 import { useNotebookStore } from '@/stores/notebookStore';
@@ -624,51 +628,40 @@ function RoutingSummary({
 }
 
 // ── Pantry-sync bucket types (in-component only) ────────────
-// Each "I have …" phrase resolves to one of three buckets:
+// Each "I have …" phrase resolves to one of two visible buckets
+// plus one silent action set:
 //   - check: matched against an existing UNCHECKED grocery item
-//             that we'd flip to checked.
+//            that we'd flip to checked.
 //   - add: didn't match any existing item; will land in
-//             Uncategorized as pre-checked.
-// Plus a separate uncheck bucket: items currently CHECKED that
-// the user did NOT mention this round (and were checked off
-// recently — see HAVE_UNCHECK_WINDOW_MS for the scope guard).
+//            Uncategorized as pre-checked.
+//   - refreshIds: matched + already checked. Silently updates
+//            last_purchased_at via the apply layer; not surfaced
+//            in the UI.
+//
+// Auto-uncheck (the prior "Will uncheck — you didn't mention"
+// bucket) was dropped — too unreliable when the user dictates one
+// item but the system assumes a full enumeration. See plan: drop
+// auto-uncheck → visible qty band + replenishment nudges.
 interface HaveCheckMatch {
   phrase: string;
   itemId: string;
   itemName: string;
   store: string;
   qty_count: number | null;
+  qty_band: 'low' | 'medium' | 'high' | null;
   // When non-null, the apply layer should also write the volunteered
-  // count to the matched item (the user said "I have three onions"
-  // and we're checking off an existing onions row → update qty=3).
+  // count to the matched item (user said "I have three onions" and
+  // we're checking off an existing onions row → update qty=3).
   applyQuantity: number | null;
-}
-interface HaveUncheckMatch {
-  itemId: string;
-  itemName: string;
-  store: string;
-}
-interface HaveLowStockMatch {
-  // What to render in the row.
-  displayName: string;
-  qty_count: number | null;
-  store: string | null;
-  // The two action arrays the apply layer needs:
-  //   matched + currently checked → uncheckId (+ optional qty update)
-  //   no match → addAsUnchecked = phrase (+ optional quantity)
-  // Exactly one is set per row.
-  uncheckItemId?: string;
-  addAsUnchecked?: string;
-  // When non-null AND uncheckItemId is set, also persist this number
-  // to the matched item ("I have one apple now" overwrites whatever
-  // count was on the row before).
-  applyQuantity: number | null;
+  // When non-null, the apply layer also writes qty_band on the
+  // matched row.
+  applyBand: 'low' | 'medium' | 'high' | null;
 }
 interface HaveAddMatch {
   phrase: string;
   qty_count: number | null;
+  qty_band: 'low' | 'medium' | 'high' | null;
 }
-const HAVE_UNCHECK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 /** Format an integer count for inline display next to an item name.
  *  Locale-aware via t(); EN: "3 left" / ES: "3 restantes" with a
@@ -690,7 +683,7 @@ function formatQtyLeft(count: number): string {
 
 interface HaveItemInput {
   name: string;
-  qty_hint?: 'low' | 'sufficient' | 'plenty' | null;
+  qty_hint?: 'low' | 'medium' | 'high' | null;
   qty_count?: number | null;
 }
 
@@ -699,101 +692,56 @@ function computeHaveBuckets(
   groceries: GroceryGroup[],
 ): {
   check: HaveCheckMatch[];
-  uncheck: HaveUncheckMatch[];
   add: HaveAddMatch[];
-  lowStock: HaveLowStockMatch[];
+  /** Silently refresh last_purchased_at for these matched-and-already-
+   *  checked items. Equivalent to "user just confirmed they still
+   *  have it" → resets the running-low timer. No UI. */
+  refreshIds: string[];
 } {
   const allPairs = groceries.flatMap((g) =>
     g.items.map((it) => ({ group: g, item: it })),
   );
-  const matchedItemIds = new Set<string>();
   const check: HaveCheckMatch[] = [];
   const add: HaveAddMatch[] = [];
-  const lowStock: HaveLowStockMatch[] = [];
+  const refreshIds: string[] = [];
 
   for (const entry of haveItems) {
     const phrase = entry.name;
-    const isLow = entry.qty_hint === 'low';
     const qty = entry.qty_count ?? null;
+    const band = entry.qty_hint ?? null;
 
     const m = bestMatch(phrase, allPairs.map((p) => p.item));
     if (m) {
       const pair = allPairs.find((p) => p.item.id === m.item.id);
       if (pair) {
-        matchedItemIds.add(pair.item.id);
-        if (isLow) {
-          // User said they're running low on this. If currently
-          // checked, flip back to unchecked (signals "out of stock").
-          // If unchecked, no action needed — already on shopping list.
-          // Either way, surface in the lowStock bucket so the user
-          // sees the deliberate "kept on list" decision.
-          lowStock.push({
-            displayName: pair.item.name,
-            qty_count: qty,
-            store: pair.group.store,
-            uncheckItemId: pair.item.completed ? pair.item.id : undefined,
-            applyQuantity: qty,
-          });
-        } else if (!pair.item.completed) {
-          // Standard check-off path. Already-checked items are
-          // skipped to keep the preview honest (apply is idempotent
-          // either way).
+        if (pair.item.completed) {
+          // Matched + already checked → silent timer refresh. User is
+          // saying "I still have this." No UI surface.
+          refreshIds.push(pair.item.id);
+        } else {
+          // Matched + unchecked → check off. Persist any volunteered
+          // qty + band on the matched row.
           check.push({
             phrase,
             itemId: pair.item.id,
             itemName: pair.item.name,
             store: pair.group.store,
             qty_count: qty,
+            qty_band: band,
             applyQuantity: qty,
+            applyBand: band,
           });
         }
         continue;
       }
     }
-    // No match against the existing list.
-    if (isLow) {
-      // Add to Uncategorized as UNCHECKED so it lands on the
-      // shopping list (user wants to buy more).
-      lowStock.push({
-        displayName: phrase,
-        qty_count: qty,
-        store: null,
-        addAsUnchecked: phrase,
-        applyQuantity: qty,
-      });
-    } else {
-      // Add to Uncategorized as CHECKED (existing behavior).
-      add.push({ phrase, qty_count: qty });
-    }
+    // No match → add to Uncategorized as CHECKED (= "I have it,
+    // store unassigned"). Auto-uncheck path was dropped per plan;
+    // we never add anything as unchecked from the have-flow.
+    add.push({ phrase, qty_count: qty, qty_band: band });
   }
 
-  // Uncheck candidates: currently-checked items the user did NOT
-  // mention this round, scoped to:
-  //   1. recent check-offs only (last 14 days) — persistent inventory
-  //      the user has implicitly trusted shouldn't be touched.
-  //   2. perishables only — pantry/household items (paper towels,
-  //      shampoo, canned goods) get bought infrequently; a fridge-
-  //      enumeration pass shouldn't false-uncheck them. Resolves
-  //      via the per-item override → built-in dictionary →
-  //      null (treated as non-perishable for filter safety).
-  const cutoff = Date.now() - HAVE_UNCHECK_WINDOW_MS;
-  const uncheck: HaveUncheckMatch[] = [];
-  for (const pair of allPairs) {
-    if (!pair.item.completed) continue;
-    if (matchedItemIds.has(pair.item.id)) continue;
-    const completedAt = pair.item.completed_at;
-    if (!completedAt) continue; // missing timestamp → skip (safe default)
-    const t = Date.parse(completedAt);
-    if (!Number.isFinite(t) || t < cutoff) continue;
-    if (effectivePerishable(pair.item) !== true) continue;
-    uncheck.push({
-      itemId: pair.item.id,
-      itemName: pair.item.name,
-      store: pair.group.store,
-    });
-  }
-
-  return { check, uncheck, add, lowStock };
+  return { check, add, refreshIds };
 }
 
 function computeMatches(
@@ -861,10 +809,9 @@ export function CapturePreviewSheet({
   // Empty buckets = no pantry-sync section rendered.
   const [haveBuckets, setHaveBuckets] = useState<{
     check: HaveCheckMatch[];
-    uncheck: HaveUncheckMatch[];
     add: HaveAddMatch[];
-    lowStock: HaveLowStockMatch[];
-  }>({ check: [], uncheck: [], add: [], lowStock: [] });
+    refreshIds: string[];
+  }>({ check: [], add: [], refreshIds: [] });
 
   // Ensure notebooks are loaded so the NotebookPicker can render its
   // options.
@@ -887,7 +834,7 @@ export function CapturePreviewSheet({
       setHaveBuckets(
         result.have_items && result.have_items.length > 0
           ? computeHaveBuckets(result.have_items, existingGroceries)
-          : { check: [], uncheck: [], add: [], lowStock: [] },
+          : { check: [], add: [], refreshIds: [] },
       );
     }
   }, [open, result, existingPriorities, existingGroceries, lists]);
@@ -913,9 +860,7 @@ export function CapturePreviewSheet({
       matchedCompletions +
       unmatchedBoughtFallback +
       haveBuckets.check.length +
-      haveBuckets.uncheck.length +
-      haveBuckets.add.length +
-      haveBuckets.lowStock.length
+      haveBuckets.add.length
     );
   }, [edited, matches, haveBuckets]);
 
@@ -1011,20 +956,10 @@ export function CapturePreviewSheet({
       ...cur,
       check: cur.check.filter((_, i) => i !== idx),
     }));
-  const removeHaveUncheck = (idx: number) =>
-    setHaveBuckets((cur) => ({
-      ...cur,
-      uncheck: cur.uncheck.filter((_, i) => i !== idx),
-    }));
   const removeHaveAdd = (idx: number) =>
     setHaveBuckets((cur) => ({
       ...cur,
       add: cur.add.filter((_, i) => i !== idx),
-    }));
-  const removeHaveLowStock = (idx: number) =>
-    setHaveBuckets((cur) => ({
-      ...cur,
-      lowStock: cur.lowStock.filter((_, i) => i !== idx),
     }));
 
   // ── grouped tasks for rendering ──
@@ -1044,42 +979,31 @@ export function CapturePreviewSheet({
     if (busy) return;
     const hasAnything =
       haveBuckets.check.length > 0 ||
-      haveBuckets.uncheck.length > 0 ||
       haveBuckets.add.length > 0 ||
-      haveBuckets.lowStock.length > 0;
+      haveBuckets.refreshIds.length > 0;
     const haveSync: HaveSyncResolution | undefined = hasAnything
       ? {
           checkIds: haveBuckets.check.map((c) => c.itemId),
-          uncheckIds: haveBuckets.uncheck.map((u) => u.itemId),
-          // add path: pre-checked rows in Uncategorized; carry qty if
-          // the user said one ("I have three onions").
+          // Add path: pre-checked rows landing in Uncategorized.
+          // Carry qty + qty_band when the user volunteered them.
           addToUncategorized: haveBuckets.add.map((a) => ({
             name: a.phrase,
             quantity: a.qty_count,
+            qty_band: a.qty_band,
           })),
-          lowStockUncheckIds: haveBuckets.lowStock
-            .filter((l) => l.uncheckItemId != null)
-            .map((l) => l.uncheckItemId as string),
-          lowStockAddNames: haveBuckets.lowStock
-            .filter((l) => l.addAsUnchecked != null)
-            .map((l) => ({
-              name: l.addAsUnchecked as string,
-              quantity: l.applyQuantity,
-            })),
-          // Quantity updates for matched items where the user
-          // volunteered a number. Combines check + lowStock-uncheck
-          // paths since both produce id+qty pairs.
-          quantityUpdates: [
-            ...haveBuckets.check
-              .filter((c) => c.applyQuantity != null)
-              .map((c) => ({ itemId: c.itemId, quantity: c.applyQuantity as number })),
-            ...haveBuckets.lowStock
-              .filter((l) => l.uncheckItemId != null && l.applyQuantity != null)
-              .map((l) => ({
-                itemId: l.uncheckItemId as string,
-                quantity: l.applyQuantity as number,
-              })),
-          ],
+          refreshIds: [...haveBuckets.refreshIds],
+          // Quantity updates for matched rows where the user gave a
+          // number. The check bucket is the only source.
+          quantityUpdates: haveBuckets.check
+            .filter((c) => c.applyQuantity != null)
+            .map((c) => ({ itemId: c.itemId, quantity: c.applyQuantity as number })),
+          // qty_band updates for matched rows where the user gave a
+          // band ("plenty of milk" → write qty_band='high').
+          qtyBandUpdates: haveBuckets.check
+            .filter((c): c is HaveCheckMatch & { applyBand: 'low' | 'medium' | 'high' } =>
+              c.applyBand === 'low' || c.applyBand === 'medium' || c.applyBand === 'high',
+            )
+            .map((c) => ({ itemId: c.itemId, qty_band: c.applyBand })),
         }
       : undefined;
     await onConfirm(edited, matches, destinations, haveSync);
@@ -1229,25 +1153,16 @@ export function CapturePreviewSheet({
             </section>
           )}
 
-          {/* Pantry sync — the "I have …" voice flow. Only renders
-              when at least one bucket has rows. Per-row × removes the
-              row from its bucket; on Confirm the resolved buckets get
-              passed back to the commit handler. Quantity counts (when
-              the user volunteered specific numbers like "three onions
-              left") render inline as "(N left)". */}
-          {(haveBuckets.check.length > 0 ||
-            haveBuckets.uncheck.length > 0 ||
-            haveBuckets.add.length > 0 ||
-            haveBuckets.lowStock.length > 0) && (
+          {/* Pantry sync — the "I have …" voice flow. Two visible
+              buckets (check + add); refreshIds applies silently. Auto-
+              uncheck was dropped (see plan: it false-flagged items the
+              user simply didn't mention). qty_count surfaces inline
+              as "(N left)" when set; qty_band as a small tag. */}
+          {(haveBuckets.check.length > 0 || haveBuckets.add.length > 0) && (
             <section className="space-y-3">
               <SectionHeader
                 label={t('preview.haveSync.title')}
-                count={
-                  haveBuckets.check.length +
-                  haveBuckets.uncheck.length +
-                  haveBuckets.add.length +
-                  haveBuckets.lowStock.length
-                }
+                count={haveBuckets.check.length + haveBuckets.add.length}
               />
 
               {haveBuckets.check.length > 0 && (
@@ -1267,6 +1182,11 @@ export function CapturePreviewSheet({
                           {c.qty_count != null && (
                             <span className="text-text-tertiary ml-1">({formatQtyLeft(c.qty_count)})</span>
                           )}
+                          {c.qty_band && (
+                            <span className="ml-1.5 text-[10px] text-text-tertiary uppercase tracking-wider">
+                              {t(`groceries.qtyBand.${c.qty_band}`)}
+                            </span>
+                          )}
                         </p>
                         <p className="text-[11px] text-text-tertiary mt-0.5">
                           {c.store}
@@ -1276,77 +1196,6 @@ export function CapturePreviewSheet({
                         onClick={() => removeHaveCheck(idx)}
                         className="text-text-tertiary hover:text-error px-1 text-sm"
                         aria-label="Skip this row"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {haveBuckets.lowStock.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[11px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-semibold">
-                    {t('preview.haveSync.willKeepLow')}
-                  </p>
-                  <p className="text-[11px] text-text-tertiary leading-snug">
-                    {t('preview.haveSync.lowHint')}
-                  </p>
-                  {haveBuckets.lowStock.map((l, idx) => (
-                    <div
-                      key={`low-${idx}`}
-                      className="flex items-start gap-2 py-1.5 px-2 rounded-lg bg-amber-500/5"
-                    >
-                      <span className="text-sm text-amber-600 dark:text-amber-400">⏵</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] text-text-primary">
-                          {l.displayName}
-                          {l.qty_count != null && (
-                            <span className="text-text-tertiary ml-1">({formatQtyLeft(l.qty_count)})</span>
-                          )}
-                        </p>
-                        {l.store && (
-                          <p className="text-[11px] text-text-tertiary mt-0.5">
-                            {l.store}
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => removeHaveLowStock(idx)}
-                        className="text-text-tertiary hover:text-error px-1 text-sm"
-                        aria-label="Skip this row"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {haveBuckets.uncheck.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[11px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-semibold">
-                    {t('preview.haveSync.willUncheck')}
-                  </p>
-                  <p className="text-[11px] text-text-tertiary leading-snug">
-                    {t('preview.haveSync.uncheckHint')}
-                  </p>
-                  {haveBuckets.uncheck.map((u, idx) => (
-                    <div
-                      key={u.itemId}
-                      className="flex items-start gap-2 py-1.5 px-2 rounded-lg bg-amber-500/5"
-                    >
-                      <span className="text-sm text-amber-600 dark:text-amber-400">⏵</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] text-text-primary">{u.itemName}</p>
-                        <p className="text-[11px] text-text-tertiary mt-0.5">
-                          {u.store}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => removeHaveUncheck(idx)}
-                        className="text-text-tertiary hover:text-error px-1 text-sm"
-                        aria-label="Keep checked"
                       >
                         ×
                       </button>
@@ -1370,6 +1219,11 @@ export function CapturePreviewSheet({
                         {entry.phrase}
                         {entry.qty_count != null && (
                           <span className="text-text-tertiary ml-1">({formatQtyLeft(entry.qty_count)})</span>
+                        )}
+                        {entry.qty_band && (
+                          <span className="ml-1.5 text-[10px] text-text-tertiary uppercase tracking-wider">
+                            {t(`groceries.qtyBand.${entry.qty_band}`)}
+                          </span>
                         )}
                       </p>
                       <button

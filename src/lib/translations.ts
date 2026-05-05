@@ -422,8 +422,32 @@ const translations: Record<string, Record<Locale, string>> = {
   'groceries.joinedYes': { en: 'Move them', es: 'Moverlos' },
   'groceries.joinedNo': { en: 'No, keep them separate', es: 'No, mantenlos aparte' },
   'groceries.uncategorized': { en: 'Uncategorized', es: 'Sin clasificar' },
-  'groceries.perishable': { en: 'Perishable', es: 'Perecedero' },
-  'groceries.nonPerishable': { en: 'Non-perishable', es: 'No perecedero' },
+  // Quantity-band chip labels (replaces the prior perishable chip).
+  // Persisted on grocery_items.qty_band; visible on every row when set.
+  'groceries.qtyBand.low': { en: 'low', es: 'bajo' },
+  'groceries.qtyBand.medium': { en: 'medium', es: 'medio' },
+  'groceries.qtyBand.high': { en: 'high', es: 'alto' },
+  // "Possibly running low" — top-of-page replenishment nudges.
+  'groceries.runningLow.title': {
+    en: 'Possibly running low',
+    es: 'Posiblemente bajo',
+  },
+  'groceries.runningLow.boughtAgo': {
+    en: 'bought {days}d ago',
+    es: 'comprado hace {days}d',
+  },
+  'groceries.runningLow.lowStock': {
+    en: 'marked low {days}d ago',
+    es: 'marcado bajo hace {days}d',
+  },
+  'groceries.runningLow.dismissAria': {
+    en: "I'm fine on this",
+    es: 'Sigo teniendo',
+  },
+  'groceries.runningLow.revivedToast': {
+    en: 'Added back to your list',
+    es: 'Vuelve a tu lista',
+  },
   'groceries.uncategorized.subtitle': {
     en: 'Drag onto a store, or it stays here.',
     es: 'Arrástralo a una tienda, o se queda aquí.',
